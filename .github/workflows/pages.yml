@@ -26,6 +26,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Stamp build version
+        run: |
+          printf '{ "build": %s, "sha": "%s", "built": "%s" }\n' \
+            "${{ github.run_number }}" \
+            "$(echo "${GITHUB_SHA}" | cut -c1-7)" \
+            "$(date -u +%Y-%m-%dT%H:%MZ)" > version.json
+          cat version.json
+
       - name: Configure Pages
         uses: actions/configure-pages@v5
         with:

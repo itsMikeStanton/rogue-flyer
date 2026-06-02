@@ -288,6 +288,15 @@ window.addEventListener("resize", () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
 });
 
+// Show the deployed build version on the home screen (stamped at deploy time).
+const versionEl = document.getElementById("version");
+if (versionEl) {
+  fetch("version.json?ts=" + Date.now(), { cache: "no-store" })
+    .then((r) => r.json())
+    .then((v) => { versionEl.textContent = `build ${v.build} · ${v.sha} · ${v.built}`; })
+    .catch(() => { versionEl.textContent = "build dev"; });
+}
+
 // Preview aircraft on the menu so the scene isn't empty.
 setAircraft("f16");
 state.position.set(0, terrainHeight(0, 0) + 200, -200);

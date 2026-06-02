@@ -110,6 +110,14 @@ button.primary:hover { background: #4ff5b8; }
 .help summary { cursor: pointer; color: var(--accent); }
 .help ul { margin: 8px 0 0; padding-left: 18px; line-height: 1.7; }
 
+.version {
+  margin-top: 16px;
+  font-size: 11px;
+  color: #6f8496;
+  letter-spacing: 0.5px;
+  font-family: "Consolas", monospace;
+}
+
 .bindings { display: grid; grid-template-columns: 110px 1fr auto; gap: 8px 12px; align-items: center; }
 .bindings label { font-size: 13px; color: #b9c8d6; }
 .bindings select { background: #0b1320; color: #d7e3ee; border: 1px solid rgba(120,150,180,0.3); border-radius: 6px; padding: 6px; }
