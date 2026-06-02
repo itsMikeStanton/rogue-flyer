@@ -152,6 +152,7 @@ export class Enemies {
     this.bullets = [];
     this.kills = 0;
     this.mode = "free";
+    this.onFire = null; // optional callback(position) for sound
     this.bulletGeo = new THREE.BoxGeometry(0.8, 0.8, 14);
     this.bulletMat = new THREE.MeshBasicMaterial({ color: 0xff5a3c });
   }
@@ -188,6 +189,7 @@ export class Enemies {
     m.lookAt(_look.copy(pos).add(dir));
     this.scene.add(m);
     this.bullets.push({ mesh: m, vel: dir.clone().multiplyScalar(EB_SPEED), life: EB_LIFE });
+    if (this.onFire) this.onFire(pos);
   }
 
   update(dt, player) {

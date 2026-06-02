@@ -10,7 +10,7 @@ export class Explosions {
   }
 
   add(pos, size = 1, color = 0xffa233) {
-    if (this.onAdd) this.onAdd(size);
+    if (this.onAdd) this.onAdd(size, pos);
     const mesh = new THREE.Mesh(
       this.geo,
       new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 1 })

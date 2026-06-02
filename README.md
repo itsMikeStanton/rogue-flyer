@@ -25,7 +25,8 @@ hat switch, buttons) — and falls back to keyboard if you don't have one.
   remaining BANDITS, hull health, missile count, and a lock indicator.
 - **Sound** (synthesized, no asset files): jet-engine drone that tracks throttle
   + airspeed, cannon, missile whoosh, explosions, lock tone, hull-hit thud.
-  Mute with the menu button or **M**.
+  Explosions and enemy gunfire are **3D-spatialized** — they pan and fade with
+  distance (listener locked to the camera). Mute with the menu button or **M**.
 - **Ring checkpoints** to chase around the map.
 
 ## Run it

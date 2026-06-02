@@ -28,7 +28,8 @@ const fx = new Explosions(scene);
 const weapons = new Weapons(scene, fx);
 const enemies = new Enemies(scene, fx);
 const sound = new SoundEngine();
-fx.onAdd = (size) => sound.explosion(size); // every explosion makes a boom
+fx.onAdd = (size, pos) => sound.explosion(size, pos); // positional booms
+enemies.onFire = (pos) => sound.enemyGun(pos);         // positional enemy guns
 let lastLock = null;
 const hud = new Hud(document.getElementById("hud"));
 const input = new Input();
@@ -287,6 +288,7 @@ function frame(now) {
   for (const r of world.rings) r.rotation.z += dt * 0.5;
 
   updateCamera(dt);
+  sound.setListener(camera);
   renderer.render(scene, camera);
 
   // HUD
