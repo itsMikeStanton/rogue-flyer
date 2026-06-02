@@ -51,9 +51,9 @@ function liftCoeff(def, aoa) {
   let cl = def.cl0 + def.clAlpha * aoa;
   const clPeak = def.cl0 + sign * def.clMax;
   if (a > def.stallAngle) {
-    // beyond stall AoA, lift decays
+    // beyond stall AoA, lift decays (gently — forgiving arcade stall)
     const over = a - def.stallAngle;
-    const decay = Math.exp(-over * 6);
+    const decay = Math.exp(-over * 3.5);
     cl = (def.cl0 + sign * def.clMax) * decay;
   } else {
     cl = THREE.MathUtils.clamp(cl, -def.clMax, def.clMax);

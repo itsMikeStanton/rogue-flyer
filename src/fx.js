@@ -9,8 +9,8 @@ export class Explosions {
     this.onAdd = null; // optional callback(size) — used to trigger sound
   }
 
-  add(pos, size = 1, color = 0xffa233) {
-    if (this.onAdd) this.onAdd(size, pos);
+  add(pos, size = 1, color = 0xffa233, silent = false) {
+    if (this.onAdd && !silent) this.onAdd(size, pos);
     const mesh = new THREE.Mesh(
       this.geo,
       new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 1 })

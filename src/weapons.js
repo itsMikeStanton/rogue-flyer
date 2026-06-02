@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { terrainHeight } from "./world.js";
 
 // Player offensive weapons: a forward-firing tracer cannon and lock-on homing
 // missiles. Operates on a target list supplied each frame (the enemy entities),
@@ -77,9 +78,10 @@ export class Weapons {
     return true;
   }
 
-  // Returns true if a missile launched.
+  // Returns true if a missile launched. Without a lock it fires straight ahead
+  // as an unguided rocket.
   fireMissile(position, quaternion) {
-    if (this.missileCount <= 0 || !this.lock || !this.lock.alive) return false;
+    if (this.missileCount <= 0) return false;
     this.missileCount--;
     _fwd.set(0, 0, -1).applyQuaternion(quaternion).normalize();
     _nose.copy(position).addScaledVector(_fwd, 6);
@@ -90,7 +92,7 @@ export class Weapons {
     this.missiles.push({
       mesh: m,
       dir: _fwd.clone(),
-      target: this.lock,
+      target: this.lock && this.lock.alive ? this.lock : null,
       life: MSL_LIFE,
       smokeTimer: 0,
     });
@@ -133,9 +135,15 @@ export class Weapons {
       b.mesh.position.addScaledVector(b.vel, dt);
       b.life -= dt;
       let hit = false;
-      for (const t of targets) {
+      const bp = b.mesh.position;
+      // Ground impact: kick up a small (silent) dirt puff.
+      if (bp.y <= terrainHeight(bp.x, bp.z)) {
+        this.fx.add(bp, 0.4, 0x9a8a6a, true);
+        hit = true;
+      }
+      if (!hit) for (const t of targets) {
         if (!t.alive) continue;
-        if (b.mesh.position.distanceTo(t.position) < t.radius) {
+        if (bp.distanceTo(t.position) < t.radius) {
           t.hit(GUN_DAMAGE);
           hit = true;
           break;
@@ -166,10 +174,16 @@ export class Weapons {
       }
 
       let detonate = false;
-      if (m.target && m.target.alive &&
-          m.mesh.position.distanceTo(m.target.position) < MSL_PROX) {
+      const mp = m.mesh.position;
+      // Ground impact.
+      if (mp.y <= terrainHeight(mp.x, mp.z)) {
+        this.fx.add(mp, 2.4);
+        detonate = true;
+      }
+      if (!detonate && m.target && m.target.alive &&
+          mp.distanceTo(m.target.position) < MSL_PROX) {
         m.target.hit(MSL_DAMAGE);
-        this.fx.add(m.mesh.position, 3.0, 0xffd23f);
+        this.fx.add(mp, 3.0, 0xffd23f);
         detonate = true;
       }
       if (detonate || m.life <= 0) {
