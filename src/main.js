@@ -5,6 +5,7 @@ import { buildWorld, terrainHeight } from "./world.js";
 import { Input } from "./input.js";
 import { Hud } from "./hud.js";
 import { UI } from "./ui.js";
+import { TouchControls } from "./touch.js";
 
 // --- Renderer / scene / camera ---
 const canvas = document.getElementById("scene");
@@ -20,6 +21,7 @@ const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerH
 const world = buildWorld(scene);
 const hud = new Hud(document.getElementById("hud"));
 const input = new Input();
+const touch = new TouchControls(input.touchState);
 
 // --- Game state ---
 let state = createState();
@@ -59,12 +61,14 @@ function startFlight(type) {
   setAircraft(type);
   resetFlight();
   flying = true;
+  touch.setVisible(true);
 }
 
 function togglePause() {
   if (!mesh) return;
   if (flying) {
     flying = false;
+    touch.setVisible(false);
     ui.showMenu();
   } else if (ui.menu.classList.contains("hidden") === false) {
     // resuming from menu is done via FLY button

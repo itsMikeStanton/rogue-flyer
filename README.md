@@ -38,6 +38,12 @@ Defaults: stick = roll/pitch, twist = yaw, axis 3 = throttle. Use
 **Controls / Joystick Setup** to remap any axis (with invert) — the live
 monitor shows which axis moves so you can find your throttle.
 
+### Touch (phones / tablets)
+On-screen controls appear automatically on touch devices: a virtual **stick**
+(roll/pitch) bottom-left, a sticky **throttle lever** bottom-right, **rudder**
+buttons, and **CAM / RESET / FIRE** buttons. Multi-touch, so you can hold
+throttle while working the stick. Best in landscape.
+
 ### Keyboard
 | Key | Action |
 |-----|--------|
@@ -58,7 +64,8 @@ src/main.js       renderer, game loop (fixed-timestep physics), camera
 src/flight.js     arcade-plus flight dynamics
 src/aircraft.js   jet definitions + low-poly mesh builder
 src/world.js      terrain, sky, lighting, landmarks, ring checkpoints
-src/input.js      Gamepad API + keyboard, remappable bindings
+src/input.js      Gamepad API + keyboard + touch, remappable bindings
+src/touch.js      on-screen touch controls (stick / throttle / rudder)
 src/hud.js        canvas-2D HUD
 src/ui.js         menu, jet select, joystick remap panel
 ```

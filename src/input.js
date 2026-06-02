@@ -43,6 +43,13 @@ export class Input {
     this._edge = {}; // edge-detect for button/key presses
     this.onConnect = null;
 
+    // Shared with TouchControls; absolute values written by on-screen widgets.
+    this.touchState = {
+      pitch: 0, roll: 0, yaw: 0,
+      throttle: 0, throttleActive: false,
+      view: false, reset: false, fire: false,
+    };
+
     window.addEventListener("keydown", (e) => {
       this.keys.add(e.code);
       // prevent page scroll on arrows/space
@@ -139,6 +146,15 @@ export class Input {
     if (this.pressed("key-view", k.has("KeyC"))) viewPressed = true;
     if (this.pressed("key-reset", k.has("KeyR"))) resetPressed = true;
     if (k.has("Space")) fire = true;
+
+    // Touch layer (on-screen controls). Stick/rudder are additive; the
+    // throttle lever is absolute and overrides keyboard when there's no pad.
+    const ts = this.touchState;
+    pitch += ts.pitch; roll += ts.roll; yaw += ts.yaw;
+    if (ts.throttleActive && !pad) { this.kbThrottle = ts.throttle; throttle = ts.throttle; }
+    if (ts.fire) fire = true;
+    if (this.pressed("touch-view", ts.view)) viewPressed = true;
+    if (this.pressed("touch-reset", ts.reset)) resetPressed = true;
 
     return {
       pitch: clamp(pitch), roll: clamp(roll), yaw: clamp(yaw),

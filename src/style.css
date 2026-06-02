@@ -16,6 +16,9 @@ html, body {
   color: #d7e3ee;
   font-family: "Segoe UI", Roboto, system-ui, sans-serif;
   user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;            /* no pinch-zoom / pan while flying */
+  -webkit-tap-highlight-color: transparent;
 }
 
 #scene, #hud {
@@ -130,3 +133,106 @@ button.primary:hover { background: #4ff5b8; }
 .banner.hidden { display: none; }
 .banner h2 { margin: 0 0 6px; color: #ff9b9b; }
 .banner p { margin: 0; font-size: 14px; color: #ffd; }
+
+/* ---- On-screen touch controls ---- */
+#touch {
+  position: fixed;
+  inset: 0;
+  z-index: 8;
+  pointer-events: none; /* only the widgets capture touches */
+  touch-action: none;
+}
+#touch * { touch-action: none; }
+#touch button, #touch .t-pad, #touch .t-throttle { pointer-events: auto; }
+
+.t-pad {
+  position: absolute;
+  left: 24px;
+  bottom: 26px;
+  width: 150px;
+  height: 150px;
+  border-radius: 50%;
+  background: rgba(20, 32, 44, 0.35);
+  border: 2px solid rgba(54, 255, 154, 0.5);
+  touch-action: none;
+}
+.t-knob {
+  position: absolute;
+  left: 50%; top: 50%;
+  width: 58px; height: 58px;
+  margin: -29px 0 0 -29px;
+  border-radius: 50%;
+  background: rgba(54, 255, 154, 0.55);
+  border: 2px solid #36ff9a;
+  transition: transform .05s linear;
+}
+
+.t-throttle {
+  position: absolute;
+  right: 26px;
+  bottom: 26px;
+  width: 56px;
+  height: 200px;
+  border-radius: 12px;
+  background: rgba(20, 32, 44, 0.35);
+  border: 2px solid rgba(54, 255, 154, 0.5);
+  overflow: hidden;
+}
+.t-throttle .t-fill {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 0%;
+  background: rgba(54, 255, 154, 0.28);
+}
+.t-throttle .t-handle {
+  position: absolute;
+  left: 4px; right: 4px;
+  bottom: calc(0% - 14px);
+  height: 28px;
+  border-radius: 7px;
+  background: rgba(54, 255, 154, 0.7);
+  border: 1px solid #36ff9a;
+}
+.t-throttle .t-label {
+  position: absolute;
+  top: 6px; left: 0; right: 0;
+  text-align: center;
+  font: 11px 'Consolas', monospace;
+  color: #cdeede;
+  pointer-events: none;
+}
+
+.t-rudder {
+  position: absolute;
+  left: 50%;
+  bottom: 26px;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 14px;
+}
+.t-actions {
+  position: absolute;
+  right: 96px;
+  bottom: 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.t-btn {
+  background: rgba(20, 32, 44, 0.45);
+  border: 1.5px solid rgba(54, 255, 154, 0.55);
+  color: #cdeede;
+  border-radius: 10px;
+  padding: 12px 16px;
+  font: 13px 'Consolas', monospace;
+  min-width: 64px;
+}
+.t-btn.on { background: rgba(54, 255, 154, 0.55); color: #04140e; }
+.t-btn.fire { border-color: #ff8a5b; color: #ffd2b8; }
+.t-btn.fire.on { background: rgba(255, 138, 91, 0.7); color: #2a0f04; }
+
+/* Landscape phones: keep widgets clear of the very edges/notches */
+@media (max-height: 480px) {
+  .t-pad { width: 120px; height: 120px; }
+  .t-throttle { height: 150px; }
+}

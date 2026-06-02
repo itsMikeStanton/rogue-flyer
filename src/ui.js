@@ -126,6 +126,9 @@ export class UI {
     if (pad) {
       el.textContent = "Joystick: " + pad.id.slice(0, 48) + (pad.id.length > 48 ? "…" : "");
       el.parentElement.classList.add("ok");
+    } else if (("ontouchstart" in window) || navigator.maxTouchPoints > 0) {
+      el.textContent = "Touch controls active — on-screen stick, throttle & rudder.";
+      el.parentElement.classList.add("ok");
     } else {
       el.textContent = "No joystick detected — keyboard fallback active.";
       el.parentElement.classList.remove("ok");
