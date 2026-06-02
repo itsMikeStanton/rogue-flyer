@@ -29,7 +29,13 @@
       <h2>Choose your jet</h2>
       <div id="jet-list" class="jet-list"></div>
 
-      <label class="start-opt"><input type="checkbox" id="runway-start" /> Start on the runway &mdash; take off yourself</label>
+      <label class="start-opt">Start:
+        <select id="start-pos">
+          <option value="air">In the air</option>
+          <option value="runway">On the runway (take off)</option>
+          <option value="carrier">On our carrier (catapult)</option>
+        </select>
+      </label>
 
       <div class="controls-status">
         <span id="gamepad-status">No joystick detected &mdash; keyboard fallback active.</span>

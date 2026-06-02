@@ -10,7 +10,7 @@ export class UI {
     this.tilt = tilt;
     this.selected = "f16";
     this.mode = "dogfight";
-    this.runwayStart = false;
+    this.startPos = "air";
 
     this.menu = document.getElementById("menu");
     this.settings = document.getElementById("settings");
@@ -119,14 +119,14 @@ export class UI {
   }
 
   bindButtons() {
-    const rw = document.getElementById("runway-start");
-    if (rw) {
-      rw.checked = this.runwayStart;
-      rw.addEventListener("change", () => { this.runwayStart = rw.checked; });
+    const sp = document.getElementById("start-pos");
+    if (sp) {
+      sp.value = this.startPos;
+      sp.addEventListener("change", () => { this.startPos = sp.value; });
     }
     document.getElementById("btn-fly").addEventListener("click", () => {
       this.hideAll();
-      this.cb.onFly(this.selected, this.mode, this.runwayStart);
+      this.cb.onFly(this.selected, this.mode, this.startPos);
     });
     document.getElementById("btn-settings").addEventListener("click", () => this.showSettings());
     document.getElementById("btn-settings-back").addEventListener("click", () => {

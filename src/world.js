@@ -47,19 +47,86 @@ export function terrainHeight(x, z) {
   h += smoothNoise(x * f * 3.1, z * f * 3.1) * 260;
   h += smoothNoise(x * f * 8.0, z * f * 8.0) * 70;
   h -= 600; // sink the baseline so there's lowland and ridges
-  // Flatten a region around the origin for a runway / spawn.
   const d = Math.sqrt(x * x + z * z);
+  // Island: beyond the shore, the land falls away to the ocean floor.
+  const isl = THREE.MathUtils.smoothstep(d, 7000, 9800);
+  h = THREE.MathUtils.lerp(h, -750, isl);
+  // Flatten a region around the origin for a runway / spawn.
   if (d < 1400) {
     const t = THREE.MathUtils.clamp((d - 600) / 800, 0, 1);
     h = THREE.MathUtils.lerp(0, h, t);
   }
-  // Carve the river valley.
-  const rd = Math.abs(x - riverCenterX(z));
-  if (rd < RIVER_OUTER) {
-    const t = THREE.MathUtils.smoothstep(rd, RIVER_INNER, RIVER_OUTER);
-    h = THREE.MathUtils.lerp(RIVER_BED, h, t);
+  // Carve the river valley (island interior only).
+  if (d < 7800) {
+    const rd = Math.abs(x - riverCenterX(z));
+    if (rd < RIVER_OUTER) {
+      const t = THREE.MathUtils.smoothstep(rd, RIVER_INNER, RIVER_OUTER);
+      h = THREE.MathUtils.lerp(RIVER_BED, h, t);
+    }
   }
   return h;
+}
+
+// Sea surface and the two carriers.
+export const SEA_LEVEL = -180;
+const DECK_Y = SEA_LEVEL + 24;
+export const CARRIERS = [
+  { team: "ally", x: -1200, z: 11200, halfL: 170, halfW: 36, deckY: DECK_Y },
+  { team: "enemy", x: 1200, z: -12800, halfL: 170, halfW: 36, deckY: DECK_Y },
+];
+
+// Ground height including carrier decks — used for collision / takeoff.
+export function groundHeightAt(x, z) {
+  let g = terrainHeight(x, z);
+  for (const c of CARRIERS) {
+    if (Math.abs(x - c.x) < c.halfW && Math.abs(z - c.z) < c.halfL) g = Math.max(g, c.deckY);
+  }
+  return g;
+}
+
+function buildCarrier(scene, c) {
+  const g = new THREE.Group();
+  g.position.set(c.x, SEA_LEVEL, c.z);
+  const ally = c.team === "ally";
+  const hullMat = new THREE.MeshStandardMaterial({ color: ally ? 0x39424c : 0x35302e, flatShading: true, roughness: 0.85 });
+  const deckMat = new THREE.MeshStandardMaterial({ color: 0x44494f, flatShading: true, roughness: 0.95 });
+
+  const hull = new THREE.Mesh(new THREE.BoxGeometry(c.halfW * 2, 44, c.halfL * 2), hullMat);
+  hull.position.y = 2; // top at +24 (the deck)
+  g.add(hull);
+  // Tapered bow wedge.
+  const bow = new THREE.Mesh(new THREE.ConeGeometry(c.halfW, 60, 4), hullMat);
+  bow.rotation.x = Math.PI / 2; bow.rotation.y = Math.PI / 4;
+  bow.scale.set(1, 1, 0.5);
+  bow.position.set(0, 2, -c.halfL - 12);
+  g.add(bow);
+
+  const deck = new THREE.Mesh(new THREE.BoxGeometry(c.halfW * 2, 2, c.halfL * 2 - 6), deckMat);
+  deck.position.y = 24; deck.receiveShadow = true;
+  g.add(deck);
+
+  // Island superstructure (starboard, forward) + mast.
+  const island = new THREE.Mesh(new THREE.BoxGeometry(10, 30, 44), hullMat);
+  island.position.set(c.halfW - 8, 39, -c.halfL * 0.4);
+  g.add(island);
+  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.8, 0.8, 18, 5), hullMat);
+  mast.position.set(c.halfW - 8, 63, -c.halfL * 0.4);
+  g.add(mast);
+
+  // Deck markings (team colored).
+  const paint = new THREE.MeshStandardMaterial({ color: ally ? 0xeef0f2 : 0xd24b4b, roughness: 0.7 });
+  for (let z = -c.halfL + 34; z <= c.halfL - 34; z += 42) {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(2, 20), paint);
+    m.rotation.x = -Math.PI / 2; m.position.set(0, 25.2, z);
+    g.add(m);
+  }
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(15, 1.8, 6, 22), paint);
+  ring.rotation.x = -Math.PI / 2; ring.position.set(0, 25.3, 0);
+  g.add(ring);
+
+  g.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  scene.add(g);
+  return g;
 }
 
 export function buildWorld(scene) {
@@ -114,8 +181,11 @@ export function buildWorld(scene) {
     new THREE.MeshStandardMaterial({ color: 0x21506e, transparent: true, opacity: 0.86, roughness: 0.3, metalness: 0.4 })
   );
   water.rotation.x = -Math.PI / 2;
-  water.position.y = -180;
+  water.position.y = SEA_LEVEL;
   scene.add(water);
+
+  // Carriers out in the ocean (one each side of the island).
+  for (const c of CARRIERS) buildCarrier(scene, c);
 
   // Runway near spawn
   const ry = terrainHeight(0, 0);
@@ -184,7 +254,7 @@ export function buildWorld(scene) {
 
   // ---- River surface: a translucent ribbon following the carved valley ----
   {
-    const z0 = -TERRAIN_SIZE / 2, z1 = TERRAIN_SIZE / 2, step = 300, half = 150;
+    const z0 = -6800, z1 = 6800, step = 300, half = 150;
     const positions = [], indices = [];
     let rows = 0;
     for (let z = z0; z <= z1; z += step) {

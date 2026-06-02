@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { AIRCRAFT, buildAircraftMesh } from "./aircraft.js";
 import { createState, step } from "./flight.js";
-import { buildWorld, terrainHeight } from "./world.js";
+import { buildWorld, terrainHeight, groundHeightAt, CARRIERS } from "./world.js";
 import { Input } from "./input.js";
 import { Hud } from "./hud.js";
 import { UI } from "./ui.js";
@@ -46,7 +46,7 @@ let mesh = null;
 let flying = false;
 let gameMode = "dogfight";
 let missionDone = false;
-let startOnRunway = false;
+let startPos = "air"; // "air" | "runway" | "carrier"
 
 const CAMS = ["Chase", "Far Chase", "Cockpit"];
 let camIndex = 0;
@@ -74,7 +74,7 @@ const player = {
 function missilesForMode(mode) { return mode === "free" ? 0 : 6; }
 
 const ui = new UI(input, {
-  onFly: (type, mode, runway) => startFlight(type, mode, runway),
+  onFly: (type, mode, start) => startFlight(type, mode, start),
 }, touch, tilt);
 
 // --- Fullscreen ("takeover") ---
@@ -140,7 +140,7 @@ function setAircraft(type) {
 
 function resetFlight() {
   state = createState();
-  if (startOnRunway) {
+  if (startPos === "runway") {
     // Park at the start of the runway, level, stopped, throttle idle.
     const z = 520;
     state.position.set(0, terrainHeight(0, z) + 1.5, z);
@@ -148,6 +148,14 @@ function resetFlight() {
     state.quaternion.identity();
     state.onGround = true;
     input.kbThrottle = 0;
+  } else if (startPos === "carrier") {
+    // Spotted at the back of our carrier deck; a catapult kick to start.
+    const c = CARRIERS.find((k) => k.team === "ally");
+    state.position.set(c.x, c.deckY + 1.5, c.z + c.halfL - 30);
+    state.velocity.set(0, 0, -60);
+    state.quaternion.identity();
+    state.onGround = true;
+    input.kbThrottle = 0.7;
   }
   ringsHit = 0;
   world.rings.forEach((r) => { r.visible = true; r.userData.hit = false; });
@@ -160,9 +168,9 @@ function resetFlight() {
   ui.hideBanner();
 }
 
-function startFlight(type, mode, runway) {
+function startFlight(type, mode, start) {
   gameMode = mode || gameMode;
-  startOnRunway = !!runway;
+  startPos = start || "air";
   setAircraft(type);
   resetFlight();
   flying = true;
@@ -255,7 +263,7 @@ function frame(now) {
     acc += dt;
     let steps = 0;
     while (acc >= PHYS_DT && steps < 8) {
-      const gh = terrainHeight(state.position.x, state.position.z);
+      const gh = groundHeightAt(state.position.x, state.position.z);
       step(state, def, controls, PHYS_DT, gh);
       acc -= PHYS_DT;
       steps++;

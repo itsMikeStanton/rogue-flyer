@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { SEA_LEVEL } from "./world.js";
 
 // Arcade-plus flight dynamics.
 //
@@ -62,8 +63,9 @@ function liftCoeff(def, aoa) {
 }
 
 // Advance one fixed physics step. `controls` = {pitch, roll, yaw, throttle} in
-// [-1,1] (throttle 0..1). `terrainHeight` is ground height at current XZ.
-export function step(state, def, controls, dt, terrainHeight) {
+// [-1,1] (throttle 0..1). `groundHeight` is solid ground (terrain or carrier
+// deck) at current XZ; if it's below sea level the surface there is open water.
+export function step(state, def, controls, dt, groundHeight) {
   if (state.crashed) return;
 
   const q = state.quaternion;
@@ -160,10 +162,18 @@ export function step(state, def, controls, dt, terrainHeight) {
   _dq.setFromEuler(_euler);
   q.multiply(_dq).normalize();
 
-  // --- Ground interaction (taxi / takeoff / landing rollout) ---
-  const groundY = terrainHeight + 1.5;
+  // --- Ground / sea interaction (taxi / takeoff / landing / ditching) ---
+  // If the solid ground here is below the sea, the real surface is water.
+  const overWater = groundHeight < SEA_LEVEL;
+  const surfaceY = overWater ? SEA_LEVEL : groundHeight;
+  const groundY = surfaceY + 1.5;
   if (state.position.y <= groundY) {
     state.position.y = groundY;
+    if (overWater) {
+      // Hit the sea: ditching is a crash (unless basically stopped).
+      if (speed > 10) state.crashed = true;
+      else { vel.set(0, 0, 0); state.onGround = false; }
+    } else {
     const sinkRate = -vel.y;
     const levelish = _up.y > 0.6;
     if ((sinkRate > 24 || !levelish) && speed > 35) {
@@ -197,6 +207,7 @@ export function step(state, def, controls, dt, terrainHeight) {
       _euler.y += controls.yaw * 0.5 * dt * Math.min(1, gs / 35);
       q.setFromEuler(_euler);
     }
+    } // end solid-ground branch
   } else {
     state.onGround = false;
   }

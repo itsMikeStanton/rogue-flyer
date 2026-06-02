@@ -93,7 +93,11 @@ h3 { margin: 16px 0 8px; font-size: 14px; color: var(--accent); letter-spacing: 
 
 .start-opt {
   display: flex; align-items: center; gap: 8px;
-  margin-top: 14px; font-size: 13px; color: #b9c8d6; cursor: pointer;
+  margin-top: 14px; font-size: 13px; color: #b9c8d6;
+}
+.start-opt select {
+  background: #0b1320; color: #d7e3ee;
+  border: 1px solid rgba(120,150,180,0.3); border-radius: 6px; padding: 6px;
 }
 
 .menu-buttons { display: flex; gap: 12px; margin-top: 18px; flex-wrap: wrap; }

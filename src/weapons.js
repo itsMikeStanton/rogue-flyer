@@ -1,5 +1,10 @@
 import * as THREE from "three";
-import { terrainHeight } from "./world.js";
+import { groundHeightAt, SEA_LEVEL } from "./world.js";
+
+// Impact height: solid ground/deck, but never below the sea surface.
+function surfaceAt(x, z) {
+  return Math.max(groundHeightAt(x, z), SEA_LEVEL);
+}
 
 // Player offensive weapons: a forward-firing tracer cannon and lock-on homing
 // missiles. Operates on a target list supplied each frame (the enemy entities),
@@ -136,8 +141,8 @@ export class Weapons {
       b.life -= dt;
       let hit = false;
       const bp = b.mesh.position;
-      // Ground impact: kick up a small (silent) dirt puff.
-      if (bp.y <= terrainHeight(bp.x, bp.z)) {
+      // Ground/sea impact: kick up a small (silent) puff.
+      if (bp.y <= surfaceAt(bp.x, bp.z)) {
         this.fx.add(bp, 0.4, 0x9a8a6a, true);
         hit = true;
       }
@@ -175,8 +180,8 @@ export class Weapons {
 
       let detonate = false;
       const mp = m.mesh.position;
-      // Ground impact.
-      if (mp.y <= terrainHeight(mp.x, mp.z)) {
+      // Ground/sea impact.
+      if (mp.y <= surfaceAt(mp.x, mp.z)) {
         this.fx.add(mp, 2.4);
         detonate = true;
       }
