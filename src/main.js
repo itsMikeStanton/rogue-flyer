@@ -32,6 +32,7 @@ const ground = new GroundTargets(scene, fx);
 const sound = new SoundEngine();
 fx.onAdd = (size, pos) => sound.explosion(size, pos); // positional booms
 enemies.onFire = (pos) => sound.enemyGun(pos);         // positional enemy guns
+ground.onFire = (pos) => sound.enemyGun(pos);          // carrier flak
 let lastLock = null;
 const hud = new Hud(document.getElementById("hud"));
 const input = new Input();
@@ -276,7 +277,7 @@ function frame(now) {
     if (controls.missilePressed && weapons.fireMissile(state.position, state.quaternion)) sound.missile();
     weapons.update(dt, state.position, state.quaternion, activeTargets);
     enemies.update(dt, player);
-    if (isMission) ground.update(dt);
+    if (isMission) ground.update(dt, player);
     fx.update(dt);
     sound.updateEngine(state.telemetry.throttle, state.telemetry.speed);
 

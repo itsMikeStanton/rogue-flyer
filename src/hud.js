@@ -94,8 +94,10 @@ export class Hud {
     }
     ctx.textAlign = "left";
 
-    // Hull health (dogfight) + missiles
-    if (extra.mode === "dogfight" && extra.health != null) this.healthBar(20, 58, extra.health);
+    // Hull health (combat modes) + missiles
+    if ((extra.mode === "dogfight" || extra.mode === "mission") && extra.health != null) {
+      this.healthBar(20, 58, extra.health);
+    }
     if (extra.mode !== "free" && extra.missiles != null) {
       ctx.fillStyle = extra.missiles > 0 ? green : "#888";
       ctx.font = "13px 'Consolas', monospace";

@@ -23,8 +23,8 @@ const MSL_DAMAGE = 120;
 const SMOKE_INTERVAL = 0.025; // seconds between smoke puffs
 const SMOKE_LIFE = 0.9;
 
-const LOCK_RANGE = 4800;
-const LOCK_COS = Math.cos((26 * Math.PI) / 180); // forward cone half-angle
+const LOCK_RANGE = 2900;                          // ~ missile reach (speed * life)
+const LOCK_COS = Math.cos((22 * Math.PI) / 180);  // must be loosely pointed at it
 
 const _fwd = new THREE.Vector3();
 const _nose = new THREE.Vector3();
