@@ -13,6 +13,9 @@ hat switch, buttons) — and falls back to keyboard if you don't have one.
 - **HUD** with airspeed/altitude tapes, heading strip, throttle bar, Mach, G,
   AoA, vertical speed, and a stall warning.
 - **Ring checkpoints** to chase around the map.
+- **Cannon + targets.** Forward-firing tracer cannon (FIRE button / Space /
+  joystick button); shoot down drifting enemy drones for kills. Targets
+  respawn, so there's always action. HUD shows KILLS and remaining BANDITS.
 
 ## Run it
 
@@ -76,6 +79,7 @@ src/world.js      terrain, sky, lighting, landmarks, ring checkpoints
 src/input.js      Gamepad API + keyboard + touch, remappable bindings
 src/touch.js      on-screen touch controls (stick / throttle / rudder), mode toggle
 src/tilt.js       tilt-to-steer via device orientation sensors
+src/weapons.js    cannon, tracers, enemy targets, explosions, score
 src/hud.js        canvas-2D HUD
 src/ui.js         menu, jet select, joystick remap panel
 ```

@@ -69,11 +69,15 @@ export class Hud {
     ctx.font = "13px 'Consolas', monospace";
     ctx.fillText(extra.jetName, 20, 26);
     if (extra.camName) ctx.fillText("CAM: " + extra.camName, 20, 44);
+    ctx.textAlign = "right";
     if (extra.checkpoints != null) {
-      ctx.textAlign = "right";
       ctx.fillText(`RINGS ${extra.ringsHit}/${extra.checkpoints}`, w - 20, 26);
-      ctx.textAlign = "left";
     }
+    if (extra.score != null) {
+      ctx.fillText(`KILLS ${extra.score}`, w - 20, 44);
+      ctx.fillText(`BANDITS ${extra.targets}`, w - 20, 62);
+    }
+    ctx.textAlign = "left";
   }
 
   tape(x, cy, value, label, dir) {

@@ -7,6 +7,7 @@ import { Hud } from "./hud.js";
 import { UI } from "./ui.js";
 import { TouchControls } from "./touch.js";
 import { TiltControls } from "./tilt.js";
+import { Weapons } from "./weapons.js";
 
 // --- Renderer / scene / camera ---
 const canvas = document.getElementById("scene");
@@ -20,6 +21,7 @@ const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 1, 30000);
 
 const world = buildWorld(scene);
+const weapons = new Weapons(scene);
 const hud = new Hud(document.getElementById("hud"));
 const input = new Input();
 const touch = new TouchControls(input.touchState);
@@ -85,6 +87,7 @@ function resetFlight() {
   state = createState();
   ringsHit = 0;
   world.rings.forEach((r) => { r.visible = true; r.userData.hit = false; });
+  weapons.reset();
   ui.hideBanner();
 }
 
@@ -184,6 +187,9 @@ function frame(now) {
     }
     checkRings();
 
+    if (controls.fire) weapons.fire(state.position, state.quaternion);
+    weapons.update(dt);
+
     if (state.crashed) {
       ui.showBanner("CRASHED", "Press R to respawn");
     }
@@ -217,6 +223,8 @@ function frame(now) {
       camName: CAMS[camIndex],
       checkpoints: world.rings.length,
       ringsHit,
+      score: weapons.score,
+      targets: weapons.targetsAlive(),
     });
   } else {
     hud.ctx.clearRect(0, 0, hud.w, hud.h);
