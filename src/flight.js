@@ -137,9 +137,21 @@ export function step(state, def, controls, dt, terrainHeight) {
     rollInput += THREE.MathUtils.clamp(_right.y * 1.6, -0.7, 0.7);
   }
 
+  // Angle-of-attack limiter (fly-by-wire): fade out the pitch command that
+  // would push AoA past the stall angle, so you physically can't yank into a
+  // stall. The aircraft holds just below critical alpha instead.
+  let pitchCmd = sc.pitch;
+  const aoaLimit = def.stallAngle * 0.9;
+  const span = def.stallAngle - aoaLimit + 1e-3;
+  if (aoa > aoaLimit && pitchCmd > 0) {
+    pitchCmd *= THREE.MathUtils.clamp(1 - (aoa - aoaLimit) / span, 0, 1);
+  } else if (aoa < -aoaLimit && pitchCmd < 0) {
+    pitchCmd *= THREE.MathUtils.clamp(1 - (-aoa - aoaLimit) / span, 0, 1);
+  }
+
   // Control authority scales with dynamic pressure: slow => mushy.
   const authority = THREE.MathUtils.clamp(qDyn / 6000, 0.15, 1.2);
-  const pitch = sc.pitch * def.pitchRate * authority;
+  const pitch = pitchCmd * def.pitchRate * authority;
   const roll = rollInput * def.rollRate * authority;
   const yaw = sc.yaw * def.yawRate * authority;
 
