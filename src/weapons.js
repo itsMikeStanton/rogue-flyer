@@ -9,11 +9,13 @@ const BULLET_LIFE = 2.0;
 const FIRE_INTERVAL = 0.08;
 const GUN_DAMAGE = 12;
 
-const MSL_SPEED = 760;
-const MSL_LIFE = 6;
+const MSL_SPEED = 360;      // slower so you can watch them track
+const MSL_LIFE = 8;
 const MSL_TURN = 2.6;       // rad/s homing turn rate
 const MSL_PROX = 75;        // detonation proximity (m)
 const MSL_DAMAGE = 120;
+const SMOKE_INTERVAL = 0.025; // seconds between smoke puffs
+const SMOKE_LIFE = 0.9;
 
 const LOCK_RANGE = 4800;
 const LOCK_COS = Math.cos((26 * Math.PI) / 180); // forward cone half-angle
@@ -37,6 +39,7 @@ export class Weapons {
     this.fx = fx;
     this.bullets = [];
     this.missiles = [];
+    this.smoke = [];
     this.cooldown = 0;
     this.missileCount = 0;
     this.lock = null; // current lock target (entity) for the HUD
@@ -46,13 +49,16 @@ export class Weapons {
     this.mslGeo = new THREE.CylinderGeometry(0.28, 0.28, 2.6, 6);
     this.mslGeo.rotateX(Math.PI / 2); // align length with -Z when using lookAt
     this.mslMat = new THREE.MeshStandardMaterial({ color: 0xe8e8e8, emissive: 0x331100, flatShading: true });
+    this.smokeGeo = new THREE.SphereGeometry(1.6, 6, 6);
   }
 
   reset(missileCount) {
     for (const b of this.bullets) this.scene.remove(b.mesh);
     for (const m of this.missiles) this.scene.remove(m.mesh);
+    for (const s of this.smoke) this.scene.remove(s.mesh);
     this.bullets.length = 0;
     this.missiles.length = 0;
+    this.smoke.length = 0;
     this.cooldown = 0;
     this.missileCount = missileCount || 0;
     this.lock = null;
@@ -85,8 +91,19 @@ export class Weapons {
       dir: _fwd.clone(),
       target: this.lock,
       life: MSL_LIFE,
+      smokeTimer: 0,
     });
     return true;
+  }
+
+  _emitSmoke(pos) {
+    const mesh = new THREE.Mesh(
+      this.smokeGeo,
+      new THREE.MeshBasicMaterial({ color: 0xcccccc, transparent: true, opacity: 0.55 })
+    );
+    mesh.position.copy(pos);
+    this.scene.add(mesh);
+    this.smoke.push({ mesh, life: SMOKE_LIFE });
   }
 
   _acquireLock(position, quaternion, targets) {
@@ -140,6 +157,13 @@ export class Weapons {
       m.mesh.lookAt(_look.copy(m.mesh.position).add(m.dir));
       m.life -= dt;
 
+      // lay a smoke trail
+      m.smokeTimer -= dt;
+      if (m.smokeTimer <= 0) {
+        m.smokeTimer = SMOKE_INTERVAL;
+        this._emitSmoke(m.mesh.position);
+      }
+
       let detonate = false;
       if (m.target && m.target.alive &&
           m.mesh.position.distanceTo(m.target.position) < MSL_PROX) {
@@ -150,6 +174,19 @@ export class Weapons {
       if (detonate || m.life <= 0) {
         this.scene.remove(m.mesh);
         this.missiles.splice(i, 1);
+      }
+    }
+
+    // Age the smoke trail: fade and gently expand.
+    for (let i = this.smoke.length - 1; i >= 0; i--) {
+      const s = this.smoke[i];
+      s.life -= dt;
+      const k = 1 - s.life / SMOKE_LIFE;
+      s.mesh.scale.setScalar(1 + k * 3);
+      s.mesh.material.opacity = Math.max(0, 0.55 * (1 - k));
+      if (s.life <= 0) {
+        this.scene.remove(s.mesh);
+        this.smoke.splice(i, 1);
       }
     }
   }
