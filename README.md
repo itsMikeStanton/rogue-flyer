@@ -31,6 +31,9 @@ hat switch, buttons) — and falls back to keyboard if you don't have one.
   + airspeed, cannon, missile whoosh, explosions, lock tone, hull-hit thud.
   Explosions and enemy gunfire are **3D-spatialized** — they pan and fade with
   distance (listener locked to the camera). Mute with the menu button or **M**.
+- **Runway takeoff** (optional, checkbox on the menu): start parked on the
+  runway, spool up the throttle, roll out, and rotate at ~132 kts. Wheels hold
+  you level with nosewheel steering until you fly.
 - **Ring checkpoints** to chase around the map.
 
 ## Run it

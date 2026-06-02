@@ -160,19 +160,42 @@ export function step(state, def, controls, dt, terrainHeight) {
   _dq.setFromEuler(_euler);
   q.multiply(_dq).normalize();
 
-  // --- Ground interaction ---
+  // --- Ground interaction (taxi / takeoff / landing rollout) ---
   const groundY = terrainHeight + 1.5;
   if (state.position.y <= groundY) {
     state.position.y = groundY;
     const sinkRate = -vel.y;
-    const levelish = _up.y > 0.7;
-    if ((sinkRate > 22 || !levelish) && speed > 20) {
-      state.crashed = true;
+    const levelish = _up.y > 0.6;
+    if ((sinkRate > 24 || !levelish) && speed > 35) {
+      state.crashed = true; // slammed in too hard or not wings-level
     } else {
-      // soft contact: zero vertical speed, scrub a little energy
       vel.y = Math.max(0, vel.y);
-      vel.multiplyScalar(0.985);
       state.onGround = true;
+
+      // Wheels: no sideways slide — redirect horizontal velocity along heading.
+      _fwd.set(0, 0, -1).applyQuaternion(q);
+      const hlen = Math.hypot(_fwd.x, _fwd.z) || 1;
+      const hx = _fwd.x / hlen, hz = _fwd.z / hlen;
+      let gs = Math.hypot(vel.x, vel.z);
+      gs *= Math.max(0, 1 - 1.2 * dt); // rolling friction
+      vel.x = hx * gs;
+      vel.z = hz * gs;
+
+      // Stay on the gear: level the wings, hold a slight ground pitch until you
+      // reach rotate speed and pull back — then let the nose come up to fly.
+      _euler.setFromQuaternion(q, "YXZ");
+      const blend = 1 - Math.exp(-dt / 0.12);
+      _euler.z = THREE.MathUtils.lerp(_euler.z, 0, blend);
+      const ROTATE_SPEED = 68;
+      const rotating = gs > ROTATE_SPEED && controls.pitch > 0.15;
+      if (rotating) {
+        _euler.x = THREE.MathUtils.clamp(_euler.x, -0.05, 0.28); // allow rotation, cap
+      } else {
+        _euler.x = THREE.MathUtils.lerp(_euler.x, 0.03, blend); // sit slightly nose-up
+      }
+      // Nosewheel steering: rudder turns the heading, more so with speed.
+      _euler.y += controls.yaw * 0.5 * dt * Math.min(1, gs / 35);
+      q.setFromEuler(_euler);
     }
   } else {
     state.onGround = false;

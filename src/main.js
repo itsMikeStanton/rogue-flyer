@@ -46,6 +46,7 @@ let mesh = null;
 let flying = false;
 let gameMode = "dogfight";
 let missionDone = false;
+let startOnRunway = false;
 
 const CAMS = ["Chase", "Far Chase", "Cockpit"];
 let camIndex = 0;
@@ -73,7 +74,7 @@ const player = {
 function missilesForMode(mode) { return mode === "free" ? 0 : 6; }
 
 const ui = new UI(input, {
-  onFly: (type, mode) => startFlight(type, mode),
+  onFly: (type, mode, runway) => startFlight(type, mode, runway),
 }, touch, tilt);
 
 // --- Fullscreen ("takeover") ---
@@ -139,6 +140,15 @@ function setAircraft(type) {
 
 function resetFlight() {
   state = createState();
+  if (startOnRunway) {
+    // Park at the start of the runway, level, stopped, throttle idle.
+    const z = 520;
+    state.position.set(0, terrainHeight(0, z) + 1.5, z);
+    state.velocity.set(0, 0, 0);
+    state.quaternion.identity();
+    state.onGround = true;
+    input.kbThrottle = 0;
+  }
   ringsHit = 0;
   world.rings.forEach((r) => { r.visible = true; r.userData.hit = false; });
   weapons.reset(missilesForMode(gameMode));
@@ -150,8 +160,9 @@ function resetFlight() {
   ui.hideBanner();
 }
 
-function startFlight(type, mode) {
+function startFlight(type, mode, runway) {
   gameMode = mode || gameMode;
+  startOnRunway = !!runway;
   setAircraft(type);
   resetFlight();
   flying = true;
@@ -346,6 +357,7 @@ function frame(now) {
       jetName: def.name,
       camName: CAMS[camIndex],
       mode: gameMode,
+      onGround: state.onGround,
       checkpoints: world.rings.length,
       ringsHit,
       kills: isMissionHud ? ground.destroyed : enemies.kills,

@@ -63,6 +63,15 @@ export class Hud {
       ctx.fillText("STALL", cx, cy - 60);
     }
 
+    // Takeoff prompt while rolling on the ground.
+    if (extra.onGround) {
+      const kts = Math.round(t.speed * 1.94384);
+      ctx.fillStyle = "#ffd23f";
+      ctx.font = "bold 15px 'Consolas', monospace";
+      const msg = kts < 132 ? "THROTTLE UP — ROTATE AT 132 KTS" : "PULL UP ▲";
+      ctx.fillText(msg, cx, cy + 90);
+    }
+
     // Top-left info
     ctx.textAlign = "left";
     ctx.fillStyle = green;

@@ -91,6 +91,11 @@ h3 { margin: 16px 0 8px; font-size: 14px; color: var(--accent); letter-spacing: 
 .controls-status { margin: 16px 0; font-size: 13px; color: #ffd27d; }
 .controls-status.ok { color: var(--accent); }
 
+.start-opt {
+  display: flex; align-items: center; gap: 8px;
+  margin-top: 14px; font-size: 13px; color: #b9c8d6; cursor: pointer;
+}
+
 .menu-buttons { display: flex; gap: 12px; margin-top: 18px; flex-wrap: wrap; }
 button {
   background: rgba(255,255,255,0.06);
