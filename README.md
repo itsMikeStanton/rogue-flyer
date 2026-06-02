@@ -18,6 +18,9 @@ hat switch, buttons) — and falls back to keyboard if you don't have one.
 - **Game modes** (pick at the start screen):
   - **Dogfight** — enemy AI jets pursue and shoot at you; fight back with the
     cannon and lock-on homing missiles. Hull health; get shot down and respawn.
+  - **Strike Mission** — destroy every ground target (fuel tanks, radars,
+    bunkers, SAM sites) with guns + missiles; an on-screen marker points you to
+    the nearest one. Clear them all to complete the mission.
   - **Target Practice** — gun down drifting drones, nobody shoots back.
   - **Free Flight** — just fly and chase the rings.
 - **Weapons.** Forward-firing tracer cannon (FIRE / Space / joystick button) and
@@ -97,6 +100,7 @@ src/touch.js      on-screen touch controls (stick / throttle / rudder), mode tog
 src/tilt.js       tilt-to-steer via device orientation sensors
 src/weapons.js    player cannon + lock-on homing missiles
 src/enemies.js    enemy AI fighters + passive drones (combat targets)
+src/ground.js     strike-mission ground targets (destructible structures)
 src/fx.js         shared explosion effects pool
 src/audio.js      Web Audio synthesized engine + weapon sound
 src/hud.js        canvas-2D HUD

@@ -75,7 +75,10 @@ export class Hud {
     if (extra.checkpoints != null) {
       ctx.fillText(`RINGS ${extra.ringsHit}/${extra.checkpoints}`, w - 20, 26);
     }
-    if (extra.kills != null && extra.mode !== "free") {
+    if (extra.mode === "mission") {
+      ctx.fillText(`TARGETS LEFT ${extra.bandits}`, w - 20, 44);
+      ctx.fillText(`DESTROYED ${extra.kills}/${extra.total}`, w - 20, 62);
+    } else if (extra.kills != null && extra.mode !== "free") {
       ctx.fillText(`KILLS ${extra.kills}`, w - 20, 44);
       const label = extra.mode === "dogfight" ? "BANDITS" : "DRONES";
       ctx.fillText(`${label} ${extra.bandits}`, w - 20, 62);
@@ -92,6 +95,39 @@ export class Hud {
 
     // Missile lock box around the locked target
     if (extra.lock) this.lockBox(extra.lock);
+
+    // Mission objective marker (on-screen diamond or edge arrow).
+    if (extra.objective) this.objective(extra.objective);
+  }
+
+  objective(o) {
+    const ctx = this.ctx;
+    const cx = this.w / 2, cy = this.h / 2;
+    ctx.save();
+    ctx.fillStyle = "#ffb030";
+    ctx.strokeStyle = "#ffb030";
+    if (o.onscreen && !o.behind) {
+      const x = o.x, y = o.y;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(x, y - 11); ctx.lineTo(x + 11, y); ctx.lineTo(x, y + 11); ctx.lineTo(x - 11, y);
+      ctx.closePath(); ctx.stroke();
+      ctx.font = "11px 'Consolas', monospace";
+      ctx.textAlign = "center";
+      ctx.fillText(`TGT ${Math.round(o.dist)}m`, x, y + 26);
+    } else {
+      // off-screen / behind: arrow at the screen edge pointing toward it
+      let dx = o.ndcx, dy = o.ndcy;
+      if (o.behind) { dx = -dx; dy = -dy; }
+      const ang = Math.atan2(-dy, dx);
+      const rx = this.w / 2 - 46, ry = this.h / 2 - 46;
+      const x = cx + Math.cos(ang) * rx, y = cy + Math.sin(ang) * ry;
+      ctx.translate(x, y); ctx.rotate(ang);
+      ctx.beginPath();
+      ctx.moveTo(14, 0); ctx.lineTo(-7, -8); ctx.lineTo(-7, 8);
+      ctx.closePath(); ctx.fill();
+    }
+    ctx.restore();
   }
 
   healthBar(x, y, hp) {

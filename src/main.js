@@ -9,6 +9,7 @@ import { TouchControls } from "./touch.js";
 import { TiltControls } from "./tilt.js";
 import { Weapons } from "./weapons.js";
 import { Enemies } from "./enemies.js";
+import { GroundTargets } from "./ground.js";
 import { Explosions } from "./fx.js";
 import { SoundEngine } from "./audio.js";
 
@@ -27,6 +28,7 @@ const world = buildWorld(scene);
 const fx = new Explosions(scene);
 const weapons = new Weapons(scene, fx);
 const enemies = new Enemies(scene, fx);
+const ground = new GroundTargets(scene, fx);
 const sound = new SoundEngine();
 fx.onAdd = (size, pos) => sound.explosion(size, pos); // positional booms
 enemies.onFire = (pos) => sound.enemyGun(pos);         // positional enemy guns
@@ -43,6 +45,7 @@ let jetType = "f16";
 let mesh = null;
 let flying = false;
 let gameMode = "dogfight";
+let missionDone = false;
 
 const CAMS = ["Chase", "Far Chase", "Cockpit"];
 let camIndex = 0;
@@ -140,6 +143,8 @@ function resetFlight() {
   world.rings.forEach((r) => { r.visible = true; r.userData.hit = false; });
   weapons.reset(missilesForMode(gameMode));
   enemies.setMode(gameMode);
+  ground.setActive(gameMode === "mission");
+  missionDone = false;
   player.health = 100;
   fx.reset();
   ui.hideBanner();
@@ -246,12 +251,20 @@ function frame(now) {
     }
     checkRings();
 
+    const isMission = gameMode === "mission";
+    const activeTargets = isMission ? ground.targets : enemies.targets;
     if (controls.fire && weapons.fire(state.position, state.quaternion)) sound.gun();
     if (controls.missilePressed && weapons.fireMissile(state.position, state.quaternion)) sound.missile();
-    weapons.update(dt, state.position, state.quaternion, enemies.targets);
+    weapons.update(dt, state.position, state.quaternion, activeTargets);
     enemies.update(dt, player);
+    if (isMission) ground.update(dt);
     fx.update(dt);
     sound.updateEngine(state.telemetry.throttle, state.telemetry.speed);
+
+    if (isMission && ground.total > 0 && ground.remaining === 0 && !missionDone) {
+      missionDone = true;
+      ui.showBanner("MISSION COMPLETE", "Press R / RESET to fly again");
+    }
 
     // Lock tone when a fresh target is acquired.
     if (weapons.lock && weapons.lock !== lastLock) sound.lock();
@@ -308,17 +321,40 @@ function frame(now) {
         };
       }
     }
+    // Mission objective marker: point to the nearest surviving ground target.
+    let objective = null;
+    if (gameMode === "mission") {
+      let best = null, bd = Infinity;
+      for (const t of ground.targets) {
+        if (!t.alive) continue;
+        const d = state.position.distanceTo(t.position);
+        if (d < bd) { bd = d; best = t; }
+      }
+      if (best) {
+        _v.copy(best.position).project(camera);
+        objective = {
+          ndcx: _v.x, ndcy: _v.y, behind: _v.z > 1,
+          onscreen: _v.z < 1 && Math.abs(_v.x) <= 1 && Math.abs(_v.y) <= 1,
+          x: (_v.x * 0.5 + 0.5) * hud.w,
+          y: (-_v.y * 0.5 + 0.5) * hud.h,
+          dist: bd,
+        };
+      }
+    }
+    const isMissionHud = gameMode === "mission";
     hud.draw(state.telemetry, {
       jetName: def.name,
       camName: CAMS[camIndex],
       mode: gameMode,
       checkpoints: world.rings.length,
       ringsHit,
-      kills: enemies.kills,
-      bandits: enemies.alive(),
+      kills: isMissionHud ? ground.destroyed : enemies.kills,
+      bandits: isMissionHud ? ground.remaining : enemies.alive(),
+      total: isMissionHud ? ground.total : null,
       health: player.health,
       missiles: weapons.missileCount,
       lock,
+      objective,
     });
   } else {
     hud.ctx.clearRect(0, 0, hud.w, hud.h);

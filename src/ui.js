@@ -76,6 +76,7 @@ export class UI {
   buildModeList() {
     const modes = [
       { key: "dogfight", name: "Dogfight", desc: "Enemy jets hunt you. Guns + lock-on missiles. Survive and rack up kills." },
+      { key: "mission", name: "Strike Mission", desc: "Destroy every ground target. Air-to-ground guns + missiles." },
       { key: "practice", name: "Target Practice", desc: "Gun down drifting drones. No one shoots back." },
       { key: "free", name: "Free Flight", desc: "Just fly. Chase the rings, no combat." },
     ];
