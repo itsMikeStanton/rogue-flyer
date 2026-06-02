@@ -3,7 +3,7 @@ import * as THREE from "three";
 // Low-poly arcade world: rolling terrain, runway, scattered landmarks, sky.
 
 const TERRAIN_SIZE = 24000;
-const SEGMENTS = 160;
+const SEGMENTS = 200;
 
 // Cheap deterministic value-noise so terrain is repeatable run-to-run.
 function hash2(x, z) {
@@ -151,20 +151,33 @@ export function buildWorld(scene) {
   geo.rotateX(-Math.PI / 2);
   const pos = geo.attributes.position;
   const colors = [];
+  const sand = new THREE.Color(0xcdbd87);
   const low = new THREE.Color(0x3f6b3a);
   const mid = new THREE.Color(0x6f7d4a);
   const high = new THREE.Color(0x9a9a8e);
   const snow = new THREE.Color(0xeef2f5);
+  const c = new THREE.Color();
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i), z = pos.getZ(i);
     const h = terrainHeight(x, z);
     pos.setY(i, h);
-    const t = THREE.MathUtils.clamp((h + 200) / 1400, 0, 1);
-    const c = new THREE.Color();
-    if (t < 0.45) c.copy(low).lerp(mid, t / 0.45);
-    else if (t < 0.8) c.copy(mid).lerp(high, (t - 0.45) / 0.35);
-    else c.copy(high).lerp(snow, (t - 0.8) / 0.2);
-    colors.push(c.r, c.g, c.b);
+    if (h < 45) {
+      // beach near the waterline blending up into grass
+      const s = THREE.MathUtils.clamp((h + 12) / 57, 0, 1);
+      c.copy(sand).lerp(low, s);
+    } else {
+      const t = THREE.MathUtils.clamp((h + 200) / 1400, 0, 1);
+      if (t < 0.45) c.copy(low).lerp(mid, t / 0.45);
+      else if (t < 0.8) c.copy(mid).lerp(high, (t - 0.45) / 0.35);
+      else c.copy(high).lerp(snow, (t - 0.8) / 0.2);
+    }
+    // subtle per-vertex variation so it isn't flat
+    const j = (hash2(x * 0.05, z * 0.05) - 0.5) * 0.06;
+    colors.push(
+      THREE.MathUtils.clamp(c.r + j, 0, 1),
+      THREE.MathUtils.clamp(c.g + j, 0, 1),
+      THREE.MathUtils.clamp(c.b + j, 0, 1)
+    );
   }
   geo.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
   geo.computeVertexNormals();
@@ -286,38 +299,119 @@ export function buildWorld(scene) {
   const ts = new THREE.Vector3();
   const onRiver = (x, z) => Math.abs(x - riverCenterX(z)) < RIVER_OUTER + 60;
 
-  // ---- Trees (instanced): trunks + conifer foliage on lowland ----
+  // ---- Forests: clustered conifers + deciduous trees on lowland ----
   {
-    const COUNT = 1700;
+    const MAX = 2600;
     const trunks = new THREE.InstancedMesh(
       new THREE.CylinderGeometry(0.7, 1.0, 7, 5),
-      new THREE.MeshStandardMaterial({ color: 0x5b4326, flatShading: true, roughness: 1 }),
-      COUNT
-    );
-    const foliage = new THREE.InstancedMesh(
+      new THREE.MeshStandardMaterial({ color: 0x5b4326, flatShading: true, roughness: 1 }), MAX);
+    const conifer = new THREE.InstancedMesh(
       new THREE.ConeGeometry(4.6, 13, 6),
-      new THREE.MeshStandardMaterial({ color: 0x2f6d34, flatShading: true, roughness: 1 }),
-      COUNT
-    );
-    let n = 0, guard = 0;
-    while (n < COUNT && guard < COUNT * 8) {
+      new THREE.MeshStandardMaterial({ color: 0x2f6d34, flatShading: true, roughness: 1 }), MAX);
+    const decid = new THREE.InstancedMesh(
+      new THREE.SphereGeometry(5.5, 6, 5),
+      new THREE.MeshStandardMaterial({ color: 0x4f7d3a, flatShading: true, roughness: 1 }), MAX);
+    let n = 0, ci = 0, di = 0, guard = 0;
+    while (n < MAX && guard < MAX * 10) {
       guard++;
       const x = (rnd() - 0.5) * TERRAIN_SIZE * 0.85;
       const z = (rnd() - 0.5) * TERRAIN_SIZE * 0.85;
       const h = terrainHeight(x, z);
-      if (h < -10 || h > 620 || onRiver(x, z)) continue;
-      const s = 1.2 + rnd() * 1.8;
+      if (h < 8 || h > 720 || onRiver(x, z)) continue;
+      // forest clumping: mostly stick to noisy patches
+      if (smoothNoise(x * 0.0007, z * 0.0007) < 0.42 && rnd() > 0.12) continue;
+      const s = 1.0 + rnd() * 1.8;
       tp.set(x, h + 3.5 * s, z); ts.set(s, s, s);
       trunks.setMatrixAt(n, m4.compose(tp, noRot, ts));
-      tp.set(x, h + 13.5 * s, z);
-      foliage.setMatrixAt(n, m4.compose(tp, noRot, ts));
+      if (rnd() < 0.6) {
+        tp.set(x, h + 13.5 * s, z); ts.set(s, s, s);
+        conifer.setMatrixAt(ci++, m4.compose(tp, noRot, ts));
+      } else {
+        tp.set(x, h + 9 * s, z); ts.set(s * 1.1, s * 0.95, s * 1.1);
+        decid.setMatrixAt(di++, m4.compose(tp, noRot, ts));
+      }
       n++;
     }
-    trunks.count = n; foliage.count = n;
+    trunks.count = n; conifer.count = ci; decid.count = di;
     trunks.instanceMatrix.needsUpdate = true;
-    foliage.instanceMatrix.needsUpdate = true;
-    trunks.receiveShadow = foliage.receiveShadow = true;
-    scene.add(trunks); scene.add(foliage);
+    conifer.instanceMatrix.needsUpdate = true;
+    decid.instanceMatrix.needsUpdate = true;
+    trunks.receiveShadow = conifer.receiveShadow = decid.receiveShadow = true;
+    scene.add(trunks); scene.add(conifer); scene.add(decid);
+  }
+
+  // ---- Bushes / shrubs scattered on lowland ----
+  {
+    const MAX = 900;
+    const bush = new THREE.InstancedMesh(
+      new THREE.SphereGeometry(2.2, 5, 4),
+      new THREE.MeshStandardMaterial({ color: 0x4a6b32, flatShading: true, roughness: 1 }), MAX);
+    let n = 0, guard = 0;
+    while (n < MAX && guard < MAX * 8) {
+      guard++;
+      const x = (rnd() - 0.5) * TERRAIN_SIZE * 0.85;
+      const z = (rnd() - 0.5) * TERRAIN_SIZE * 0.85;
+      const h = terrainHeight(x, z);
+      if (h < 6 || h > 520 || onRiver(x, z)) continue;
+      const s = 0.8 + rnd() * 1.6;
+      tp.set(x, h + 1.6 * s, z); ts.set(s * 1.4, s, s * 1.4);
+      bush.setMatrixAt(n++, m4.compose(tp, noRot, ts));
+    }
+    bush.count = n; bush.instanceMatrix.needsUpdate = true;
+    scene.add(bush);
+  }
+
+  // ---- Rocks on the higher slopes ----
+  {
+    const MAX = 500;
+    const rocks = new THREE.InstancedMesh(
+      new THREE.IcosahedronGeometry(1, 0),
+      new THREE.MeshStandardMaterial({ color: 0x7c7d80, flatShading: true, roughness: 1 }), MAX);
+    rocks.castShadow = true; rocks.receiveShadow = true;
+    const rq = new THREE.Quaternion(), re = new THREE.Euler();
+    let n = 0, guard = 0;
+    while (n < MAX && guard < MAX * 10) {
+      guard++;
+      const x = (rnd() - 0.5) * TERRAIN_SIZE * 0.8;
+      const z = (rnd() - 0.5) * TERRAIN_SIZE * 0.8;
+      const h = terrainHeight(x, z);
+      if (h < 120) continue;
+      const s = 4 + rnd() * 16;
+      re.set(rnd() * 3, rnd() * 3, rnd() * 3); rq.setFromEuler(re);
+      tp.set(x, h + s * 0.4, z); ts.set(s, s * 0.7, s * 0.9);
+      rocks.setMatrixAt(n++, m4.compose(tp, rq, ts));
+    }
+    rocks.count = n; rocks.instanceMatrix.needsUpdate = true;
+    scene.add(rocks);
+  }
+
+  // ---- Coastal lighthouses ----
+  {
+    const towerMat = new THREE.MeshStandardMaterial({ color: 0xf2f2f2, flatShading: true, roughness: 0.8 });
+    const bandMat = new THREE.MeshStandardMaterial({ color: 0xd24b4b, flatShading: true });
+    const lampMat = new THREE.MeshStandardMaterial({ color: 0x222a30, emissive: 0xffcc55, emissiveIntensity: 0.6, flatShading: true });
+    const coastPoint = (ang) => {
+      let last = null;
+      for (let d = 3000; d < 9200; d += 160) {
+        const x = Math.cos(ang) * d, z = Math.sin(ang) * d;
+        if (terrainHeight(x, z) > 6) last = { x, z, h: terrainHeight(x, z) };
+      }
+      return last;
+    };
+    for (const ang of [0.5, 2.3, 3.9, 5.4]) {
+      const p = coastPoint(ang);
+      if (!p) continue;
+      const g = new THREE.Group();
+      g.position.set(p.x, p.h, p.z);
+      const tower = new THREE.Mesh(new THREE.CylinderGeometry(3.2, 5, 38, 8), towerMat);
+      tower.position.y = 19; g.add(tower);
+      const band = new THREE.Mesh(new THREE.CylinderGeometry(3.6, 4.2, 7, 8), bandMat);
+      band.position.y = 22; g.add(band);
+      const lamp = new THREE.Mesh(new THREE.CylinderGeometry(4, 4, 6, 8), lampMat);
+      lamp.position.y = 41; g.add(lamp);
+      g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+      scene.add(g);
+    }
   }
 
   // ---- Town clusters (instanced boxes) ----
