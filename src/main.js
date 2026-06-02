@@ -161,7 +161,7 @@ function resetFlight() {
   world.rings.forEach((r) => { r.visible = true; r.userData.hit = false; });
   weapons.reset(missilesForMode(gameMode));
   enemies.setMode(gameMode);
-  ground.setActive(gameMode === "mission");
+  ground.setActive(gameMode === "mission", world.carriers.enemy, CARRIERS.find((c) => c.team === "enemy"));
   missionDone = false;
   player.health = 100;
   fx.reset();

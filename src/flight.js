@@ -131,13 +131,8 @@ export function step(state, def, controls, dt, groundHeight) {
   sc.roll += (controls.roll - sc.roll) * sm;
   sc.yaw += (controls.yaw - sc.yaw) * sm;
 
-  // Auto-level assist: when you're not actively rolling, ease the wings back
-  // toward level. _right.y is the bank (negative when banked right), so adding
-  // a term proportional to it rolls the opposite way until level.
-  let rollInput = sc.roll;
-  if (Math.abs(controls.roll) < 0.15) {
-    rollInput += THREE.MathUtils.clamp(_right.y * 1.6, -0.7, 0.7);
-  }
+  // Manual roll — hold your bank (no auto-leveling, so turns stay put).
+  const rollInput = sc.roll;
 
   // Angle-of-attack limiter (fly-by-wire): fade out the pitch command that
   // would push AoA past the stall angle, so you physically can't yank into a

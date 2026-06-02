@@ -78,6 +78,39 @@ class GTarget {
   }
 }
 
+// The enemy carrier as a big, high-health strike target.
+class CarrierTarget {
+  constructor(fx, mesh, info) {
+    this.fx = fx;
+    this.mesh = mesh;
+    this.alive = true;
+    this.radius = 140;
+    this.maxHealth = 320;
+    this.health = 320;
+    this._pos = new THREE.Vector3(info.x, info.deckY + 8, info.z);
+    this.info = info;
+  }
+  get position() { return this._pos; }
+  hit(dmg) {
+    if (!this.alive) return;
+    this.health -= dmg;
+    if (this.health <= 0) this.destroy();
+  }
+  destroy() {
+    this.alive = false;
+    // A string of explosions the length of the deck.
+    for (let i = 0; i < 7; i++) {
+      const p = this._pos.clone();
+      p.x += (Math.random() - 0.5) * 60;
+      p.z += (Math.random() - 0.5) * this.info.halfL * 1.8;
+      p.y += Math.random() * 22;
+      this.fx.add(p, 3.6);
+    }
+    if (this.mesh) this.mesh.visible = false;
+  }
+  update() {}
+}
+
 export class GroundTargets {
   constructor(scene, fx) {
     this.scene = scene;
@@ -97,8 +130,10 @@ export class GroundTargets {
   }
 
   // active=true builds a mission's worth of targets; false clears them.
-  setActive(active) {
+  // enemyMesh/enemyInfo (optional) add the enemy carrier as a target.
+  setActive(active, enemyMesh, enemyInfo) {
     this.clear();
+    if (enemyMesh) enemyMesh.visible = true; // restore if a prior mission sank it
     if (!active) return;
     const types = ["tank", "radar", "bunker", "sam"];
     // bases placed ahead of spawn (player starts facing -Z)
@@ -115,6 +150,9 @@ export class GroundTargets {
         const type = types[Math.floor(Math.random() * types.length)];
         this.list.push(new GTarget(this.scene, this.fx, type, x, z));
       }
+    }
+    if (enemyMesh && enemyInfo) {
+      this.list.push(new CarrierTarget(this.fx, enemyMesh, enemyInfo));
     }
     this.total = this.list.length;
   }

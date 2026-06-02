@@ -185,7 +185,8 @@ export function buildWorld(scene) {
   scene.add(water);
 
   // Carriers out in the ocean (one each side of the island).
-  for (const c of CARRIERS) buildCarrier(scene, c);
+  const carriers = {};
+  for (const c of CARRIERS) carriers[c.team] = buildCarrier(scene, c);
 
   // Runway near spawn
   const ry = terrainHeight(0, 0);
@@ -392,5 +393,5 @@ export function buildWorld(scene) {
     rings.push(ring);
   }
 
-  return { terrain, rings, sun, clouds };
+  return { terrain, rings, sun, clouds, carriers };
 }

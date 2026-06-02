@@ -19,8 +19,8 @@ hat switch, buttons) — and falls back to keyboard if you don't have one.
   - **Dogfight** — enemy AI jets pursue and shoot at you; fight back with the
     cannon and lock-on homing missiles. Hull health; get shot down and respawn.
   - **Strike Mission** — destroy every ground target (fuel tanks, radars,
-    bunkers, SAM sites) with guns + missiles; an on-screen marker points you to
-    the nearest one. Clear them all to complete the mission.
+    bunkers, SAM sites) **and the enemy carrier** with guns + missiles; an
+    on-screen marker points to the nearest one. Clear them all to win.
   - **Target Practice** — gun down drifting drones, nobody shoots back.
   - **Free Flight** — just fly and chase the rings.
 - **Weapons.** Forward-firing tracer cannon (FIRE / Space / joystick button) and
