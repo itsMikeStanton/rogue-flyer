@@ -17,9 +17,11 @@ html, body {
   font-family: "Segoe UI", Roboto, system-ui, sans-serif;
   user-select: none;
   -webkit-user-select: none;
-  touch-action: none;            /* no pinch-zoom / pan while flying */
   -webkit-tap-highlight-color: transparent;
 }
+
+/* Block gestures only on the game surfaces, so menus can still scroll. */
+#scene, #hud, #touch { touch-action: none; }
 
 #scene, #hud {
   position: fixed;
@@ -34,8 +36,12 @@ html, body {
   position: fixed;
   inset: 0;
   display: flex;
-  align-items: center;
+  align-items: flex-start;        /* panel uses margin:auto to center */
   justify-content: center;
+  overflow-y: auto;               /* scroll when the panel is taller than the screen */
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  padding: 20px 12px;
   background: radial-gradient(circle at 50% 20%, rgba(20,40,60,0.6), rgba(2,4,8,0.95));
   backdrop-filter: blur(3px);
   z-index: 10;
@@ -48,9 +54,10 @@ html, body {
   border-radius: 14px;
   padding: 28px 34px;
   width: min(520px, 92vw);
+  margin: auto;                   /* center vertically, but stay scrollable */
   box-shadow: 0 20px 60px rgba(0,0,0,0.6);
 }
-.panel.wide { width: min(680px, 94vw); max-height: 90vh; overflow-y: auto; }
+.panel.wide { width: min(680px, 94vw); }
 
 h1 {
   margin: 0 0 4px;
