@@ -13,7 +13,7 @@ const MODE_STORE = "rogueflyer.touchmode.v1";
 // Expo response curve: softens small deflections near center so the on-screen
 // stick isn't twitchy, while still reaching full authority at the edge.
 // e in [0,1]; higher = gentler center. out keeps the sign of v.
-function expo(v, e = 0.65) {
+function expo(v, e = 0.8) {
   const s = Math.sign(v);
   const a = Math.min(1, Math.abs(v));
   return s * (e * a * a * a + (1 - e) * a);
@@ -100,6 +100,8 @@ export class TouchControls {
       const max = radius();
       const len = Math.hypot(dx, dy);
       if (len > max) { dx = (dx / len) * max; dy = (dy / len) * max; }
+      // small center deadzone so a resting thumb doesn't drift
+      if (len < 8) { dx = 0; dy = 0; }
       knob.style.transform = `translate(${dx}px, ${dy}px)`;
       // roll = right is +, pitch = stick forward (up) is nose-down (−).
       // Expo curve keeps fine control near center; full deflection at the edge.

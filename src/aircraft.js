@@ -20,8 +20,7 @@ export const AIRCRAFT = {
     wingArea: 28,
     cl0: 0.08, clAlpha: 5.2, clMax: 1.35, stallAngle: 0.26,
     cd0: 0.020, k: 0.10,
-    pitchRate: 1.9, rollRate: 4.2, yawRate: 0.7,
-    // relative stat bars for the menu (0..1)
+    pitchRate: 1.25, rollRate: 2.7, yawRate: 0.55,
     stats: { speed: 0.85, agility: 0.95, toughness: 0.45 },
   },
   fa18: {
@@ -33,7 +32,7 @@ export const AIRCRAFT = {
     wingArea: 38,
     cl0: 0.10, clAlpha: 5.0, clMax: 1.45, stallAngle: 0.30,
     cd0: 0.022, k: 0.11,
-    pitchRate: 1.7, rollRate: 3.6, yawRate: 0.7,
+    pitchRate: 1.1, rollRate: 2.3, yawRate: 0.55,
     stats: { speed: 0.75, agility: 0.8, toughness: 0.65 },
   },
   a10: {
@@ -45,81 +44,194 @@ export const AIRCRAFT = {
     wingArea: 47,
     cl0: 0.14, clAlpha: 4.8, clMax: 1.6, stallAngle: 0.34,
     cd0: 0.028, k: 0.12,
-    pitchRate: 1.2, rollRate: 2.4, yawRate: 0.6,
+    pitchRate: 0.85, rollRate: 1.7, yawRate: 0.5,
     stats: { speed: 0.4, agility: 0.5, toughness: 1.0 },
   },
 };
 
-// Build a chunky low-poly jet from primitives. Faceted, flat-shaded, arcade.
-export function buildAircraftMesh(type) {
-  const def = AIRCRAFT[type];
-  const group = new THREE.Group();
-  const body = new THREE.MeshStandardMaterial({
-    color: def.color, flatShading: true, metalness: 0.3, roughness: 0.65,
-  });
-  const accent = new THREE.MeshStandardMaterial({
-    color: 0x2b3138, flatShading: true, metalness: 0.4, roughness: 0.6,
-  });
-  const glass = new THREE.MeshStandardMaterial({
-    color: 0x111a22, flatShading: true, metalness: 0.1, roughness: 0.2,
-    emissive: 0x0a1a24, transparent: true, opacity: 0.9,
-  });
+function makeMaterials(def) {
+  return {
+    body: new THREE.MeshStandardMaterial({ color: def.color, flatShading: true, metalness: 0.3, roughness: 0.65 }),
+    accent: new THREE.MeshStandardMaterial({ color: 0x2b3138, flatShading: true, metalness: 0.4, roughness: 0.6 }),
+    glass: new THREE.MeshStandardMaterial({ color: 0x111a22, flatShading: true, metalness: 0.1, roughness: 0.2, emissive: 0x0a1a24, transparent: true, opacity: 0.9 }),
+  };
+}
 
-  // Forward is -Z (Three.js convention used throughout the flight model).
-  // Fuselage: tapered, nose forward.
-  const fuselage = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.7, 7, 8), body);
-  fuselage.rotation.x = Math.PI / 2;
-  group.add(fuselage);
-
-  const nose = new THREE.Mesh(new THREE.ConeGeometry(0.45, 2.2, 8), body);
-  nose.rotation.x = -Math.PI / 2;
-  nose.position.z = -4.6;
-  group.add(nose);
-
-  // Canopy
-  const canopy = new THREE.Mesh(new THREE.SphereGeometry(0.5, 8, 6, 0, Math.PI * 2, 0, Math.PI / 2), glass);
-  canopy.scale.set(0.9, 0.7, 1.8);
-  canopy.position.set(0, 0.35, -1.8);
-  group.add(canopy);
-
-  // Main wings (swept). Slight dihedral varies per role via wingArea feel.
-  const wingGeo = new THREE.BoxGeometry(9, 0.18, 2.6);
-  const wing = new THREE.Mesh(wingGeo, body);
-  wing.position.z = 0.6;
-  wing.rotation.y = 0; // keep square; sweep faked by tail boxes
-  group.add(wing);
-
-  // Wing tips angled up a touch
-  const tipL = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.16, 2.0), accent);
-  tipL.position.set(-4.0, 0.1, 0.7);
-  group.add(tipL);
-  const tipR = tipL.clone(); tipR.position.x = 4.0; group.add(tipR);
-
-  // Horizontal stabilizers
-  const hstab = new THREE.Mesh(new THREE.BoxGeometry(4.2, 0.15, 1.4), body);
-  hstab.position.z = 3.0;
-  group.add(hstab);
-
-  // Vertical tail
-  const vtail = new THREE.Mesh(new THREE.BoxGeometry(0.16, 1.8, 1.6), body);
-  vtail.position.set(0, 0.9, 3.1);
-  group.add(vtail);
-
-  // Engine nozzle + glow
-  const nozzle = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.4, 0.8, 8), accent);
-  nozzle.rotation.x = Math.PI / 2;
-  nozzle.position.z = 3.6;
-  group.add(nozzle);
-
-  const flame = new THREE.Mesh(
+// A backward-pointing afterburner cone (hidden until throttled up).
+function makeFlame(base = 1) {
+  const fl = new THREE.Mesh(
     new THREE.ConeGeometry(0.35, 2.4, 8),
-    new THREE.MeshBasicMaterial({ color: 0x7fd2ff, transparent: true, opacity: 0.0 })
+    new THREE.MeshBasicMaterial({ color: 0x7fd2ff, transparent: true, opacity: 0 })
   );
-  flame.rotation.x = -Math.PI / 2;
-  flame.position.z = 5.0;
-  flame.name = "afterburner";
-  group.add(flame);
+  fl.rotation.x = -Math.PI / 2; // tip points +Z (aft)
+  fl.scale.setScalar(base);
+  fl.userData.base = base;
+  return fl;
+}
 
-  group.traverse((o) => { if (o.isMesh) { o.castShadow = true; } });
-  return group;
+function makeCanopy(glass, z, sx, sy, sz) {
+  const c = new THREE.Mesh(new THREE.SphereGeometry(0.5, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2), glass);
+  c.scale.set(sx, sy, sz);
+  c.position.set(0, 0.38, z);
+  return c;
+}
+
+// ---- F-16: sleek, single engine, single tail, chin intake ----
+function buildF16(def) {
+  const g = new THREE.Group();
+  const m = makeMaterials(def);
+
+  const fuse = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.6, 7, 10), m.body);
+  fuse.rotation.x = Math.PI / 2;
+  g.add(fuse);
+
+  const nose = new THREE.Mesh(new THREE.ConeGeometry(0.42, 2.4, 10), m.body);
+  nose.rotation.x = -Math.PI / 2;
+  nose.position.z = -4.7;
+  g.add(nose);
+
+  const intake = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.7, 1.9), m.accent);
+  intake.position.set(0, -0.55, -1.0);
+  g.add(intake);
+
+  g.add(makeCanopy(m.glass, -1.9, 0.85, 0.8, 2.0));
+
+  // cropped-delta wings
+  const wing = new THREE.Mesh(new THREE.BoxGeometry(9, 0.16, 2.4), m.body);
+  wing.position.z = 0.9;
+  g.add(wing);
+
+  const hstab = new THREE.Mesh(new THREE.BoxGeometry(4.0, 0.14, 1.2), m.body);
+  hstab.position.z = 3.0;
+  g.add(hstab);
+
+  const vtail = new THREE.Mesh(new THREE.BoxGeometry(0.15, 2.0, 1.7), m.body);
+  vtail.position.set(0, 1.0, 3.0);
+  g.add(vtail);
+
+  const nozzle = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.36, 0.9, 10), m.accent);
+  nozzle.rotation.x = Math.PI / 2;
+  nozzle.position.z = 3.7;
+  g.add(nozzle);
+
+  const fl = makeFlame(1);
+  fl.position.z = 5.0;
+  g.add(fl);
+  g.userData.flames = [fl];
+  return g;
+}
+
+// ---- F/A-18: twin canted tails, twin engines, broad LERX ----
+function buildHornet(def) {
+  const g = new THREE.Group();
+  const m = makeMaterials(def);
+
+  const fuse = new THREE.Mesh(new THREE.BoxGeometry(1.35, 0.9, 6.4), m.body);
+  g.add(fuse);
+
+  const nose = new THREE.Mesh(new THREE.ConeGeometry(0.62, 2.6, 8), m.body);
+  nose.rotation.x = -Math.PI / 2;
+  nose.position.z = -4.3;
+  g.add(nose);
+
+  g.add(makeCanopy(m.glass, -1.7, 0.9, 0.85, 2.0));
+
+  // leading-edge extensions (LERX) as flat triangles toward the nose
+  for (const s of [-1, 1]) {
+    const lerx = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.1, 2.4), m.body);
+    lerx.position.set(s * 0.9, 0.05, -1.0);
+    g.add(lerx);
+  }
+
+  const wing = new THREE.Mesh(new THREE.BoxGeometry(10, 0.16, 2.6), m.body);
+  wing.position.z = 0.7;
+  g.add(wing);
+
+  // twin canted vertical tails
+  for (const s of [-1, 1]) {
+    const vt = new THREE.Mesh(new THREE.BoxGeometry(0.14, 1.6, 1.4), m.body);
+    vt.position.set(s * 0.95, 0.85, 2.3);
+    vt.rotation.z = s * 0.26;
+    g.add(vt);
+  }
+
+  const hstab = new THREE.Mesh(new THREE.BoxGeometry(4.6, 0.14, 1.3), m.body);
+  hstab.position.z = 3.1;
+  g.add(hstab);
+
+  // twin nozzles + flames
+  g.userData.flames = [];
+  for (const s of [-1, 1]) {
+    const nz = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.28, 0.9, 8), m.accent);
+    nz.rotation.x = Math.PI / 2;
+    nz.position.set(s * 0.5, 0, 3.4);
+    g.add(nz);
+    const fl = makeFlame(0.8);
+    fl.position.set(s * 0.5, 0, 4.6);
+    g.add(fl);
+    g.userData.flames.push(fl);
+  }
+  return g;
+}
+
+// ---- A-10: straight wings, twin pod engines high aft, twin tails, gun nose ----
+function buildWarthog(def) {
+  const g = new THREE.Group();
+  const m = makeMaterials(def);
+
+  const fuse = new THREE.Mesh(new THREE.CylinderGeometry(0.62, 0.62, 6.4, 12), m.body);
+  fuse.rotation.x = Math.PI / 2;
+  g.add(fuse);
+
+  const nose = new THREE.Mesh(new THREE.SphereGeometry(0.62, 10, 8), m.body);
+  nose.scale.z = 1.7;
+  nose.position.z = -3.4;
+  g.add(nose);
+
+  // the famous gun barrel
+  const gun = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.13, 2.0, 8), m.accent);
+  gun.rotation.x = Math.PI / 2;
+  gun.position.set(0, -0.18, -4.4);
+  g.add(gun);
+
+  g.add(makeCanopy(m.glass, -2.0, 0.85, 0.85, 1.6));
+
+  // long straight wings
+  const wing = new THREE.Mesh(new THREE.BoxGeometry(13, 0.22, 2.2), m.body);
+  wing.position.z = 0.3;
+  g.add(wing);
+
+  // twin engine pods mounted high on the rear fuselage
+  g.userData.flames = [];
+  for (const s of [-1, 1]) {
+    const nac = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.55, 2.4, 12), m.accent);
+    nac.rotation.x = Math.PI / 2;
+    nac.position.set(s * 1.15, 0.75, 2.1);
+    g.add(nac);
+    const fl = makeFlame(0.55);
+    fl.position.set(s * 1.15, 0.75, 3.6);
+    g.add(fl);
+    g.userData.flames.push(fl);
+  }
+
+  // tailplane with twin vertical fins at the tips
+  const hstab = new THREE.Mesh(new THREE.BoxGeometry(5.0, 0.18, 1.4), m.body);
+  hstab.position.z = 3.4;
+  g.add(hstab);
+  for (const s of [-1, 1]) {
+    const vt = new THREE.Mesh(new THREE.BoxGeometry(0.16, 1.5, 1.3), m.body);
+    vt.position.set(s * 2.3, 0.7, 3.4);
+    g.add(vt);
+  }
+  return g;
+}
+
+// Build the distinct low-poly mesh for a given aircraft type.
+export function buildAircraftMesh(type) {
+  let g;
+  if (type === "a10") g = buildWarthog(AIRCRAFT.a10);
+  else if (type === "fa18") g = buildHornet(AIRCRAFT.fa18);
+  else g = buildF16(AIRCRAFT.f16);
+  g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+  return g;
 }

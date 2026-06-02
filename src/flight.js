@@ -34,6 +34,8 @@ export function createState() {
     quaternion: new THREE.Quaternion(),
     onGround: false,
     crashed: false,
+    // smoothed control inputs (low-pass), to kill twitch
+    sctrl: { pitch: 0, roll: 0, yaw: 0 },
     // last-frame telemetry for the HUD
     telemetry: {
       speed: 180, altitude: 1200, heading: 0, throttle: 0,
@@ -119,11 +121,27 @@ export function step(state, def, controls, dt, terrainHeight) {
   state.position.addScaledVector(vel, dt);
 
   // --- Rotational control ---
+  // Low-pass the inputs so a flick of the stick ramps in instead of snapping —
+  // this is what makes touch/keyboard flyable rather than twitchy.
+  const sc = state.sctrl;
+  const sm = 1 - Math.exp(-dt / 0.16);
+  sc.pitch += (controls.pitch - sc.pitch) * sm;
+  sc.roll += (controls.roll - sc.roll) * sm;
+  sc.yaw += (controls.yaw - sc.yaw) * sm;
+
+  // Auto-level assist: when you're not actively rolling, ease the wings back
+  // toward level. _right.y is the bank (negative when banked right), so adding
+  // a term proportional to it rolls the opposite way until level.
+  let rollInput = sc.roll;
+  if (Math.abs(controls.roll) < 0.15) {
+    rollInput += THREE.MathUtils.clamp(_right.y * 1.6, -0.7, 0.7);
+  }
+
   // Control authority scales with dynamic pressure: slow => mushy.
-  const authority = THREE.MathUtils.clamp(qDyn / 6000, 0.12, 1.25);
-  const pitch = controls.pitch * def.pitchRate * authority;
-  const roll = controls.roll * def.rollRate * authority;
-  const yaw = controls.yaw * def.yawRate * authority;
+  const authority = THREE.MathUtils.clamp(qDyn / 6000, 0.15, 1.2);
+  const pitch = sc.pitch * def.pitchRate * authority;
+  const roll = rollInput * def.rollRate * authority;
+  const yaw = sc.yaw * def.yawRate * authority;
 
   // Apply body-rate rotations: roll about fwd, pitch about right, yaw about up.
   _euler.set(pitch * dt, yaw * dt, -roll * dt, "XYZ");

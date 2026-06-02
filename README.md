@@ -4,10 +4,12 @@ An arcade jet flight game for the browser. Built with **Three.js** and the
 **Gamepad API** so it works with a "fancy" HOTAS (separate throttle, rudder,
 hat switch, buttons) — and falls back to keyboard if you don't have one.
 
-- **Realistic-ish jets, arcade graphics.** Three flyable aircraft with distinct
-  feel (agile F-16, all-round F/A-18, heavy A-10), an arcade-plus flight model
-  (lift curve, stall, airspeed-dependent control authority, induced drag,
-  thrust-to-weight that lets you climb vertically), and chunky low-poly terrain.
+- **Realistic-ish jets, arcade graphics.** Three flyable aircraft, each with a
+  distinct low-poly model and feel — sleek single-tail F-16, twin-tail F/A-18,
+  straight-wing twin-pod A-10. Arcade-plus flight model (lift curve, stall,
+  airspeed-dependent control authority, induced drag, thrust-to-weight that lets
+  you climb vertically) with input smoothing and auto-leveling so it's easy to
+  fly on touch/keyboard. Chunky low-poly terrain.
 - **Full joystick support.** Throttle on its own axis, remappable bindings with
   a live axis/button monitor, saved to `localStorage`.
 - **HUD** with airspeed/altitude tapes, heading strip, throttle bar, Mach, G,

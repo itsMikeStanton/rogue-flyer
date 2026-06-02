@@ -202,11 +202,14 @@ function frame(now) {
     mesh.position.copy(state.position);
     mesh.quaternion.copy(state.quaternion);
     mesh.visible = CAMS[camIndex] !== "Cockpit";
-    const flame = mesh.getObjectByName("afterburner");
-    if (flame) {
+    const flames = mesh.userData.flames;
+    if (flames) {
       const t = state.telemetry.throttle;
-      flame.material.opacity = t > 0.6 ? (t - 0.6) / 0.4 * 0.8 : 0;
-      flame.scale.setScalar(0.6 + t * 0.8);
+      const op = t > 0.6 ? (t - 0.6) / 0.4 * 0.8 : 0;
+      for (const fl of flames) {
+        fl.material.opacity = op;
+        fl.scale.setScalar((fl.userData.base || 1) * (0.6 + t * 0.8));
+      }
     }
   }
 
