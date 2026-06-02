@@ -177,7 +177,7 @@ export function step(state, def, controls, dt, terrainHeight) {
       const hlen = Math.hypot(_fwd.x, _fwd.z) || 1;
       const hx = _fwd.x / hlen, hz = _fwd.z / hlen;
       let gs = Math.hypot(vel.x, vel.z);
-      gs *= Math.max(0, 1 - 1.2 * dt); // rolling friction
+      gs = Math.max(0, gs - 1.5 * dt); // light rolling resistance (constant, small)
       vel.x = hx * gs;
       vel.z = hz * gs;
 
