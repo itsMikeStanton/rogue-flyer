@@ -118,13 +118,42 @@ export function buildWorld(scene) {
   scene.add(water);
 
   // Runway near spawn
+  const ry = terrainHeight(0, 0);
   const runway = new THREE.Mesh(
     new THREE.PlaneGeometry(80, 1200),
     new THREE.MeshStandardMaterial({ color: 0x2a2d33, roughness: 0.9 })
   );
   runway.rotation.x = -Math.PI / 2;
-  runway.position.set(0, terrainHeight(0, 0) + 0.5, 0);
+  runway.position.set(0, ry + 0.5, 0);
+  runway.receiveShadow = true;
   scene.add(runway);
+
+  // Painted markings (white), laid just above the asphalt.
+  const paint = new THREE.MeshStandardMaterial({ color: 0xeef0f2, roughness: 0.7 });
+  const mark = (w, l, x, z) => {
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(w, l), paint);
+    m.rotation.x = -Math.PI / 2;
+    m.position.set(x, ry + 0.65, z);
+    m.receiveShadow = true;
+    scene.add(m);
+  };
+  // Dashed centerline
+  for (let z = -540; z <= 540; z += 60) mark(1.6, 30, 0, z);
+  // Edge lines
+  mark(1.4, 1170, -37, 0);
+  mark(1.4, 1170, 37, 0);
+  // Threshold "piano keys" at both ends
+  for (const ze of [-585, 585]) {
+    for (let i = -3; i <= 3; i++) {
+      if (i === 0) continue;
+      mark(4, 26, i * 8, ze);
+    }
+  }
+  // Aiming-point blocks near each end
+  for (const za of [-380, 380]) {
+    mark(6, 42, -10, za);
+    mark(6, 42, 10, za);
+  }
 
   // Scatter landmarks: hangars (boxes) and radio towers (thin cones).
   const rng = (seed) => { let s = seed; return () => (s = (s * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff; };
