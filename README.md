@@ -9,7 +9,8 @@ hat switch, buttons) — and falls back to keyboard if you don't have one.
   straight-wing twin-pod A-10. Arcade-plus flight model (lift curve, stall,
   airspeed-dependent control authority, induced drag, thrust-to-weight that lets
   you climb vertically) with input smoothing and auto-leveling so it's easy to
-  fly on touch/keyboard. Chunky low-poly terrain.
+  fly on touch/keyboard. Low-poly world with rolling terrain, a carved winding
+  river, drifting clouds, forests, and towns.
 - **Full joystick support.** Throttle on its own axis, remappable bindings with
   a live axis/button monitor, saved to `localStorage`.
 - **HUD** with airspeed/altitude tapes, heading strip, throttle bar, Mach, G,
@@ -90,7 +91,7 @@ src/style.css     menu / HUD-overlay styling
 src/main.js       renderer, game loop (fixed-timestep physics), camera
 src/flight.js     arcade-plus flight dynamics
 src/aircraft.js   jet definitions + low-poly mesh builder
-src/world.js      terrain, sky, lighting, landmarks, ring checkpoints
+src/world.js      terrain, river, clouds, trees, towns, rings, lighting
 src/input.js      Gamepad API + keyboard + touch, remappable bindings
 src/touch.js      on-screen touch controls (stick / throttle / rudder), mode toggle
 src/tilt.js       tilt-to-steer via device orientation sensors

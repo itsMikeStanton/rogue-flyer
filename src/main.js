@@ -287,6 +287,9 @@ function frame(now) {
   // Spin rings for visibility
   for (const r of world.rings) r.rotation.z += dt * 0.5;
 
+  // Drift the cloud layer gently on the wind.
+  if (world.clouds) world.clouds.position.x += dt * 3;
+
   updateCamera(dt);
   sound.setListener(camera);
   renderer.render(scene, camera);
