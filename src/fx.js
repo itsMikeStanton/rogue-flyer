@@ -6,9 +6,11 @@ export class Explosions {
     this.scene = scene;
     this.list = [];
     this.geo = new THREE.SphereGeometry(6, 8, 8);
+    this.onAdd = null; // optional callback(size) — used to trigger sound
   }
 
   add(pos, size = 1, color = 0xffa233) {
+    if (this.onAdd) this.onAdd(size);
     const mesh = new THREE.Mesh(
       this.geo,
       new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 1 })

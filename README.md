@@ -23,6 +23,9 @@ hat switch, buttons) — and falls back to keyboard if you don't have one.
   **lock-on homing missiles** (MSL / B / joystick button) — point at a bandit in
   the forward cone to lock (HUD lock box), then launch. HUD shows KILLS,
   remaining BANDITS, hull health, missile count, and a lock indicator.
+- **Sound** (synthesized, no asset files): jet-engine drone that tracks throttle
+  + airspeed, cannon, missile whoosh, explosions, lock tone, hull-hit thud.
+  Mute with the menu button or **M**.
 - **Ring checkpoints** to chase around the map.
 
 ## Run it
@@ -93,6 +96,7 @@ src/tilt.js       tilt-to-steer via device orientation sensors
 src/weapons.js    player cannon + lock-on homing missiles
 src/enemies.js    enemy AI fighters + passive drones (combat targets)
 src/fx.js         shared explosion effects pool
+src/audio.js      Web Audio synthesized engine + weapon sound
 src/hud.js        canvas-2D HUD
 src/ui.js         menu, jet select, joystick remap panel
 ```

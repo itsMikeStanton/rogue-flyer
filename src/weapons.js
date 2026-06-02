@@ -65,7 +65,7 @@ export class Weapons {
   }
 
   fire(position, quaternion) {
-    if (this.cooldown > 0) return;
+    if (this.cooldown > 0) return false;
     this.cooldown = FIRE_INTERVAL;
     _fwd.set(0, 0, -1).applyQuaternion(quaternion).normalize();
     _nose.copy(position).addScaledVector(_fwd, 7);
@@ -74,6 +74,7 @@ export class Weapons {
     m.quaternion.copy(quaternion);
     this.scene.add(m);
     this.bullets.push({ mesh: m, vel: _fwd.clone().multiplyScalar(BULLET_SPEED), life: BULLET_LIFE });
+    return true;
   }
 
   // Returns true if a missile launched.

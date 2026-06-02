@@ -10,6 +10,7 @@ import { TiltControls } from "./tilt.js";
 import { Weapons } from "./weapons.js";
 import { Enemies } from "./enemies.js";
 import { Explosions } from "./fx.js";
+import { SoundEngine } from "./audio.js";
 
 // --- Renderer / scene / camera ---
 const canvas = document.getElementById("scene");
@@ -26,6 +27,9 @@ const world = buildWorld(scene);
 const fx = new Explosions(scene);
 const weapons = new Weapons(scene, fx);
 const enemies = new Enemies(scene, fx);
+const sound = new SoundEngine();
+fx.onAdd = (size) => sound.explosion(size); // every explosion makes a boom
+let lastLock = null;
 const hud = new Hud(document.getElementById("hud"));
 const input = new Input();
 const touch = new TouchControls(input.touchState);
@@ -52,8 +56,11 @@ const player = {
   applyDamage(d) {
     if (!this.alive) return;
     this.health = Math.max(0, this.health - d);
+    sound.hit();
     if (this.health <= 0) {
       state.crashed = true;
+      fx.add(state.position, 2.6);
+      sound.stopEngine();
       ui.showBanner("SHOT DOWN", "Press R / RESET to respawn");
     }
   },
@@ -89,7 +96,27 @@ function toggleFullscreen() {
 window.addEventListener("keydown", (e) => {
   if (e.code === "Escape") togglePause();
   if (e.code === "KeyF") toggleFullscreen();
+  if (e.code === "KeyM") updateSoundButton(sound.toggleMute());
 });
+
+// Resume audio on the first user interaction (browser autoplay policy).
+function unlockAudio() {
+  sound.resume();
+  window.removeEventListener("pointerdown", unlockAudio);
+  window.removeEventListener("keydown", unlockAudio);
+}
+window.addEventListener("pointerdown", unlockAudio);
+window.addEventListener("keydown", unlockAudio);
+
+// Mute toggle button on the menu.
+const soundBtn = document.getElementById("btn-sound");
+function updateSoundButton(muted) {
+  if (soundBtn) soundBtn.textContent = muted ? "🔇 Sound off" : "🔊 Sound on";
+}
+if (soundBtn) {
+  updateSoundButton(sound.muted);
+  soundBtn.addEventListener("click", () => { sound.resume(); updateSoundButton(sound.toggleMute()); });
+}
 
 // Wire the menu's fullscreen button (hide it where unsupported, e.g. iPhone).
 const fsBtn = document.getElementById("btn-fullscreen");
@@ -122,7 +149,10 @@ function startFlight(type, mode) {
   setAircraft(type);
   resetFlight();
   flying = true;
+  lastLock = null;
   touch.setVisible(true);
+  sound.resume();
+  sound.startEngine();
   // On touch devices, take over the full screen for an immersive cockpit.
   if (touch.enabled && fullscreenSupported() && !isFullscreen()) enterFullscreen();
 }
@@ -132,6 +162,7 @@ function togglePause() {
   if (flying) {
     flying = false;
     touch.setVisible(false);
+    sound.stopEngine();
     ui.showMenu();
   } else if (ui.menu.classList.contains("hidden") === false) {
     // resuming from menu is done via FLY button
@@ -214,13 +245,20 @@ function frame(now) {
     }
     checkRings();
 
-    if (controls.fire) weapons.fire(state.position, state.quaternion);
-    if (controls.missilePressed) weapons.fireMissile(state.position, state.quaternion);
+    if (controls.fire && weapons.fire(state.position, state.quaternion)) sound.gun();
+    if (controls.missilePressed && weapons.fireMissile(state.position, state.quaternion)) sound.missile();
     weapons.update(dt, state.position, state.quaternion, enemies.targets);
     enemies.update(dt, player);
     fx.update(dt);
+    sound.updateEngine(state.telemetry.throttle, state.telemetry.speed);
+
+    // Lock tone when a fresh target is acquired.
+    if (weapons.lock && weapons.lock !== lastLock) sound.lock();
+    lastLock = weapons.lock;
 
     if (state.crashed && player.health > 0) {
+      fx.add(state.position, 2.6);
+      sound.stopEngine();
       ui.showBanner("CRASHED", "Press R / RESET to respawn");
     }
   } else if (flying && state.crashed) {
