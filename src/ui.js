@@ -3,9 +3,11 @@
 import { AIRCRAFT } from "./aircraft.js";
 
 export class UI {
-  constructor(input, callbacks) {
+  constructor(input, callbacks, touch, tilt) {
     this.input = input;
     this.cb = callbacks; // { onFly(type), onResume() }
+    this.touch = touch;
+    this.tilt = tilt;
     this.selected = "f16";
 
     this.menu = document.getElementById("menu");
@@ -15,9 +17,56 @@ export class UI {
     this.buildJetList();
     this.bindButtons();
     this.buildBindingControls();
+    this.wireMobile();
     this.updateGamepadStatus();
 
     this.input.onConnect = () => this.updateGamepadStatus();
+  }
+
+  wireMobile() {
+    if (!this.touch || !this.tilt) return;
+    const mode = document.getElementById("touch-mode");
+    mode.value = this.touch.mode;
+    mode.addEventListener("change", () => this.touch.setMode(mode.value));
+
+    const enable = document.getElementById("tilt-enable");
+    const invP = document.getElementById("tilt-inv-pitch");
+    const invR = document.getElementById("tilt-inv-roll");
+    const recenter = document.getElementById("tilt-recenter");
+    const status = document.getElementById("tilt-status");
+
+    invP.checked = this.tilt.invertPitch;
+    invR.checked = this.tilt.invertRoll;
+
+    if (!this.tilt.supported()) {
+      enable.disabled = true;
+      status.textContent = "Tilt sensors not available on this device.";
+    }
+
+    enable.addEventListener("change", async () => {
+      if (enable.checked) {
+        const ok = await this.tilt.enable();
+        if (!ok) {
+          enable.checked = false;
+          status.textContent = "Motion access denied — enable it in your browser settings.";
+          return;
+        }
+        this.touch.showStick(false);
+        this.touch.showRecenter(true);
+        status.textContent = "Tilt active. Hold the device how you'll fly, then tap Recenter.";
+      } else {
+        this.tilt.disable();
+        this.touch.showStick(true);
+        this.touch.showRecenter(false);
+        status.textContent = "";
+      }
+    });
+
+    invP.addEventListener("change", () => { this.tilt.invertPitch = invP.checked; this.tilt.save(); });
+    invR.addEventListener("change", () => { this.tilt.invertRoll = invR.checked; this.tilt.save(); });
+    recenter.addEventListener("click", () => this.tilt.recenter());
+    // In-flight recenter button on the touch overlay.
+    if (this.touch.recenterBtn) this.touch.recenterBtn.addEventListener("click", () => this.tilt.recenter());
   }
 
   get visible() { return !this.menu.classList.contains("hidden") || !this.settings.classList.contains("hidden"); }

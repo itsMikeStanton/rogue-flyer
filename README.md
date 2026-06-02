@@ -44,6 +44,15 @@ On-screen controls appear automatically on touch devices: a virtual **stick**
 buttons, and **CAM / RESET / FIRE** buttons. Multi-touch, so you can hold
 throttle while working the stick. Best in landscape.
 
+- **Touch controls mode** (Controls panel): *Auto-detect* / *Always on* / *Off*
+  — handy for touchscreen laptops that should fly with the keyboard.
+- **Tilt steering** (Controls panel): bank and pitch by physically tilting the
+  device instead of using the stick. Enable it (grants motion access on iOS),
+  hold the device how you want to fly, then **Recenter**. Invert pitch/roll to
+  taste. An in-flight **⊕ CENTER** button re-zeroes the neutral point.
+- **Fullscreen**: a **⛶ Fullscreen** button on the menu (and the **F** key);
+  touch devices also go fullscreen automatically when you tap **FLY**.
+
 ### Keyboard
 | Key | Action |
 |-----|--------|
@@ -65,7 +74,8 @@ src/flight.js     arcade-plus flight dynamics
 src/aircraft.js   jet definitions + low-poly mesh builder
 src/world.js      terrain, sky, lighting, landmarks, ring checkpoints
 src/input.js      Gamepad API + keyboard + touch, remappable bindings
-src/touch.js      on-screen touch controls (stick / throttle / rudder)
+src/touch.js      on-screen touch controls (stick / throttle / rudder), mode toggle
+src/tilt.js       tilt-to-steer via device orientation sensors
 src/hud.js        canvas-2D HUD
 src/ui.js         menu, jet select, joystick remap panel
 ```

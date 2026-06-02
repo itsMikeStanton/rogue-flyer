@@ -6,6 +6,7 @@ import { Input } from "./input.js";
 import { Hud } from "./hud.js";
 import { UI } from "./ui.js";
 import { TouchControls } from "./touch.js";
+import { TiltControls } from "./tilt.js";
 
 // --- Renderer / scene / camera ---
 const canvas = document.getElementById("scene");
@@ -22,6 +23,7 @@ const world = buildWorld(scene);
 const hud = new Hud(document.getElementById("hud"));
 const input = new Input();
 const touch = new TouchControls(input.touchState);
+const tilt = new TiltControls(input.touchState);
 
 // --- Game state ---
 let state = createState();
@@ -36,11 +38,40 @@ let ringsHit = 0;
 
 const ui = new UI(input, {
   onFly: (type) => startFlight(type),
-});
+}, touch, tilt);
+
+// --- Fullscreen ("takeover") ---
+function fullscreenSupported() {
+  return !!(document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen);
+}
+function isFullscreen() {
+  return !!(document.fullscreenElement || document.webkitFullscreenElement);
+}
+function enterFullscreen() {
+  const el = document.documentElement;
+  const fn = el.requestFullscreen || el.webkitRequestFullscreen;
+  if (fn) { try { fn.call(el); } catch (_) {} }
+}
+function toggleFullscreen() {
+  if (isFullscreen()) {
+    const fn = document.exitFullscreen || document.webkitExitFullscreen;
+    if (fn) { try { fn.call(document); } catch (_) {} }
+  } else {
+    enterFullscreen();
+  }
+}
 
 window.addEventListener("keydown", (e) => {
   if (e.code === "Escape") togglePause();
+  if (e.code === "KeyF") toggleFullscreen();
 });
+
+// Wire the menu's fullscreen button (hide it where unsupported, e.g. iPhone).
+const fsBtn = document.getElementById("btn-fullscreen");
+if (fsBtn) {
+  if (!fullscreenSupported()) fsBtn.style.display = "none";
+  else fsBtn.addEventListener("click", toggleFullscreen);
+}
 
 function setAircraft(type) {
   jetType = type;
@@ -62,6 +93,8 @@ function startFlight(type) {
   resetFlight();
   flying = true;
   touch.setVisible(true);
+  // On touch devices, take over the full screen for an immersive cockpit.
+  if (touch.enabled && fullscreenSupported() && !isFullscreen()) enterFullscreen();
 }
 
 function togglePause() {

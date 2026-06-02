@@ -4,22 +4,46 @@
 // buttons (yaw), and camera/reset/fire buttons. Writes into a shared state
 // object that Input merges alongside gamepad + keyboard. Multi-touch aware via
 // Pointer Events, so stick and throttle can move at the same time.
+//
+// Visibility is governed by a mode: "auto" (show on touch devices), "on"
+// (always), or "off" (never). The stick can be hidden when tilt-steering is on.
+
+const MODE_STORE = "rogueflyer.touchmode.v1";
 
 export class TouchControls {
   constructor(state) {
     this.state = state; // mutated in place; read by Input.getControls
-    this.enabled = TouchControls.isTouch();
+    this.mode = localStorage.getItem(MODE_STORE) || "auto";
+    this._wantVisible = false; // set true while flying
     this.root = null;
-    if (this.enabled) this.build();
+    this.build();
+    this.refresh();
   }
 
   static isTouch() {
     return ("ontouchstart" in window) || navigator.maxTouchPoints > 0;
   }
 
-  setVisible(v) {
-    if (this.root) this.root.style.display = v && this.enabled ? "block" : "none";
+  get enabled() {
+    if (this.mode === "on") return true;
+    if (this.mode === "off") return false;
+    return TouchControls.isTouch();
   }
+
+  setMode(mode) {
+    this.mode = mode;
+    try { localStorage.setItem(MODE_STORE, mode); } catch (_) {}
+    this.refresh();
+  }
+
+  setVisible(v) { this._wantVisible = v; this.refresh(); }
+
+  refresh() {
+    if (this.root) this.root.style.display = (this.enabled && this._wantVisible) ? "block" : "none";
+  }
+
+  showStick(v) { if (this.stick) this.stick.style.display = v ? "block" : "none"; }
+  showRecenter(v) { if (this.recenterBtn) this.recenterBtn.style.display = v ? "block" : "none"; }
 
   build() {
     const root = document.createElement("div");
@@ -27,6 +51,7 @@ export class TouchControls {
     root.style.display = "none";
     root.innerHTML = `
       <div id="t-stick" class="t-pad"><div class="t-knob"></div></div>
+      <button id="t-recenter" class="t-btn" style="display:none">⊕ CENTER</button>
       <div id="t-throttle" class="t-throttle">
         <div class="t-fill"></div>
         <div class="t-handle"></div>
@@ -43,8 +68,10 @@ export class TouchControls {
       </div>`;
     document.body.appendChild(root);
     this.root = root;
+    this.stick = root.querySelector("#t-stick");
+    this.recenterBtn = root.querySelector("#t-recenter");
 
-    this.bindStick(root.querySelector("#t-stick"));
+    this.bindStick(this.stick);
     this.bindThrottle(root.querySelector("#t-throttle"));
     this.bindYaw(root.querySelectorAll("[data-yaw]"));
     this.bindActions(root.querySelectorAll("[data-act]"));

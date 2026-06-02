@@ -231,8 +231,32 @@ button.primary:hover { background: #4ff5b8; }
 .t-btn.fire { border-color: #ff8a5b; color: #ffd2b8; }
 .t-btn.fire.on { background: rgba(255, 138, 91, 0.7); color: #2a0f04; }
 
+#t-recenter {
+  position: absolute;
+  left: 24px;
+  bottom: 186px;
+  min-width: 0;
+  padding: 8px 12px;
+  font-size: 12px;
+}
+
 /* Landscape phones: keep widgets clear of the very edges/notches */
 @media (max-height: 480px) {
   .t-pad { width: 120px; height: 120px; }
   .t-throttle { height: 150px; }
+  #t-recenter { bottom: 156px; }
 }
+
+/* Mobile & touch options in the settings panel */
+.mobile-opts { display: flex; flex-direction: column; gap: 10px; }
+.mobile-opts .row {
+  display: flex; align-items: center; gap: 10px;
+  font-size: 13px; color: #b9c8d6;
+}
+.mobile-opts select {
+  background: #0b1320; color: #d7e3ee;
+  border: 1px solid rgba(120,150,180,0.3); border-radius: 6px; padding: 6px;
+}
+.mobile-opts .inv { display: flex; align-items: center; gap: 8px; font-size: 13px; color: #b9c8d6; }
+.mobile-opts button { align-self: flex-start; }
+.mobile-opts .hint { margin-top: 0; }

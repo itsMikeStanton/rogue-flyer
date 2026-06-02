@@ -33,6 +33,7 @@
       <div class="menu-buttons">
         <button id="btn-fly" class="primary">FLY</button>
         <button id="btn-settings">Controls / Joystick Setup</button>
+        <button id="btn-fullscreen">⛶ Fullscreen</button>
       </div>
 
       <details class="help">
@@ -55,6 +56,22 @@
       <p class="tag" id="settings-device">No gamepad connected.</p>
 
       <div id="axis-bindings" class="bindings"></div>
+
+      <h3>Mobile &amp; touch</h3>
+      <div class="mobile-opts">
+        <label class="row">Touch controls
+          <select id="touch-mode">
+            <option value="auto">Auto-detect</option>
+            <option value="on">Always on</option>
+            <option value="off">Off</option>
+          </select>
+        </label>
+        <label class="inv"><input type="checkbox" id="tilt-enable" /> Tilt steering — bank &amp; pitch by moving the device</label>
+        <label class="inv"><input type="checkbox" id="tilt-inv-pitch" /> Invert tilt pitch</label>
+        <label class="inv"><input type="checkbox" id="tilt-inv-roll" /> Invert tilt roll</label>
+        <button id="tilt-recenter">Recenter tilt</button>
+        <span id="tilt-status" class="hint"></span>
+      </div>
 
       <h3>Live axes</h3>
       <div id="axis-monitor" class="monitor"></div>
