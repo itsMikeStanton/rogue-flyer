@@ -227,11 +227,14 @@ function buildWarthog(def) {
 }
 
 // Build the distinct low-poly mesh for a given aircraft type.
-export function buildAircraftMesh(type) {
+// `colorOverride` (optional) repaints the airframe — used for enemy jets.
+export function buildAircraftMesh(type, colorOverride) {
+  const base = AIRCRAFT[type] || AIRCRAFT.f16;
+  const def = colorOverride != null ? { ...base, color: colorOverride } : base;
   let g;
-  if (type === "a10") g = buildWarthog(AIRCRAFT.a10);
-  else if (type === "fa18") g = buildHornet(AIRCRAFT.fa18);
-  else g = buildF16(AIRCRAFT.f16);
+  if (type === "a10") g = buildWarthog(def);
+  else if (type === "fa18") g = buildHornet(def);
+  else g = buildF16(def);
   g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
   return g;
 }

@@ -17,7 +17,7 @@ const DEFAULTS = {
   yaw: { axis: 2, invert: false, deadzone: 0.08 },
   throttle: { axis: 3, invert: true, deadzone: 0.0 },
   // button indices for actions (standard mapping-ish; remappable later)
-  buttons: { fire: 0, view: 3, reset: 9 },
+  buttons: { fire: 0, missile: 1, view: 3, reset: 9 },
 };
 
 function loadBindings() {
@@ -47,7 +47,7 @@ export class Input {
     this.touchState = {
       pitch: 0, roll: 0, yaw: 0,
       throttle: 0, throttleActive: false,
-      view: false, reset: false, fire: false,
+      view: false, reset: false, fire: false, missile: false,
     };
 
     window.addEventListener("keydown", (e) => {
@@ -103,7 +103,7 @@ export class Input {
   getControls(dt) {
     const pad = this.getPad();
     let pitch = 0, roll = 0, yaw = 0, throttle = 0;
-    let viewPressed = false, resetPressed = false, fire = false;
+    let viewPressed = false, resetPressed = false, fire = false, missilePressed = false;
 
     if (pad) {
       roll = this.readAxis(pad, this.bindings.roll);
@@ -118,6 +118,7 @@ export class Input {
       const b = this.bindings.buttons;
       const btn = (i) => pad.buttons[i] && pad.buttons[i].pressed;
       fire = btn(b.fire);
+      missilePressed = this.pressed("pad-missile", btn(b.missile));
       viewPressed = this.pressed("pad-view", btn(b.view));
       resetPressed = this.pressed("pad-reset", btn(b.reset));
     }
@@ -145,6 +146,7 @@ export class Input {
 
     if (this.pressed("key-view", k.has("KeyC"))) viewPressed = true;
     if (this.pressed("key-reset", k.has("KeyR"))) resetPressed = true;
+    if (this.pressed("key-missile", k.has("KeyB"))) missilePressed = true;
     if (k.has("Space")) fire = true;
 
     // Touch layer (on-screen controls). Stick/rudder are additive; the
@@ -155,11 +157,12 @@ export class Input {
     if (ts.fire) fire = true;
     if (this.pressed("touch-view", ts.view)) viewPressed = true;
     if (this.pressed("touch-reset", ts.reset)) resetPressed = true;
+    if (this.pressed("touch-missile", ts.missile)) missilePressed = true;
 
     return {
       pitch: clamp(pitch), roll: clamp(roll), yaw: clamp(yaw),
       throttle: Math.min(1, Math.max(0, throttle)),
-      viewPressed, resetPressed, fire,
+      viewPressed, resetPressed, fire, missilePressed,
     };
   }
 }

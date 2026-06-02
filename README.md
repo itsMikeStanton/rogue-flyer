@@ -14,10 +14,16 @@ hat switch, buttons) — and falls back to keyboard if you don't have one.
   a live axis/button monitor, saved to `localStorage`.
 - **HUD** with airspeed/altitude tapes, heading strip, throttle bar, Mach, G,
   AoA, vertical speed, and a stall warning.
+- **Game modes** (pick at the start screen):
+  - **Dogfight** — enemy AI jets pursue and shoot at you; fight back with the
+    cannon and lock-on homing missiles. Hull health; get shot down and respawn.
+  - **Target Practice** — gun down drifting drones, nobody shoots back.
+  - **Free Flight** — just fly and chase the rings.
+- **Weapons.** Forward-firing tracer cannon (FIRE / Space / joystick button) and
+  **lock-on homing missiles** (MSL / B / joystick button) — point at a bandit in
+  the forward cone to lock (HUD lock box), then launch. HUD shows KILLS,
+  remaining BANDITS, hull health, missile count, and a lock indicator.
 - **Ring checkpoints** to chase around the map.
-- **Cannon + targets.** Forward-firing tracer cannon (FIRE button / Space /
-  joystick button); shoot down drifting enemy drones for kills. Targets
-  respawn, so there's always action. HUD shows KILLS and remaining BANDITS.
 
 ## Run it
 
@@ -65,8 +71,11 @@ throttle while working the stick. Best in landscape.
 | `A` / `D` | roll left / right |
 | `Q` / `E` | yaw (rudder) |
 | `Shift` / `Ctrl` | throttle up / down |
+| `Space` | fire cannon |
+| `B` | launch missile (needs a lock) |
 | `C` | cycle camera (Chase / Far / Cockpit) |
 | `R` | reset / respawn |
+| `F` | fullscreen |
 | `Esc` | menu |
 
 ## Project layout
@@ -81,7 +90,9 @@ src/world.js      terrain, sky, lighting, landmarks, ring checkpoints
 src/input.js      Gamepad API + keyboard + touch, remappable bindings
 src/touch.js      on-screen touch controls (stick / throttle / rudder), mode toggle
 src/tilt.js       tilt-to-steer via device orientation sensors
-src/weapons.js    cannon, tracers, enemy targets, explosions, score
+src/weapons.js    player cannon + lock-on homing missiles
+src/enemies.js    enemy AI fighters + passive drones (combat targets)
+src/fx.js         shared explosion effects pool
 src/hud.js        canvas-2D HUD
 src/ui.js         menu, jet select, joystick remap panel
 ```

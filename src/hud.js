@@ -69,15 +69,60 @@ export class Hud {
     ctx.font = "13px 'Consolas', monospace";
     ctx.fillText(extra.jetName, 20, 26);
     if (extra.camName) ctx.fillText("CAM: " + extra.camName, 20, 44);
+
+    // Top-right: rings + combat tallies
     ctx.textAlign = "right";
     if (extra.checkpoints != null) {
       ctx.fillText(`RINGS ${extra.ringsHit}/${extra.checkpoints}`, w - 20, 26);
     }
-    if (extra.score != null) {
-      ctx.fillText(`KILLS ${extra.score}`, w - 20, 44);
-      ctx.fillText(`BANDITS ${extra.targets}`, w - 20, 62);
+    if (extra.kills != null && extra.mode !== "free") {
+      ctx.fillText(`KILLS ${extra.kills}`, w - 20, 44);
+      const label = extra.mode === "dogfight" ? "BANDITS" : "DRONES";
+      ctx.fillText(`${label} ${extra.bandits}`, w - 20, 62);
     }
     ctx.textAlign = "left";
+
+    // Hull health (dogfight) + missiles
+    if (extra.mode === "dogfight" && extra.health != null) this.healthBar(20, 58, extra.health);
+    if (extra.mode !== "free" && extra.missiles != null) {
+      ctx.fillStyle = extra.missiles > 0 ? green : "#888";
+      ctx.font = "13px 'Consolas', monospace";
+      ctx.fillText(`MSL x${extra.missiles}`, 20, 92);
+    }
+
+    // Missile lock box around the locked target
+    if (extra.lock) this.lockBox(extra.lock);
+  }
+
+  healthBar(x, y, hp) {
+    const ctx = this.ctx;
+    const w = 150, hh = 10;
+    const frac = Math.max(0, Math.min(1, hp / 100));
+    const col = frac > 0.5 ? "#36ff9a" : frac > 0.25 ? "#ffd23f" : "#ff5b5b";
+    ctx.save();
+    ctx.strokeStyle = "#9fb3c4";
+    ctx.lineWidth = 1.5;
+    ctx.strokeRect(x, y, w, hh);
+    ctx.fillStyle = col;
+    ctx.fillRect(x, y, w * frac, hh);
+    ctx.fillStyle = "#9fb3c4";
+    ctx.font = "10px 'Consolas', monospace";
+    ctx.fillText("HULL", x, y - 4);
+    ctx.restore();
+  }
+
+  lockBox(lock) {
+    const ctx = this.ctx;
+    const s = 26;
+    ctx.save();
+    ctx.strokeStyle = "#ffd23f";
+    ctx.fillStyle = "#ffd23f";
+    ctx.lineWidth = 2;
+    ctx.strokeRect(lock.x - s, lock.y - s, s * 2, s * 2);
+    ctx.font = "11px 'Consolas', monospace";
+    ctx.textAlign = "center";
+    ctx.fillText(`LOCK ${Math.round(lock.dist)}m`, lock.x, lock.y + s + 14);
+    ctx.restore();
   }
 
   tape(x, cy, value, label, dir) {

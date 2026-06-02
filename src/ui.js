@@ -9,11 +9,13 @@ export class UI {
     this.touch = touch;
     this.tilt = tilt;
     this.selected = "f16";
+    this.mode = "dogfight";
 
     this.menu = document.getElementById("menu");
     this.settings = document.getElementById("settings");
     this.banner = document.getElementById("banner");
 
+    this.buildModeList();
     this.buildJetList();
     this.bindButtons();
     this.buildBindingControls();
@@ -71,6 +73,27 @@ export class UI {
 
   get visible() { return !this.menu.classList.contains("hidden") || !this.settings.classList.contains("hidden"); }
 
+  buildModeList() {
+    const modes = [
+      { key: "dogfight", name: "Dogfight", desc: "Enemy jets hunt you. Guns + lock-on missiles. Survive and rack up kills." },
+      { key: "practice", name: "Target Practice", desc: "Gun down drifting drones. No one shoots back." },
+      { key: "free", name: "Free Flight", desc: "Just fly. Chase the rings, no combat." },
+    ];
+    const list = document.getElementById("mode-list");
+    list.innerHTML = "";
+    for (const m of modes) {
+      const card = document.createElement("div");
+      card.className = "jet-card" + (m.key === this.mode ? " selected" : "");
+      card.innerHTML = `<div class="name">${m.name}</div><div class="role">${m.desc}</div>`;
+      card.addEventListener("click", () => {
+        this.mode = m.key;
+        [...list.children].forEach((c) => c.classList.remove("selected"));
+        card.classList.add("selected");
+      });
+      list.appendChild(card);
+    }
+  }
+
   buildJetList() {
     const list = document.getElementById("jet-list");
     list.innerHTML = "";
@@ -96,7 +119,7 @@ export class UI {
   bindButtons() {
     document.getElementById("btn-fly").addEventListener("click", () => {
       this.hideAll();
-      this.cb.onFly(this.selected);
+      this.cb.onFly(this.selected, this.mode);
     });
     document.getElementById("btn-settings").addEventListener("click", () => this.showSettings());
     document.getElementById("btn-settings-back").addEventListener("click", () => {

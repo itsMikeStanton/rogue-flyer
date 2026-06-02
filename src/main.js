@@ -8,6 +8,8 @@ import { UI } from "./ui.js";
 import { TouchControls } from "./touch.js";
 import { TiltControls } from "./tilt.js";
 import { Weapons } from "./weapons.js";
+import { Enemies } from "./enemies.js";
+import { Explosions } from "./fx.js";
 
 // --- Renderer / scene / camera ---
 const canvas = document.getElementById("scene");
@@ -21,7 +23,9 @@ const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 1, 30000);
 
 const world = buildWorld(scene);
-const weapons = new Weapons(scene);
+const fx = new Explosions(scene);
+const weapons = new Weapons(scene, fx);
+const enemies = new Enemies(scene, fx);
 const hud = new Hud(document.getElementById("hud"));
 const input = new Input();
 const touch = new TouchControls(input.touchState);
@@ -33,13 +37,32 @@ let def = AIRCRAFT.f16;
 let jetType = "f16";
 let mesh = null;
 let flying = false;
+let gameMode = "dogfight";
 
 const CAMS = ["Chase", "Far Chase", "Cockpit"];
 let camIndex = 0;
 let ringsHit = 0;
 
+// The player as a combat target the enemy can damage.
+const player = {
+  radius: 9,
+  health: 100,
+  get position() { return state.position; },
+  get alive() { return flying && !state.crashed; },
+  applyDamage(d) {
+    if (!this.alive) return;
+    this.health = Math.max(0, this.health - d);
+    if (this.health <= 0) {
+      state.crashed = true;
+      ui.showBanner("SHOT DOWN", "Press R / RESET to respawn");
+    }
+  },
+};
+
+function missilesForMode(mode) { return mode === "free" ? 0 : 6; }
+
 const ui = new UI(input, {
-  onFly: (type) => startFlight(type),
+  onFly: (type, mode) => startFlight(type, mode),
 }, touch, tilt);
 
 // --- Fullscreen ("takeover") ---
@@ -87,11 +110,15 @@ function resetFlight() {
   state = createState();
   ringsHit = 0;
   world.rings.forEach((r) => { r.visible = true; r.userData.hit = false; });
-  weapons.reset();
+  weapons.reset(missilesForMode(gameMode));
+  enemies.setMode(gameMode);
+  player.health = 100;
+  fx.reset();
   ui.hideBanner();
 }
 
-function startFlight(type) {
+function startFlight(type, mode) {
+  gameMode = mode || gameMode;
   setAircraft(type);
   resetFlight();
   flying = true;
@@ -188,13 +215,18 @@ function frame(now) {
     checkRings();
 
     if (controls.fire) weapons.fire(state.position, state.quaternion);
-    weapons.update(dt);
+    if (controls.missilePressed) weapons.fireMissile(state.position, state.quaternion);
+    weapons.update(dt, state.position, state.quaternion, enemies.targets);
+    enemies.update(dt, player);
+    fx.update(dt);
 
-    if (state.crashed) {
-      ui.showBanner("CRASHED", "Press R to respawn");
+    if (state.crashed && player.health > 0) {
+      ui.showBanner("CRASHED", "Press R / RESET to respawn");
     }
-  } else if (flying && state.crashed && controls.resetPressed) {
-    resetFlight();
+  } else if (flying && state.crashed) {
+    // keep effects animating on the wreckage screen
+    fx.update(dt);
+    if (controls.resetPressed) resetFlight();
   }
 
   // Sync mesh to physics state
@@ -221,13 +253,29 @@ function frame(now) {
 
   // HUD
   if (flying) {
+    // Project the locked target to screen space for the lock box.
+    let lock = null;
+    if (weapons.lock && weapons.lock.alive) {
+      _v.copy(weapons.lock.position).project(camera);
+      if (_v.z < 1) {
+        lock = {
+          x: (_v.x * 0.5 + 0.5) * hud.w,
+          y: (-_v.y * 0.5 + 0.5) * hud.h,
+          dist: state.position.distanceTo(weapons.lock.position),
+        };
+      }
+    }
     hud.draw(state.telemetry, {
       jetName: def.name,
       camName: CAMS[camIndex],
+      mode: gameMode,
       checkpoints: world.rings.length,
       ringsHit,
-      score: weapons.score,
-      targets: weapons.targetsAlive(),
+      kills: enemies.kills,
+      bandits: enemies.alive(),
+      health: player.health,
+      missiles: weapons.missileCount,
+      lock,
     });
   } else {
     hud.ctx.clearRect(0, 0, hud.w, hud.h);
