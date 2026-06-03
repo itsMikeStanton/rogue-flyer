@@ -81,7 +81,7 @@ export class Hud {
 
     // Top-right: rings + combat tallies
     ctx.textAlign = "right";
-    if (extra.checkpoints != null) {
+    if (extra.checkpoints) {
       ctx.fillText(`RINGS ${extra.ringsHit}/${extra.checkpoints}`, w - 20, 26);
     }
     if (extra.mode === "mission") {

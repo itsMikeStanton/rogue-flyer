@@ -154,6 +154,31 @@ function waveMaterial(color, opacity) {
   return mat;
 }
 
+// Procedural window textures for buildings: a tiled grid of window panes, with
+// a matching emissive map where some windows are "lit".
+function makeWindowTextures() {
+  const N = 64;
+  const wall = document.createElement("canvas"); wall.width = wall.height = N;
+  const emis = document.createElement("canvas"); emis.width = emis.height = N;
+  const gw = wall.getContext("2d"), ge = emis.getContext("2d");
+  gw.fillStyle = "#ffffff"; gw.fillRect(0, 0, N, N); // white wall (tinted by instanceColor)
+  ge.fillStyle = "#000000"; ge.fillRect(0, 0, N, N);
+  for (let y = 7; y < N - 4; y += 13) {
+    for (let x = 6; x < N - 4; x += 12) {
+      gw.fillStyle = Math.random() < 0.5 ? "#39434f" : "#2a3340";
+      gw.fillRect(x, y, 7, 9);
+      if (Math.random() < 0.33) { ge.fillStyle = "#ffcf86"; ge.fillRect(x, y, 7, 9); }
+    }
+  }
+  const t = new THREE.CanvasTexture(wall);
+  const e = new THREE.CanvasTexture(emis);
+  t.colorSpace = THREE.SRGBColorSpace;
+  e.colorSpace = THREE.SRGBColorSpace;
+  t.wrapS = t.wrapT = e.wrapS = e.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(2, 3); e.repeat.set(2, 3);
+  return { map: t, emissiveMap: e };
+}
+
 export function buildWorld(scene) {
   const waveMats = [];
   // Sky + fog
@@ -326,7 +351,7 @@ export function buildWorld(scene) {
 
   // ---- Forests: dense clustered conifers + deciduous trees on lowland ----
   {
-    const MAX = 3400;
+    const MAX = 5200;
     const trunks = new THREE.InstancedMesh(
       new THREE.CylinderGeometry(0.7, 1.0, 7, 5),
       new THREE.MeshStandardMaterial({ color: 0x5b4326, flatShading: true, roughness: 1 }), MAX);
@@ -342,9 +367,9 @@ export function buildWorld(scene) {
       const x = (rnd() - 0.5) * TERRAIN_SIZE * 0.85;
       const z = (rnd() - 0.5) * TERRAIN_SIZE * 0.85;
       const h = terrainHeight(x, z);
-      if (h < 8 || h > 720 || onRiver(x, z)) continue;
-      // tight forest clumping: pack into high-noise patches, sparse elsewhere
-      if (smoothNoise(x * 0.0011, z * 0.0011) < 0.55 && rnd() > 0.05) continue;
+      if (h < 8 || h > 760 || onRiver(x, z)) continue;
+      // tight, dense forest clumping
+      if (smoothNoise(x * 0.0011, z * 0.0011) < 0.46 && rnd() > 0.05) continue;
       const s = 1.0 + rnd() * 1.8;
       tp.set(x, h + 3.5 * s, z); ts.set(s, s, s);
       trunks.setMatrixAt(n, m4.compose(tp, noRot, ts));
@@ -412,9 +437,24 @@ export function buildWorld(scene) {
 
   // ---- Settlements: cities, towns, villages (instanced w/ roofs + colliders) ----
   const colliders = [];
+  // Each settlement: [cx, cz, gridRadius, spacing, maxHeight]
+  const settlements = [
+    [3200, -3500, 2, 115, 150],   // town
+    [-4200, 2600, 2, 115, 140],   // town
+    [1600, 5200, 2, 110, 130],    // town
+    [5200, 2600, 3, 130, 230],    // city
+    [-2600, -5200, 3, 130, 240],  // city
+    [-1000, 3400, 1, 90, 70],     // village
+    [4200, -1200, 1, 90, 70],     // village
+    [-5400, -1800, 1, 85, 60],    // village
+    [2200, 1200, 1, 85, 70],      // village
+  ];
   {
     const MAX = 900;
-    const wallMat = new THREE.MeshStandardMaterial({ flatShading: true, roughness: 0.82 });
+    const win = makeWindowTextures();
+    const wallMat = new THREE.MeshStandardMaterial({
+      map: win.map, emissive: 0xffcf86, emissiveMap: win.emissiveMap, emissiveIntensity: 0.9, roughness: 0.8,
+    });
     const buildings = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), wallMat, MAX);
     const roofMat = new THREE.MeshStandardMaterial({ flatShading: true, roughness: 0.8 });
     const roofs = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), roofMat, MAX);
@@ -424,19 +464,6 @@ export function buildWorld(scene) {
     const roofTones = [0x5a3b34, 0x40474d, 0x6b5a3a, 0x3a4148];
     const tmpCol = new THREE.Color();
     let n = 0;
-
-    // Each settlement: [cx, cz, gridRadius, spacing, maxHeight]
-    const settlements = [
-      [3200, -3500, 2, 115, 150],   // town
-      [-4200, 2600, 2, 115, 140],   // town
-      [1600, 5200, 2, 110, 130],    // town
-      [5200, 2600, 3, 130, 230],    // city
-      [-2600, -5200, 3, 130, 240],  // city
-      [-1000, 3400, 1, 90, 70],     // village
-      [4200, -1200, 1, 90, 70],     // village
-      [-5400, -1800, 1, 85, 60],    // village
-      [2200, 1200, 1, 85, 70],      // village
-    ];
     for (const [cx, cz, gr, sp, mh] of settlements) {
       for (let gx = -gr; gx <= gr && n < MAX; gx++) {
         for (let gz = -gr; gz <= gr && n < MAX; gz++) {
@@ -451,7 +478,6 @@ export function buildWorld(scene) {
           tp.set(x, h + bh / 2, z); ts.set(bw, bh, bd);
           buildings.setMatrixAt(n, m4.compose(tp, noRot, ts));
           buildings.setColorAt(n, tmpCol.setHex(wallTones[(rnd() * wallTones.length) | 0]));
-          // roof cap
           tp.set(x, h + bh + 1.2, z); ts.set(bw + 3, 2.4, bd + 3);
           roofs.setMatrixAt(n, m4.compose(tp, noRot, ts));
           roofs.setColorAt(n, tmpCol.setHex(roofTones[(rnd() * roofTones.length) | 0]));
@@ -466,6 +492,22 @@ export function buildWorld(scene) {
     buildings.instanceColor.needsUpdate = true;
     roofs.instanceColor.needsUpdate = true;
     scene.add(buildings); scene.add(roofs);
+
+    // City paving + a cross street under each settlement.
+    const paveMat = new THREE.MeshStandardMaterial({ color: 0x2f3236, roughness: 0.95 });
+    const lineMat = new THREE.MeshStandardMaterial({ color: 0x53565b, roughness: 0.9 });
+    for (const [cx, cz, gr, sp] of settlements) {
+      const hC = terrainHeight(cx, cz);
+      if (hC < 4) continue;
+      const size = (gr * 2 + 1.4) * sp;
+      const pave = new THREE.Mesh(new THREE.PlaneGeometry(size, size), paveMat);
+      pave.rotation.x = -Math.PI / 2; pave.position.set(cx, hC + 0.35, cz);
+      pave.receiveShadow = true; scene.add(pave);
+      const sa = new THREE.Mesh(new THREE.PlaneGeometry(size, 7), lineMat);
+      sa.rotation.x = -Math.PI / 2; sa.position.set(cx, hC + 0.45, cz); scene.add(sa);
+      const sb = new THREE.Mesh(new THREE.PlaneGeometry(7, size), lineMat);
+      sb.rotation.x = -Math.PI / 2; sb.position.set(cx, hC + 0.45, cz); scene.add(sb);
+    }
   }
 
   // ---- Roads draped over the terrain between key places ----
@@ -560,20 +602,36 @@ export function buildWorld(scene) {
     scene.add(clouds);
   }
 
-  // Floating ring checkpoints to give the player something to chase.
-  const rings = [];
-  const ringMat = new THREE.MeshStandardMaterial({ color: 0xffd23f, emissive: 0x6b5a10, flatShading: true });
-  const ringPath = [
-    [0, 1200, -3000], [2500, 1600, -6000], [5000, 2200, -3000],
-    [3000, 1800, 2000], [-2000, 2400, 4000], [-5000, 1700, 0],
-  ];
-  for (const [x, y, z] of ringPath) {
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(120, 14, 8, 24), ringMat);
-    ring.position.set(x, y, z);
-    ring.lookAt(0, y, 0);
-    scene.add(ring);
-    rings.push(ring);
+  // ---- Shoreline foam: a soft white band hugging the coastline ----
+  {
+    const STEPS = 200, y = SEA_LEVEL + 2, inLand = 60, outSea = 110;
+    const positions = [], indices = [];
+    for (let i = 0; i <= STEPS; i++) {
+      const a = (i / STEPS) * Math.PI * 2;
+      const nx = Math.cos(a), nz = Math.sin(a);
+      let rc = 9400;
+      for (let dd = 6500; dd < 11000; dd += 110) {
+        if (terrainHeight(nx * dd, nz * dd) < SEA_LEVEL) { rc = dd; break; }
+      }
+      const x = nx * rc, z = nz * rc;
+      positions.push(x - nx * inLand, y, z - nz * inLand, x + nx * outSea, y, z + nz * outSea);
+    }
+    for (let i = 0; i < STEPS; i++) {
+      const a = i * 2, b = i * 2 + 1, cc = (i + 1) * 2, d = (i + 1) * 2 + 1;
+      indices.push(a, cc, b, b, cc, d);
+    }
+    const fgeo = new THREE.BufferGeometry();
+    fgeo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+    fgeo.setIndex(indices); fgeo.computeVertexNormals();
+    const foam = new THREE.Mesh(
+      fgeo,
+      new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.4, depthWrite: false })
+    );
+    scene.add(foam);
   }
+
+  // No ring checkpoints (removed) — modes provide their own objectives.
+  const rings = [];
 
   return { terrain, rings, sun, clouds, carriers, colliders, waveMats };
 }

@@ -226,6 +226,38 @@ function buildWarthog(def) {
   return g;
 }
 
+// Retractable landing gear + droopable flaps (animated from main.js).
+function addGearFlaps(g) {
+  const dark = new THREE.MeshStandardMaterial({ color: 0x20242a, flatShading: true });
+  const strutMat = new THREE.MeshStandardMaterial({ color: 0x4a4f55, flatShading: true });
+  const flapMat = new THREE.MeshStandardMaterial({ color: 0x868d95, flatShading: true });
+  const leg = (x, z) => {
+    const lg = new THREE.Group();
+    const strut = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 1.4, 6), strutMat);
+    strut.position.y = -0.7; lg.add(strut);
+    const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.45, 0.3, 10), dark);
+    wheel.rotation.z = Math.PI / 2; wheel.position.y = -1.4; lg.add(wheel);
+    lg.position.set(x, -0.2, z);
+    return lg;
+  };
+  const gear = new THREE.Group();
+  gear.add(leg(0, -2.6)); gear.add(leg(-1.7, 1.2)); gear.add(leg(1.7, 1.2));
+  g.add(gear);
+  g.userData.gear = gear;
+
+  const flaps = [];
+  for (const s of [-1, 1]) {
+    const pivot = new THREE.Group();
+    pivot.position.set(s * 2.6, 0, 1.7);
+    const flap = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.12, 0.9), flapMat);
+    flap.position.set(0, 0, 0.45);
+    pivot.add(flap);
+    g.add(pivot);
+    flaps.push(pivot);
+  }
+  g.userData.flaps = flaps;
+}
+
 // Build the distinct low-poly mesh for a given aircraft type.
 // `colorOverride` (optional) repaints the airframe — used for enemy jets.
 export function buildAircraftMesh(type, colorOverride) {
@@ -235,6 +267,7 @@ export function buildAircraftMesh(type, colorOverride) {
   if (type === "a10") g = buildWarthog(def);
   else if (type === "fa18") g = buildHornet(def);
   else g = buildF16(def);
+  addGearFlaps(g);
   g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
   return g;
 }

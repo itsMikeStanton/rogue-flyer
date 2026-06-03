@@ -20,6 +20,8 @@ renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.06;
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 1, 30000);
@@ -66,6 +68,7 @@ const player = {
     if (this.health <= 0) {
       state.crashed = true;
       fx.add(state.position, 2.6);
+      fx.burst(state.position, def.color, 16);
       sound.stopEngine();
       ui.showBanner("SHOT DOWN", "Press R / RESET to respawn");
     }
@@ -206,6 +209,11 @@ function updateCamera(dt) {
   const pos = state.position;
   const q = state.quaternion;
 
+  // Speed-driven FOV kick for a sense of velocity.
+  const targetFov = 70 + THREE.MathUtils.clamp((state.velocity.length() - 140) * 0.06, 0, 18);
+  camera.fov += (targetFov - camera.fov) * Math.min(1, dt * 3);
+  camera.updateProjectionMatrix();
+
   if (mode === "Cockpit") {
     const eye = _v.set(0, 0.5, -1.5).applyQuaternion(q).add(pos);
     camera.position.copy(eye);
@@ -261,6 +269,11 @@ function frame(now) {
     if (controls.viewPressed) camIndex = (camIndex + 1) % CAMS.length;
     if (controls.resetPressed) resetFlight();
 
+    // Gear + flaps auto-deploy at low speed / on the ground.
+    const sp = state.telemetry.speed;
+    controls.gear = state.onGround || sp < 110;
+    controls.flaps = sp < 130;
+
     acc += dt;
     let steps = 0;
     while (acc >= PHYS_DT && steps < 8) {
@@ -292,6 +305,14 @@ function frame(now) {
     fx.update(dt);
     sound.updateEngine(state.telemetry.throttle, state.telemetry.speed);
 
+    // Eject countermeasure flares.
+    if (controls.flarePressed) {
+      _v.set(0, 0, 1).applyQuaternion(state.quaternion);
+      const away = _v.clone().multiplyScalar(Math.max(50, state.velocity.length()));
+      const tail = state.position.clone().addScaledVector(_v, 6);
+      for (let i = 0; i < 6; i++) fx.flare(tail, away);
+    }
+
     if (isMission && ground.total > 0 && ground.remaining === 0 && !missionDone) {
       missionDone = true;
       ui.showBanner("MISSION COMPLETE", "Press R / RESET to fly again");
@@ -303,6 +324,7 @@ function frame(now) {
 
     if (state.crashed && player.health > 0) {
       fx.add(state.position, 2.6);
+      fx.burst(state.position, def.color, 16);
       sound.stopEngine();
       ui.showBanner("CRASHED", "Press R / RESET to respawn");
     }
@@ -325,6 +347,14 @@ function frame(now) {
         fl.material.opacity = op;
         fl.scale.setScalar((fl.userData.base || 1) * (0.6 + t * 0.8));
       }
+    }
+    // Gear + flaps animation following the auto-deploy state.
+    const sp = state.telemetry.speed;
+    const gearDown = state.onGround || sp < 110;
+    const flapTarget = sp < 130 ? 0.5 : 0;
+    if (mesh.userData.gear) mesh.userData.gear.visible = gearDown;
+    if (mesh.userData.flaps) {
+      for (const p of mesh.userData.flaps) p.rotation.x += (flapTarget - p.rotation.x) * Math.min(1, dt * 4);
     }
   }
 

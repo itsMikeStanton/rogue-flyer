@@ -44,6 +44,7 @@ class Entity {
       this.radius = 30;
       this.maxHealth = 30;
       this.mesh = buildAircraftMesh(Math.random() < 0.5 ? "fa18" : "f16", 0xb84a4a);
+      if (this.mesh.userData.gear) this.mesh.userData.gear.visible = false; // gear up in the air
     } else {
       this.radius = 55;
       this.maxHealth = 1;
@@ -105,6 +106,7 @@ class Entity {
     this.respawn = 4 + Math.random() * 3;
     this.manager.kills++;
     this.manager.fx.add(this.position, this.kind === "fighter" ? 2.4 : 1.4);
+    if (this.kind === "fighter") this.manager.fx.burst(this.position, 0xb84a4a, 12);
   }
 
   update(dt, player) {

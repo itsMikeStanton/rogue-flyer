@@ -74,6 +74,7 @@ export class TouchControls {
         <button class="t-btn" data-act="view">CAM</button>
         <button class="t-btn" data-act="reset">RESET</button>
         <button class="t-btn msl" data-act="missile">MSL</button>
+        <button class="t-btn flare" data-act="flare">FLARE</button>
         <button class="t-btn fire" data-act="fire">FIRE</button>
       </div>`;
     document.body.appendChild(root);

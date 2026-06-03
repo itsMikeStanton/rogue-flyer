@@ -100,6 +100,7 @@ export function step(state, def, controls, dt, groundHeight) {
     const lc = liftCoeff(def, aoa);
     cl = lc.cl;
     stalling = lc.stalling;
+    if (controls.flaps) cl += 0.45; // flaps add lift for slow flight / landing
 
     // Lift acts perpendicular to velocity, in the aircraft's vertical plane.
     _liftDir.copy(_up).addScaledVector(vel, -vel.dot(_up) / (speed * speed)).normalize();
@@ -108,8 +109,10 @@ export function step(state, def, controls, dt, groundHeight) {
     _tmp.copy(_liftDir).multiplyScalar(liftMag);
     _force.add(_tmp);
 
-    // Drag opposes velocity
-    const cd = def.cd0 + def.k * cl * cl;
+    // Drag opposes velocity (gear + flaps add drag)
+    let cd = def.cd0 + def.k * cl * cl;
+    if (controls.gear) cd += 0.022;
+    if (controls.flaps) cd += 0.014;
     const dragMag = qDyn * def.wingArea * cd;
     _tmp.copy(vel).multiplyScalar(-dragMag / speed);
     _force.add(_tmp);
