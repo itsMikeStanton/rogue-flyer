@@ -111,6 +111,14 @@ export function step(state, def, controls, dt, groundHeight) {
     const dragMag = qDyn * def.wingArea * cd;
     _tmp.copy(vel).multiplyScalar(-dragMag / speed);
     _force.add(_tmp);
+
+    // Side force from sideslip: airflow from the side pushes the jet laterally,
+    // curving the velocity to follow the nose — this is what makes rudder/yaw
+    // actually turn your flight path (and lets turns coordinate themselves).
+    const vSide = vel.dot(_right);
+    const sideMag = qDyn * def.wingArea * 0.8 * (vSide / speed);
+    _tmp.copy(_right).multiplyScalar(-sideMag);
+    _force.add(_tmp);
   }
 
   // Gravity
@@ -149,13 +157,7 @@ export function step(state, def, controls, dt, groundHeight) {
   const authority = THREE.MathUtils.clamp(qDyn / 6000, 0.15, 1.2);
   const pitch = pitchCmd * def.pitchRate * authority;
   const roll = rollInput * def.rollRate * authority;
-  let yaw = sc.yaw * def.yawRate * authority;
-  // Directional stability: weathervane the nose toward the velocity vector so
-  // sideslip washes out when you let off the rudder (coordinated flight).
-  if (speed > 20) {
-    const side = vel.dot(_right) / speed; // + when the airflow is from the right
-    yaw += -side * 2.5 * authority;
-  }
+  const yaw = sc.yaw * def.yawRate * authority;
 
   // Apply body-rate rotations: roll about fwd, pitch about right, yaw about up.
   _euler.set(pitch * dt, yaw * dt, -roll * dt, "XYZ");
