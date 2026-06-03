@@ -1,9 +1,23 @@
 import * as THREE from "three";
+import { defaultWorldConfig } from "./worldConfig.js";
 
-// Low-poly arcade world: rolling terrain, runway, scattered landmarks, sky.
+// Low-poly arcade world, driven by an editable config (see worldConfig.js).
 
 const TERRAIN_SIZE = 24000;
 const SEGMENTS = 200;
+
+// Active world config. Loaded from a localStorage override if present so the
+// in-browser editor can iterate; otherwise the built-in default.
+let CFG = defaultWorldConfig();
+try {
+  const saved = typeof localStorage !== "undefined" && localStorage.getItem("rogueflyer.world");
+  if (saved) CFG = { ...CFG, ...JSON.parse(saved) };
+} catch (_) { /* ignore */ }
+
+export function setWorldConfig(cfg) { CFG = cfg; }
+export function getWorldConfig() { return CFG; }
+export function getCarriers() { return CFG.carriers.map((c) => ({ ...c, deckY: CFG.seaLevel + 24 })); }
+export function getMissionBases() { return CFG.missionBases; }
 
 // Cheap deterministic value-noise so terrain is repeatable run-to-run.
 function hash2(x, z) {
@@ -30,17 +44,11 @@ function mulberry32(a) {
   };
 }
 
-// Winding river centerline: x as a function of z.
-const RIVER_BED = -14;
-const RIVER_SURFACE = -9;
-const RIVER_INNER = 140;  // full-depth half-width
-const RIVER_OUTER = 440;  // banks blend out to here
+// Winding river centerline: x as a function of z (from config).
 export function riverCenterX(z) {
-  return 2200 * Math.sin(z * 0.00026) + 700 * Math.sin(z * 0.00091 + 1.3);
+  const r = CFG.river;
+  return r.a1 * Math.sin(z * r.f1) + r.a2 * Math.sin(z * r.f2 + r.phase);
 }
-
-// A steep coastal cliff/headland: a high flat-topped mesa with sharp sides.
-const CLIFF_X = -6200, CLIFF_Z = 1900, CLIFF_R = 620, CLIFF_H = 560;
 
 // Public height sampler used for terrain mesh + ground collision.
 export function terrainHeight(x, z) {
@@ -52,43 +60,41 @@ export function terrainHeight(x, z) {
   h -= 600; // sink the baseline so there's lowland and ridges
   const d = Math.sqrt(x * x + z * z);
   // Island: beyond the shore, the land falls away to the ocean floor.
-  const isl = THREE.MathUtils.smoothstep(d, 7000, 9800);
-  h = THREE.MathUtils.lerp(h, -750, isl);
+  const isl = THREE.MathUtils.smoothstep(d, CFG.terrain.islandInner, CFG.terrain.islandOuter);
+  h = THREE.MathUtils.lerp(h, CFG.terrain.deep, isl);
   // Coastal cliff: raise a plateau with a short (steep) transition = cliff faces.
-  const cdist = Math.hypot(x - CLIFF_X, z - CLIFF_Z);
-  if (cdist < CLIFF_R + 230) {
-    const t = THREE.MathUtils.smoothstep(cdist, CLIFF_R, CLIFF_R + 230);
-    h = THREE.MathUtils.lerp(CLIFF_H, h, t);
+  const cf = CFG.cliff;
+  const cdist = Math.hypot(x - cf.x, z - cf.z);
+  if (cdist < cf.r + 230) {
+    const t = THREE.MathUtils.smoothstep(cdist, cf.r, cf.r + 230);
+    h = THREE.MathUtils.lerp(cf.h, h, t);
   }
   // Flatten a region around the origin for a runway / spawn.
-  if (d < 1400) {
+  if (d < CFG.spawn.flattenRadius) {
     const t = THREE.MathUtils.clamp((d - 600) / 800, 0, 1);
     h = THREE.MathUtils.lerp(0, h, t);
   }
   // Carve the river valley (island interior only).
-  if (d < 7800) {
+  const rv = CFG.river;
+  if (d < rv.carveMax) {
     const rd = Math.abs(x - riverCenterX(z));
-    if (rd < RIVER_OUTER) {
-      const t = THREE.MathUtils.smoothstep(rd, RIVER_INNER, RIVER_OUTER);
-      h = THREE.MathUtils.lerp(RIVER_BED, h, t);
+    if (rd < rv.outer) {
+      const t = THREE.MathUtils.smoothstep(rd, rv.inner, rv.outer);
+      h = THREE.MathUtils.lerp(rv.bed, h, t);
     }
   }
   return h;
 }
 
-// Sea surface and the two carriers.
-export const SEA_LEVEL = -180;
-const DECK_Y = SEA_LEVEL + 24;
-export const CARRIERS = [
-  { team: "ally", x: -1200, z: 11200, halfL: 170, halfW: 36, deckY: DECK_Y },
-  { team: "enemy", x: 1200, z: -12800, halfL: 170, halfW: 36, deckY: DECK_Y },
-];
+// Sea surface (fixed) — carriers come from config via getCarriers().
+export const SEA_LEVEL = defaultWorldConfig().seaLevel;
 
 // Ground height including carrier decks — used for collision / takeoff.
 export function groundHeightAt(x, z) {
   let g = terrainHeight(x, z);
-  for (const c of CARRIERS) {
-    if (Math.abs(x - c.x) < c.halfW && Math.abs(z - c.z) < c.halfL) g = Math.max(g, c.deckY);
+  const deckY = CFG.seaLevel + 24;
+  for (const c of CFG.carriers) {
+    if (Math.abs(x - c.x) < c.halfW && Math.abs(z - c.z) < c.halfL) g = Math.max(g, deckY);
   }
   return g;
 }
@@ -250,7 +256,7 @@ export function buildWorld(scene) {
 
   // Carriers out in the ocean (one each side of the island).
   const carriers = {};
-  for (const c of CARRIERS) carriers[c.team] = buildCarrier(scene, c);
+  for (const c of getCarriers()) carriers[c.team] = buildCarrier(scene, c);
 
   // Runway near spawn
   const ry = terrainHeight(0, 0);
@@ -292,12 +298,13 @@ export function buildWorld(scene) {
 
   // ---- River surface: a translucent ribbon following the carved valley ----
   {
-    const z0 = -6800, z1 = 6800, step = 300, half = 150;
+    const z0 = -CFG.river.extent, z1 = CFG.river.extent, step = 300, half = 150;
+    const surf = CFG.river.surface;
     const positions = [], indices = [];
     let rows = 0;
     for (let z = z0; z <= z1; z += step) {
       const cx = riverCenterX(z);
-      positions.push(cx - half, RIVER_SURFACE, z, cx + half, RIVER_SURFACE, z);
+      positions.push(cx - half, surf, z, cx + half, surf, z);
       rows++;
     }
     for (let i = 0; i < rows - 1; i++) {
@@ -320,7 +327,7 @@ export function buildWorld(scene) {
   const noRot = new THREE.Quaternion();
   const tp = new THREE.Vector3();
   const ts = new THREE.Vector3();
-  const onRiver = (x, z) => Math.abs(x - riverCenterX(z)) < RIVER_OUTER + 60;
+  const onRiver = (x, z) => Math.abs(x - riverCenterX(z)) < CFG.river.outer + 60;
 
   // ---- Forests: dense clustered conifers + deciduous trees on lowland ----
   {
@@ -410,18 +417,7 @@ export function buildWorld(scene) {
 
   // ---- Settlements: cities, towns, villages (instanced w/ roofs + colliders) ----
   const colliders = [];
-  // Each settlement: [cx, cz, gridRadius, spacing, maxHeight]
-  const settlements = [
-    [3200, -3500, 2, 115, 150],   // town
-    [-4200, 2600, 2, 115, 140],   // town
-    [1600, 5200, 2, 110, 130],    // town
-    [5200, 2600, 3, 130, 230],    // city
-    [-2600, -5200, 3, 130, 240],  // city
-    [-1000, 3400, 1, 90, 70],     // village
-    [4200, -1200, 1, 90, 70],     // village
-    [-5400, -1800, 1, 85, 60],    // village
-    [2200, 1200, 1, 85, 70],      // village
-  ];
+  const settlements = CFG.settlements.map((s) => [s.x, s.z, s.radius, s.spacing, s.maxHeight]);
   {
     const MAX = 900;
     const win = makeWindowTextures();
@@ -513,11 +509,7 @@ export function buildWorld(scene) {
       const road = new THREE.Mesh(g, roadMat);
       road.receiveShadow = true; scene.add(road);
     };
-    // runway -> towns/cities, with two river crossings (bridges below)
-    buildRoad([[60, 300], [1600, 5200], [5200, 2600]]);
-    buildRoad([[60, -300], [-2600, -5200]]);
-    buildRoad([[3200, -3500], [4200, -1200], [2200, 1200], [1600, 5200]]);
-    buildRoad([[-1000, 3400], [-4200, 2600]]);
+    for (const road of CFG.roads) buildRoad(road);
   }
 
   // ---- Two bridges over the river ----
@@ -526,9 +518,9 @@ export function buildWorld(scene) {
     const railMat = new THREE.MeshStandardMaterial({ color: 0x484c50, flatShading: true });
     const pierMat = new THREE.MeshStandardMaterial({ color: 0x55585d, flatShading: true });
     const deckY = 16;
-    for (const bz of [-1600, 2600]) {
+    for (const bz of CFG.bridges) {
       const cx = riverCenterX(bz);
-      const span = (RIVER_OUTER + 70) * 2;
+      const span = (CFG.river.outer + 70) * 2;
       const deck = new THREE.Mesh(new THREE.BoxGeometry(span, 3, 30), deckMat);
       deck.position.set(cx, deckY, bz);
       deck.castShadow = deck.receiveShadow = true;
@@ -538,8 +530,8 @@ export function buildWorld(scene) {
         rail.position.set(cx, deckY + 2.4, bz + s * 14);
         scene.add(rail);
       }
-      for (const px of [cx - RIVER_INNER, cx + RIVER_INNER]) {
-        const ph = deckY - RIVER_BED + 6;
+      for (const px of [cx - CFG.river.inner, cx + CFG.river.inner]) {
+        const ph = deckY - CFG.river.bed + 6;
         const pier = new THREE.Mesh(new THREE.BoxGeometry(9, ph, 9), pierMat);
         pier.position.set(px, deckY - ph / 2, bz);
         pier.castShadow = true; scene.add(pier);

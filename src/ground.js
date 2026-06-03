@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { terrainHeight, riverCenterX } from "./world.js";
+import { terrainHeight, riverCenterX, getMissionBases } from "./world.js";
 
 // Strike-mission ground targets: stationary structures sitting on the terrain
 // that you destroy with guns/missiles. Same { position, radius, alive, hit }
@@ -183,7 +183,7 @@ export class GroundTargets {
     if (!active) return;
     const types = ["tank", "radar", "bunker", "sam"];
     // bases placed ahead of spawn (player starts facing -Z)
-    const bases = [[0, -3800], [2600, -6500], [-2800, -5200]];
+    const bases = getMissionBases();
     for (const [bx, bz] of bases) {
       const count = 3 + Math.floor(Math.random() * 2);
       for (let i = 0; i < count; i++) {

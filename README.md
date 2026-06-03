@@ -100,7 +100,8 @@ src/style.css     menu / HUD-overlay styling
 src/main.js       renderer, game loop (fixed-timestep physics), camera
 src/flight.js     arcade-plus flight dynamics
 src/aircraft.js   jet definitions + low-poly mesh builder
-src/world.js      terrain, cliff, river+bridges, roads, waves, forests, cities, clouds
+src/worldConfig.js editable data describing the world (terrain/cliff/river/towns/…)
+src/world.js      builds the scene + samples terrain from worldConfig
 src/input.js      Gamepad API + keyboard + touch, remappable bindings
 src/touch.js      on-screen touch controls (stick / throttle / rudder), mode toggle
 src/tilt.js       tilt-to-steer via device orientation sensors

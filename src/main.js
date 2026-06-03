@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { AIRCRAFT, buildAircraftMesh } from "./aircraft.js";
 import { createState, step } from "./flight.js";
-import { buildWorld, terrainHeight, groundHeightAt, CARRIERS } from "./world.js";
+import { buildWorld, terrainHeight, groundHeightAt, getCarriers } from "./world.js";
 import { Input } from "./input.js";
 import { Hud } from "./hud.js";
 import { UI } from "./ui.js";
@@ -154,7 +154,7 @@ function resetFlight() {
     input.kbThrottle = 0;
   } else if (startPos === "carrier") {
     // Spotted at the back of our carrier deck; a catapult kick to start.
-    const c = CARRIERS.find((k) => k.team === "ally");
+    const c = getCarriers().find((k) => k.team === "ally");
     state.position.set(c.x, c.deckY + 1.5, c.z + c.halfL - 30);
     state.velocity.set(0, 0, -60);
     state.quaternion.identity();
@@ -165,7 +165,7 @@ function resetFlight() {
   world.rings.forEach((r) => { r.visible = true; r.userData.hit = false; });
   weapons.reset(missilesForMode(gameMode));
   enemies.setMode(gameMode);
-  ground.setActive(gameMode === "mission", world.carriers.enemy, CARRIERS.find((c) => c.team === "enemy"));
+  ground.setActive(gameMode === "mission", world.carriers.enemy, getCarriers().find((c) => c.team === "enemy"));
   missionDone = false;
   player.health = 100;
   fx.reset();
