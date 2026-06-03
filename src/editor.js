@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { getWorldConfig, riverCenterX } from "./world.js";
+import { getWorldConfig, riverCenterX, getForestDensity } from "./world.js";
 
 // In-browser world editor: a top-down map view with draggable markers for the
 // editable objects (settlements, carriers, bridges, mission bases, spawn,
@@ -25,6 +25,9 @@ export class Editor {
     this.tool = "select";
     this.selected = null;
     this.view = 16000;
+    this.brush = 700;
+    this._painting = 0;
+    this.densMesh = null;
 
     this.gizmos = new THREE.Group();
     this.cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, 80000);
@@ -50,6 +53,8 @@ export class Editor {
     this.scene.fog = null; // would otherwise fog out the whole map from up high
     this.scene.add(this.gizmos);
     this.rebuildGizmos();
+    this._ensureDensOverlay();
+    this._syncOverlay();
     this.applyCamera();
     this.panel.style.display = "block";
     this.select(null);
@@ -58,6 +63,7 @@ export class Editor {
     this.active = false;
     this.scene.fog = this._fog;
     this.scene.remove(this.gizmos);
+    if (this.densMesh) this.densMesh.visible = false;
     this.panel.style.display = "none";
     if (this.onExit) this.onExit();
   }
@@ -131,6 +137,53 @@ export class Editor {
     this.gizmos.add(cl);
   }
 
+  // ---- tree-density overlay + brush ----
+  _ensureDensOverlay() {
+    if (this.densMesh) return;
+    const f = this.cfg.forest, g = f.gridN;
+    this._densData = new Uint8Array(g * g * 4);
+    this._densTex = new THREE.DataTexture(this._densData, g, g, THREE.RGBAFormat);
+    const mat = new THREE.MeshBasicMaterial({ map: this._densTex, transparent: true, opacity: 0.7, depthTest: false });
+    this.densMesh = new THREE.Mesh(new THREE.PlaneGeometry(2 * f.extent, 2 * f.extent), mat);
+    this.densMesh.rotation.x = -Math.PI / 2;
+    this.densMesh.position.set(0, GY - 40, 0);
+    this.densMesh.renderOrder = 5;
+    this.scene.add(this.densMesh);
+    this._updateDensTex();
+  }
+  _updateDensTex() {
+    const d = getForestDensity(), g = this.cfg.forest.gridN;
+    for (let j = 0; j < g; j++) {
+      for (let i = 0; i < g; i++) {
+        const v = d[j * g + i];
+        const k = ((g - 1 - j) * g + i) * 4; // flip Z so the overlay matches the map
+        this._densData[k] = 40; this._densData[k + 1] = 210; this._densData[k + 2] = 70;
+        this._densData[k + 3] = Math.round(v * 200);
+      }
+    }
+    this._densTex.needsUpdate = true;
+  }
+  _syncOverlay() {
+    if (this.densMesh) this.densMesh.visible = this.tool === "trees" || this.tool === "erase";
+  }
+  paintAt(p) {
+    const f = this.cfg.forest, g = f.gridN, e = f.extent, d = getForestDensity();
+    const rad = this.brush, rate = 0.5, cell = (2 * e) / (g - 1);
+    const span = Math.ceil(rad / cell) + 1;
+    const ci = (p.x / (2 * e) + 0.5) * (g - 1);
+    const cj = (p.z / (2 * e) + 0.5) * (g - 1);
+    for (let j = Math.max(0, Math.floor(cj - span)); j <= Math.min(g - 1, Math.ceil(cj + span)); j++) {
+      for (let i = Math.max(0, Math.floor(ci - span)); i <= Math.min(g - 1, Math.ceil(ci + span)); i++) {
+        const wx = (i / (g - 1) - 0.5) * 2 * e, wz = (j / (g - 1) - 0.5) * 2 * e;
+        const dist = Math.hypot(wx - p.x, wz - p.z);
+        if (dist > rad) continue;
+        const k = j * g + i;
+        d[k] = THREE.MathUtils.clamp(d[k] + this._painting * rate * (1 - dist / rad), 0, 1);
+      }
+    }
+    this._updateDensTex();
+  }
+
   _markerPos(u) {
     const c = this.cfg;
     if (u.kind === "settlement" || u.kind === "carrier") return [u.ref.x, u.ref.z];
@@ -173,6 +226,11 @@ export class Editor {
     window.addEventListener("pointerdown", (e) => {
       if (!this.active || (e.target.closest && e.target.closest("#editor-panel"))) return;
       const g = this._ground(e);
+      if (this.tool === "trees" || this.tool === "erase") {
+        this._painting = this.tool === "trees" ? 1 : -1;
+        if (g) this.paintAt(g);
+        return;
+      }
       if (this.tool !== "select") { if (g) this.place(g); return; }
       const m = this._pick(e);
       if (m) { this.select(m); this._drag = m; }
@@ -180,7 +238,10 @@ export class Editor {
     });
     window.addEventListener("pointermove", (e) => {
       if (!this.active) return;
-      if (this._drag) {
+      if (this._painting) {
+        const g = this._ground(e);
+        if (g) this.paintAt(g);
+      } else if (this._drag) {
         const g = this._ground(e);
         if (g) { this._setPos(this._drag.userData, g.x, g.z); this._syncMarker(this._drag); this._refreshProps(); }
       } else if (this._pan) {
@@ -190,7 +251,7 @@ export class Editor {
         this._pan = { x: e.clientX, y: e.clientY };
       }
     });
-    window.addEventListener("pointerup", () => { this._drag = null; this._pan = null; });
+    window.addEventListener("pointerup", () => { this._drag = null; this._pan = null; this._painting = 0; });
     window.addEventListener("wheel", (e) => {
       if (!this.active || (e.target.closest && e.target.closest("#editor-panel"))) return;
       this.view = THREE.MathUtils.clamp(this.view * (1 + Math.sign(e.deltaY) * 0.12), 2500, 42000);
@@ -262,12 +323,13 @@ export class Editor {
       ["select", "Select"], ["settle:city", "+City"], ["settle:town", "+Town"],
       ["settle:village", "+Village"], ["carrier:ally", "+Ally CV"], ["carrier:enemy", "+Enemy CV"],
       ["bridge", "+Bridge"], ["base", "+Target"],
+      ["trees", "🌲 Trees"], ["erase", "🧹 Clear"],
     ];
     const tt = p.querySelector("#ed-tools");
     for (const [id, label] of tools) {
       const b = document.createElement("button");
       b.textContent = label; b.dataset.tool = id;
-      b.addEventListener("click", () => { this.tool = id; this._highlightTools(); });
+      b.addEventListener("click", () => { this.tool = id; this._highlightTools(); this._syncOverlay(); this._refreshProps(); });
       tt.appendChild(b);
     }
     this._highlightTools();
@@ -296,6 +358,13 @@ export class Editor {
 
   _refreshProps() {
     const host = this.panel.querySelector("#ed-props");
+    if (this.tool === "trees" || this.tool === "erase") {
+      host.innerHTML = `<div class="ed-sel">tree brush</div>
+        <label>size<input type="range" id="p_brush" min="200" max="2500" value="${this.brush}"></label>
+        <div class="ed-none">Drag the map to ${this.tool === "trees" ? "add" : "remove"} trees. Green overlay = cover.</div>`;
+      host.querySelector("#p_brush").addEventListener("input", (e) => { this.brush = +e.target.value; });
+      return;
+    }
     const u = this.selected && this.selected.userData;
     if (!u) { host.innerHTML = '<div class="ed-none">Nothing selected.</div>'; return; }
     const c = this.cfg;

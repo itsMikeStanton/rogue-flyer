@@ -19,6 +19,32 @@ export function getWorldConfig() { return CFG; }
 export function getCarriers() { return CFG.carriers.map((c) => ({ ...c, deckY: CFG.seaLevel + 24 })); }
 export function getMissionBases() { return CFG.missionBases; }
 
+// Paintable tree-cover grid (0..1). When the config has none, derive a default
+// from the same noise the old procedural forests used, so the world looks the
+// same until someone paints. The editor mutates this array in place.
+function defaultForestDensity(gridN, extent) {
+  const a = new Array(gridN * gridN);
+  for (let j = 0; j < gridN; j++) {
+    for (let i = 0; i < gridN; i++) {
+      const x = (i / (gridN - 1) - 0.5) * 2 * extent;
+      const z = (j / (gridN - 1) - 0.5) * 2 * extent;
+      a[j * gridN + i] = THREE.MathUtils.clamp((smoothNoise(x * 0.0011, z * 0.0011) - 0.4) / 0.2, 0, 1);
+    }
+  }
+  return a;
+}
+export function getForestDensity() {
+  const f = CFG.forest;
+  if (!f.density) f.density = defaultForestDensity(f.gridN, f.extent);
+  return f.density;
+}
+function forestDensityAt(x, z) {
+  const f = CFG.forest, g = f.gridN, e = f.extent, d = getForestDensity();
+  const i = Math.round(THREE.MathUtils.clamp((x / (2 * e) + 0.5) * (g - 1), 0, g - 1));
+  const j = Math.round(THREE.MathUtils.clamp((z / (2 * e) + 0.5) * (g - 1), 0, g - 1));
+  return d[j * g + i];
+}
+
 // Cheap deterministic value-noise so terrain is repeatable run-to-run.
 function hash2(x, z) {
   const s = Math.sin(x * 127.1 + z * 311.7) * 43758.5453;
@@ -331,7 +357,7 @@ export function buildWorld(scene) {
 
   // ---- Forests: dense clustered conifers + deciduous trees on lowland ----
   {
-    const MAX = 5200;
+    const MAX = CFG.forest.maxTrees;
     const trunks = new THREE.InstancedMesh(
       new THREE.CylinderGeometry(0.7, 1.0, 7, 5),
       new THREE.MeshStandardMaterial({ color: 0x5b4326, flatShading: true, roughness: 1 }), MAX);
@@ -348,8 +374,9 @@ export function buildWorld(scene) {
       const z = (rnd() - 0.5) * TERRAIN_SIZE * 0.85;
       const h = terrainHeight(x, z);
       if (h < 8 || h > 760 || onRiver(x, z)) continue;
-      // tight, dense forest clumping
-      if (smoothNoise(x * 0.0011, z * 0.0011) < 0.46 && rnd() > 0.05) continue;
+      // Painted tree-cover decides whether a candidate sprouts.
+      const dens = forestDensityAt(x, z);
+      if (dens <= 0.02 || rnd() > dens) continue;
       const s = 1.0 + rnd() * 1.8;
       tp.set(x, h + 3.5 * s, z); ts.set(s, s, s);
       trunks.setMatrixAt(n, m4.compose(tp, noRot, ts));
@@ -383,6 +410,7 @@ export function buildWorld(scene) {
       const z = (rnd() - 0.5) * TERRAIN_SIZE * 0.85;
       const h = terrainHeight(x, z);
       if (h < 6 || h > 520 || onRiver(x, z)) continue;
+      if (rnd() > forestDensityAt(x, z)) continue; // shrubs follow the painted cover too
       const s = 0.8 + rnd() * 1.6;
       tp.set(x, h + 1.6 * s, z); ts.set(s * 1.4, s, s * 1.4);
       bush.setMatrixAt(n++, m4.compose(tp, noRot, ts));
@@ -572,34 +600,6 @@ export function buildWorld(scene) {
     clouds.count = n;
     clouds.instanceMatrix.needsUpdate = true;
     scene.add(clouds);
-  }
-
-  // ---- Shoreline foam: a soft white band hugging the coastline ----
-  {
-    const STEPS = 200, y = SEA_LEVEL + 2, inLand = 60, outSea = 110;
-    const positions = [], indices = [];
-    for (let i = 0; i <= STEPS; i++) {
-      const a = (i / STEPS) * Math.PI * 2;
-      const nx = Math.cos(a), nz = Math.sin(a);
-      let rc = 9400;
-      for (let dd = 6500; dd < 11000; dd += 110) {
-        if (terrainHeight(nx * dd, nz * dd) < SEA_LEVEL) { rc = dd; break; }
-      }
-      const x = nx * rc, z = nz * rc;
-      positions.push(x - nx * inLand, y, z - nz * inLand, x + nx * outSea, y, z + nz * outSea);
-    }
-    for (let i = 0; i < STEPS; i++) {
-      const a = i * 2, b = i * 2 + 1, cc = (i + 1) * 2, d = (i + 1) * 2 + 1;
-      indices.push(a, cc, b, b, cc, d);
-    }
-    const fgeo = new THREE.BufferGeometry();
-    fgeo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
-    fgeo.setIndex(indices); fgeo.computeVertexNormals();
-    const foam = new THREE.Mesh(
-      fgeo,
-      new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.4, depthWrite: false })
-    );
-    scene.add(foam);
   }
 
   // No ring checkpoints (removed) — modes provide their own objectives.
