@@ -45,21 +45,20 @@ export function createState() {
   };
 }
 
-// Smooth post-stall lift falloff.
+// Lift curve. The wing holds up to clMax and only a very deep (practically
+// unreachable, thanks to the AoA limiter) over-angle bleeds lift — so a true
+// stall is almost impossible.
 function liftCoeff(def, aoa) {
   const a = Math.abs(aoa);
   const sign = Math.sign(aoa) || 1;
-  let cl = def.cl0 + def.clAlpha * aoa;
-  const clPeak = def.cl0 + sign * def.clMax;
-  if (a > def.stallAngle) {
-    // beyond stall AoA, lift decays (gently — forgiving arcade stall)
-    const over = a - def.stallAngle;
-    const decay = Math.exp(-over * 3.5);
-    cl = (def.cl0 + sign * def.clMax) * decay;
-  } else {
-    cl = THREE.MathUtils.clamp(cl, -def.clMax, def.clMax);
+  let cl = THREE.MathUtils.clamp(def.cl0 + def.clAlpha * aoa, -def.clMax, def.clMax);
+  let stalling = false;
+  const deep = def.stallAngle * 1.5;
+  if (a > deep) {
+    cl = (def.cl0 + sign * def.clMax) * Math.exp(-(a - deep) * 2.0);
+    stalling = true;
   }
-  return { cl, stalling: a > def.stallAngle };
+  return { cl, stalling };
 }
 
 // Advance one fixed physics step. `controls` = {pitch, roll, yaw, throttle} in
@@ -150,7 +149,13 @@ export function step(state, def, controls, dt, groundHeight) {
   const authority = THREE.MathUtils.clamp(qDyn / 6000, 0.15, 1.2);
   const pitch = pitchCmd * def.pitchRate * authority;
   const roll = rollInput * def.rollRate * authority;
-  const yaw = sc.yaw * def.yawRate * authority;
+  let yaw = sc.yaw * def.yawRate * authority;
+  // Directional stability: weathervane the nose toward the velocity vector so
+  // sideslip washes out when you let off the rudder (coordinated flight).
+  if (speed > 20) {
+    const side = vel.dot(_right) / speed; // + when the airflow is from the right
+    yaw += -side * 2.5 * authority;
+  }
 
   // Apply body-rate rotations: roll about fwd, pitch about right, yaw about up.
   _euler.set(pitch * dt, yaw * dt, -roll * dt, "XYZ");
