@@ -489,22 +489,6 @@ export function buildWorld(scene) {
     buildings.instanceColor.needsUpdate = true;
     roofs.instanceColor.needsUpdate = true;
     scene.add(buildings); scene.add(roofs);
-
-    // City paving + a cross street under each settlement.
-    const paveMat = new THREE.MeshStandardMaterial({ color: 0x2f3236, roughness: 0.95 });
-    const lineMat = new THREE.MeshStandardMaterial({ color: 0x53565b, roughness: 0.9 });
-    for (const [cx, cz, gr, sp] of settlements) {
-      const hC = terrainHeight(cx, cz);
-      if (hC < 4) continue;
-      const size = (gr * 2 + 1.4) * sp;
-      const pave = new THREE.Mesh(new THREE.PlaneGeometry(size, size), paveMat);
-      pave.rotation.x = -Math.PI / 2; pave.position.set(cx, hC + 0.35, cz);
-      pave.receiveShadow = true; scene.add(pave);
-      const sa = new THREE.Mesh(new THREE.PlaneGeometry(size, 7), lineMat);
-      sa.rotation.x = -Math.PI / 2; sa.position.set(cx, hC + 0.45, cz); scene.add(sa);
-      const sb = new THREE.Mesh(new THREE.PlaneGeometry(7, size), lineMat);
-      sb.rotation.x = -Math.PI / 2; sb.position.set(cx, hC + 0.45, cz); scene.add(sb);
-    }
   }
 
   // ---- Roads painted onto the terrain between key places ----
@@ -515,26 +499,33 @@ export function buildWorld(scene) {
       polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
     });
     const buildRoad = (waypoints) => {
-      const half = 9, step = 45, positions = [], indices = [];
-      let rows = 0;
+      if (waypoints.length < 2) return;
+      const half = 9, step = 45;
+      // Resample the whole polyline into one continuous centerline so the ribbon
+      // has no per-segment seams at the corners.
+      const cl = [];
       for (let s = 0; s < waypoints.length - 1; s++) {
         const [ax, az] = waypoints[s], [bx, bz] = waypoints[s + 1];
-        let dx = bx - ax, dz = bz - az;
-        const segLen = Math.hypot(dx, dz) || 1; dx /= segLen; dz /= segLen;
-        const px = -dz, pz = dx;
+        const segLen = Math.hypot(bx - ax, bz - az) || 1;
         const steps = Math.max(1, Math.floor(segLen / step));
         for (let k = (s > 0 ? 1 : 0); k <= steps; k++) {
           const tt = k / steps;
-          const x = ax + (bx - ax) * tt, z = az + (bz - az) * tt;
-          // Sample terrain at each edge so the ribbon conforms to the slope and
-          // sits on the surface (painted), instead of floating as a flat slab.
-          const lx = x + px * half, lz = z + pz * half;
-          const rx = x - px * half, rz = z - pz * half;
-          positions.push(lx, terrainHeight(lx, lz) + 0.15, lz, rx, terrainHeight(rx, rz) + 0.15, rz);
-          rows++;
+          cl.push([ax + (bx - ax) * tt, az + (bz - az) * tt]);
         }
       }
-      for (let i = 0; i < rows - 1; i++) {
+      const positions = [], indices = [];
+      for (let i = 0; i < cl.length; i++) {
+        // Mitre each point using the averaged tangent of its neighbours.
+        const p = cl[i], a = cl[Math.max(0, i - 1)], b = cl[Math.min(cl.length - 1, i + 1)];
+        let dx = b[0] - a[0], dz = b[1] - a[1];
+        const L = Math.hypot(dx, dz) || 1; dx /= L; dz /= L;
+        const px = -dz, pz = dx;
+        const lx = p[0] + px * half, lz = p[1] + pz * half;
+        const rx = p[0] - px * half, rz = p[1] - pz * half;
+        // Sample terrain at each edge so the ribbon hugs the slope (painted on).
+        positions.push(lx, terrainHeight(lx, lz) + 0.15, lz, rx, terrainHeight(rx, rz) + 0.15, rz);
+      }
+      for (let i = 0; i < cl.length - 1; i++) {
         const a = i * 2, b = i * 2 + 1, cc = (i + 1) * 2, d = (i + 1) * 2 + 1;
         indices.push(a, cc, b, b, cc, d);
       }

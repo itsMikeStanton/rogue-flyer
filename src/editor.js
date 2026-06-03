@@ -201,18 +201,31 @@ export class Editor {
   _redrawRoadLines() {
     const grp = this.roadGroup;
     if (!grp) return;
-    for (const c of [...grp.children]) { grp.remove(c); c.geometry.dispose(); }
-    const line = (pts, color) => {
-      const pos = [];
-      for (const [x, z] of pts) pos.push(x, GY - 15, z);
+    for (const c of [...grp.children]) { grp.remove(c); c.geometry.dispose(); c.material.dispose(); }
+    // A flat ribbon (mitred like the in-game road) so the preview matches reality.
+    const ribbon = (pts, color, half) => {
+      if (pts.length < 2) return;
+      const positions = [], indices = [];
+      for (let i = 0; i < pts.length; i++) {
+        const p = pts[i], a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)];
+        let dx = b[0] - a[0], dz = b[1] - a[1];
+        const L = Math.hypot(dx, dz) || 1; dx /= L; dz /= L;
+        const px = -dz, pz = dx;
+        positions.push(p[0] + px * half, GY - 15, p[1] + pz * half, p[0] - px * half, GY - 15, p[1] - pz * half);
+      }
+      for (let i = 0; i < pts.length - 1; i++) {
+        const a = i * 2, b = i * 2 + 1, cc = (i + 1) * 2, d = (i + 1) * 2 + 1;
+        indices.push(a, cc, b, b, cc, d);
+      }
       const g = new THREE.BufferGeometry();
-      g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
-      const l = new THREE.Line(g, new THREE.LineBasicMaterial({ color, depthTest: false }));
-      l.renderOrder = 6;
-      grp.add(l);
+      g.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+      g.setIndex(indices);
+      const m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.85, depthTest: false, side: THREE.DoubleSide }));
+      m.renderOrder = 6;
+      grp.add(m);
     };
-    for (const road of this.cfg.roads) if (road.length >= 2) line(road, 0xc8a35a);
-    if (this._road.length >= 2) line(this._road, 0xffe08a);
+    for (const road of this.cfg.roads) ribbon(road, 0x71767d, 12);
+    ribbon(this._road, 0xffe08a, 12);
   }
   finishRoad() {
     if (this._road.length >= 2) this.cfg.roads.push(this._road.map((p) => [...p]));
