@@ -28,6 +28,8 @@ export class Editor {
     this.brush = 700;
     this._painting = 0;
     this.densMesh = null;
+    this._road = [];        // waypoints of the road currently being drawn
+    this.roadGroup = null;  // line overlay for committed + in-progress roads
 
     this.gizmos = new THREE.Group();
     this.cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, 80000);
@@ -51,6 +53,8 @@ export class Editor {
     this.active = true;
     this._fog = this.scene.fog;
     this.scene.fog = null; // would otherwise fog out the whole map from up high
+    if (!this.roadGroup) { this.roadGroup = new THREE.Group(); this.scene.add(this.roadGroup); }
+    this.roadGroup.visible = true;
     this.scene.add(this.gizmos);
     this.rebuildGizmos();
     this._ensureDensOverlay();
@@ -64,6 +68,8 @@ export class Editor {
     this.scene.fog = this._fog;
     this.scene.remove(this.gizmos);
     if (this.densMesh) this.densMesh.visible = false;
+    if (this.roadGroup) this.roadGroup.visible = false;
+    this._road = [];
     this.panel.style.display = "none";
     if (this.onExit) this.onExit();
   }
@@ -135,6 +141,13 @@ export class Editor {
     cl.position.set(c.cliff.x, GY, c.cliff.z);
     cl.userData = { kind: "cliff" };
     this.gizmos.add(cl);
+    c.roads.forEach((road, ri) => road.forEach((pt, vi) => {
+      const g = this._disc(0xc8a35a, 60);
+      g.position.set(pt[0], GY, pt[1]);
+      g.userData = { kind: "roadpt", ri, vi };
+      this.gizmos.add(g);
+    }));
+    this._redrawRoadLines();
   }
 
   // ---- tree-density overlay + brush ----
@@ -184,9 +197,39 @@ export class Editor {
     this._updateDensTex();
   }
 
+  // ---- road drawing ----
+  _redrawRoadLines() {
+    const grp = this.roadGroup;
+    if (!grp) return;
+    for (const c of [...grp.children]) { grp.remove(c); c.geometry.dispose(); }
+    const line = (pts, color) => {
+      const pos = [];
+      for (const [x, z] of pts) pos.push(x, GY - 15, z);
+      const g = new THREE.BufferGeometry();
+      g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+      const l = new THREE.Line(g, new THREE.LineBasicMaterial({ color, depthTest: false }));
+      l.renderOrder = 6;
+      grp.add(l);
+    };
+    for (const road of this.cfg.roads) if (road.length >= 2) line(road, 0xc8a35a);
+    if (this._road.length >= 2) line(this._road, 0xffe08a);
+  }
+  finishRoad() {
+    if (this._road.length >= 2) this.cfg.roads.push(this._road.map((p) => [...p]));
+    this._road = [];
+    this.rebuildGizmos();
+    this._refreshProps();
+  }
+  cancelRoad() {
+    this._road = [];
+    this._redrawRoadLines();
+    this._refreshProps();
+  }
+
   _markerPos(u) {
     const c = this.cfg;
     if (u.kind === "settlement" || u.kind === "carrier") return [u.ref.x, u.ref.z];
+    if (u.kind === "roadpt") return [c.roads[u.ri][u.vi][0], c.roads[u.ri][u.vi][1]];
     if (u.kind === "bridge") return [riverCenterX(c.bridges[u.i]), c.bridges[u.i]];
     if (u.kind === "base") return [c.missionBases[u.i][0], c.missionBases[u.i][1]];
     if (u.kind === "spawn") return [c.spawn.x, c.spawn.z];
@@ -196,6 +239,7 @@ export class Editor {
   _setPos(u, x, z) {
     const c = this.cfg;
     if (u.kind === "settlement" || u.kind === "carrier") { u.ref.x = x; u.ref.z = z; }
+    else if (u.kind === "roadpt") c.roads[u.ri][u.vi] = [x, z];
     else if (u.kind === "bridge") c.bridges[u.i] = z; // x follows the river
     else if (u.kind === "base") c.missionBases[u.i] = [x, z];
     else if (u.kind === "spawn") { c.spawn.x = x; c.spawn.z = z; }
@@ -231,6 +275,10 @@ export class Editor {
         if (g) this.paintAt(g);
         return;
       }
+      if (this.tool === "road") {
+        if (g) { this._road.push([Math.round(g.x), Math.round(g.z)]); this._redrawRoadLines(); this._refreshProps(); }
+        return;
+      }
       if (this.tool !== "select") { if (g) this.place(g); return; }
       const m = this._pick(e);
       if (m) { this.select(m); this._drag = m; }
@@ -243,7 +291,12 @@ export class Editor {
         if (g) this.paintAt(g);
       } else if (this._drag) {
         const g = this._ground(e);
-        if (g) { this._setPos(this._drag.userData, g.x, g.z); this._syncMarker(this._drag); this._refreshProps(); }
+        if (g) {
+          this._setPos(this._drag.userData, g.x, g.z);
+          this._syncMarker(this._drag);
+          if (this._drag.userData.kind === "roadpt") this._redrawRoadLines();
+          this._refreshProps();
+        }
       } else if (this._pan) {
         const s = this.view / window.innerHeight;
         this.cam.position.x -= (e.clientX - this._pan.x) * s;
@@ -258,7 +311,10 @@ export class Editor {
       this.applyCamera();
     }, { passive: true });
     window.addEventListener("keydown", (e) => {
-      if (this.active && (e.code === "Delete" || e.code === "Backspace")) this.deleteSelected();
+      if (!this.active) return;
+      if (this.tool === "road" && e.code === "Enter") { this.finishRoad(); return; }
+      if (this.tool === "road" && e.code === "Escape") { this.cancelRoad(); return; }
+      if (e.code === "Delete" || e.code === "Backspace") this.deleteSelected();
     });
   }
 
@@ -287,7 +343,10 @@ export class Editor {
     else if (u.kind === "carrier") c.carriers.splice(u.i, 1);
     else if (u.kind === "bridge") c.bridges.splice(u.i, 1);
     else if (u.kind === "base") c.missionBases.splice(u.i, 1);
-    else return; // spawn / cliff can't be deleted
+    else if (u.kind === "roadpt") {
+      c.roads[u.ri].splice(u.vi, 1);
+      if (c.roads[u.ri].length < 2) c.roads.splice(u.ri, 1); // drop a road that lost its shape
+    } else return; // spawn / cliff can't be deleted
     this.select(null);
     this.rebuildGizmos();
   }
@@ -322,14 +381,17 @@ export class Editor {
     const tools = [
       ["select", "Select"], ["settle:city", "+City"], ["settle:town", "+Town"],
       ["settle:village", "+Village"], ["carrier:ally", "+Ally CV"], ["carrier:enemy", "+Enemy CV"],
-      ["bridge", "+Bridge"], ["base", "+Target"],
+      ["bridge", "+Bridge"], ["base", "+Target"], ["road", "🛣 Road"],
       ["trees", "🌲 Trees"], ["erase", "🧹 Clear"],
     ];
     const tt = p.querySelector("#ed-tools");
     for (const [id, label] of tools) {
       const b = document.createElement("button");
       b.textContent = label; b.dataset.tool = id;
-      b.addEventListener("click", () => { this.tool = id; this._highlightTools(); this._syncOverlay(); this._refreshProps(); });
+      b.addEventListener("click", () => {
+        if (this.tool === "road" && id !== "road" && this._road.length) this.cancelRoad();
+        this.tool = id; this._highlightTools(); this._syncOverlay(); this._refreshProps();
+      });
       tt.appendChild(b);
     }
     this._highlightTools();
@@ -363,6 +425,14 @@ export class Editor {
         <label>size<input type="range" id="p_brush" min="200" max="2500" value="${this.brush}"></label>
         <div class="ed-none">Drag the map to ${this.tool === "trees" ? "add" : "remove"} trees. Green overlay = cover.</div>`;
       host.querySelector("#p_brush").addEventListener("input", (e) => { this.brush = +e.target.value; });
+      return;
+    }
+    if (this.tool === "road") {
+      host.innerHTML = `<div class="ed-sel">draw road</div>
+        <div class="ed-none">Click the map to drop waypoints (${this._road.length} so far). Enter to save, Esc to cancel.</div>
+        <div class="ed-actions"><button id="rd-fin" class="primary">Finish road</button><button id="rd-can">Cancel</button></div>`;
+      host.querySelector("#rd-fin").addEventListener("click", () => this.finishRoad());
+      host.querySelector("#rd-can").addEventListener("click", () => this.cancelRoad());
       return;
     }
     const u = this.selected && this.selected.userData;
