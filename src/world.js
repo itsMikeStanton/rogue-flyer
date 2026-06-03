@@ -367,27 +367,39 @@ export function buildWorld(scene) {
     const decid = new THREE.InstancedMesh(
       new THREE.SphereGeometry(5.5, 6, 5),
       new THREE.MeshStandardMaterial({ color: 0x4f7d3a, flatShading: true, roughness: 1 }), MAX);
-    let n = 0, ci = 0, di = 0, guard = 0;
-    while (n < MAX && guard < MAX * 10) {
-      guard++;
-      const x = (rnd() - 0.5) * TERRAIN_SIZE * 0.85;
-      const z = (rnd() - 0.5) * TERRAIN_SIZE * 0.85;
-      const h = terrainHeight(x, z);
-      if (h < 8 || h > 760 || onRiver(x, z)) continue;
-      // Painted tree-cover decides whether a candidate sprouts.
-      const dens = forestDensityAt(x, z);
-      if (dens <= 0.02 || rnd() > dens) continue;
-      const s = 1.0 + rnd() * 1.8;
-      tp.set(x, h + 3.5 * s, z); ts.set(s, s, s);
-      trunks.setMatrixAt(n, m4.compose(tp, noRot, ts));
-      if (rnd() < 0.6) {
-        tp.set(x, h + 13.5 * s, z); ts.set(s, s, s);
-        conifer.setMatrixAt(ci++, m4.compose(tp, noRot, ts));
-      } else {
-        tp.set(x, h + 9 * s, z); ts.set(s * 1.1, s * 0.95, s * 1.1);
-        decid.setMatrixAt(di++, m4.compose(tp, noRot, ts));
+    let n = 0, ci = 0, di = 0;
+    // Seed trees per density cell so a fully-painted cell gets its whole quota
+    // locally (uniform scatter spread the cap too thin to look dense).
+    const f = CFG.forest, g = f.gridN, e = f.extent, dens = getForestDensity();
+    const perCell = f.perCell, cellW = (2 * e) / (g - 1);
+    outer:
+    for (let j = 0; j < g; j++) {
+      for (let i = 0; i < g; i++) {
+        const d = dens[j * g + i];
+        if (d <= 0.02) continue;
+        const count = Math.round(d * perCell);
+        const cxw = (i / (g - 1) - 0.5) * 2 * e;
+        const czw = (j / (g - 1) - 0.5) * 2 * e;
+        for (let t = 0; t < count; t++) {
+          if (n >= MAX) break outer;
+          const x = cxw + (rnd() - 0.5) * cellW;
+          const z = czw + (rnd() - 0.5) * cellW;
+          const h = terrainHeight(x, z);
+          if (h < 8 || h > 760 || onRiver(x, z)) continue;
+          // Denser cover = taller, fatter trees that fill more space.
+          const s = (0.9 + rnd() * 1.4) * (1 + d * 0.9);
+          tp.set(x, h + 3.5 * s, z); ts.set(s, s, s);
+          trunks.setMatrixAt(n, m4.compose(tp, noRot, ts));
+          if (rnd() < 0.6) {
+            tp.set(x, h + 13.5 * s, z); ts.set(s, s, s);
+            conifer.setMatrixAt(ci++, m4.compose(tp, noRot, ts));
+          } else {
+            tp.set(x, h + 9 * s, z); ts.set(s * 1.1, s * 0.95, s * 1.1);
+            decid.setMatrixAt(di++, m4.compose(tp, noRot, ts));
+          }
+          n++;
+        }
       }
-      n++;
     }
     trunks.count = n; conifer.count = ci; decid.count = di;
     trunks.instanceMatrix.needsUpdate = true;
