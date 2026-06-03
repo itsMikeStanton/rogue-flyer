@@ -271,6 +271,17 @@ function frame(now) {
     }
     checkRings();
 
+    // Crash if we fly into a building.
+    if (!state.crashed) {
+      const px = state.position.x, py = state.position.y, pz = state.position.z;
+      for (const b of world.colliders) {
+        if (py < b.top + 2 && Math.abs(px - b.x) < b.hx + 6 && Math.abs(pz - b.z) < b.hz + 6) {
+          state.crashed = true;
+          break;
+        }
+      }
+    }
+
     const isMission = gameMode === "mission";
     const activeTargets = isMission ? ground.targets : enemies.targets;
     if (controls.fire && weapons.fire(state.position, state.quaternion)) sound.gun();
@@ -322,6 +333,14 @@ function frame(now) {
 
   // Drift the cloud layer gently on the wind.
   if (world.clouds) world.clouds.position.x += dt * 3;
+
+  // Animate the sea/river waves.
+  if (world.waveMats) {
+    const tsec = now / 1000;
+    for (const m of world.waveMats) {
+      if (m.userData.shader) m.userData.shader.uniforms.uTime.value = tsec;
+    }
+  }
 
   updateCamera(dt);
   sound.setListener(camera);

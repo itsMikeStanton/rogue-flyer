@@ -39,6 +39,9 @@ export function riverCenterX(z) {
   return 2200 * Math.sin(z * 0.00026) + 700 * Math.sin(z * 0.00091 + 1.3);
 }
 
+// A steep coastal cliff/headland: a high flat-topped mesa with sharp sides.
+const CLIFF_X = -6200, CLIFF_Z = 1900, CLIFF_R = 620, CLIFF_H = 560;
+
 // Public height sampler used for terrain mesh + ground collision.
 export function terrainHeight(x, z) {
   const f = 0.00035;
@@ -51,6 +54,12 @@ export function terrainHeight(x, z) {
   // Island: beyond the shore, the land falls away to the ocean floor.
   const isl = THREE.MathUtils.smoothstep(d, 7000, 9800);
   h = THREE.MathUtils.lerp(h, -750, isl);
+  // Coastal cliff: raise a plateau with a short (steep) transition = cliff faces.
+  const cdist = Math.hypot(x - CLIFF_X, z - CLIFF_Z);
+  if (cdist < CLIFF_R + 230) {
+    const t = THREE.MathUtils.smoothstep(cdist, CLIFF_R, CLIFF_R + 230);
+    h = THREE.MathUtils.lerp(CLIFF_H, h, t);
+  }
   // Flatten a region around the origin for a runway / spawn.
   if (d < 1400) {
     const t = THREE.MathUtils.clamp((d - 600) / 800, 0, 1);
@@ -129,7 +138,24 @@ function buildCarrier(scene, c) {
   return g;
 }
 
+// Water material with a gentle GPU vertex-wave animation (drive uTime each frame).
+function waveMaterial(color, opacity) {
+  const mat = new THREE.MeshStandardMaterial({
+    color, transparent: opacity < 1, opacity, roughness: 0.25, metalness: 0.5,
+  });
+  mat.onBeforeCompile = (shader) => {
+    shader.uniforms.uTime = { value: 0 };
+    shader.vertexShader = "uniform float uTime;\n" + shader.vertexShader.replace(
+      "#include <begin_vertex>",
+      "#include <begin_vertex>\n  transformed.y += sin(transformed.x * 0.004 + uTime) * 3.0 + sin(transformed.z * 0.0055 + uTime * 0.8) * 2.5;"
+    );
+    mat.userData.shader = shader;
+  };
+  return mat;
+}
+
 export function buildWorld(scene) {
+  const waveMats = [];
   // Sky + fog
   scene.background = new THREE.Color(0x8fc4e8);
   scene.fog = new THREE.Fog(0x9fcbe6, 6000, 20000);
@@ -188,14 +214,14 @@ export function buildWorld(scene) {
   terrain.receiveShadow = true;
   scene.add(terrain);
 
-  // Water plane at sea level
-  const water = new THREE.Mesh(
-    new THREE.PlaneGeometry(TERRAIN_SIZE * 1.5, TERRAIN_SIZE * 1.5),
-    new THREE.MeshStandardMaterial({ color: 0x21506e, transparent: true, opacity: 0.86, roughness: 0.3, metalness: 0.4 })
-  );
-  water.rotation.x = -Math.PI / 2;
+  // Water plane at sea level — segmented for gentle wave animation
+  const wgeo = new THREE.PlaneGeometry(TERRAIN_SIZE * 1.5, TERRAIN_SIZE * 1.5, 140, 140);
+  wgeo.rotateX(-Math.PI / 2);
+  const waterMat = waveMaterial(0x21506e, 0.9);
+  const water = new THREE.Mesh(wgeo, waterMat);
   water.position.y = SEA_LEVEL;
   scene.add(water);
+  waveMats.push(waterMat);
 
   // Carriers out in the ocean (one each side of the island).
   const carriers = {};
@@ -284,12 +310,11 @@ export function buildWorld(scene) {
     rgeo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
     rgeo.setIndex(indices);
     rgeo.computeVertexNormals();
-    const river = new THREE.Mesh(
-      rgeo,
-      new THREE.MeshStandardMaterial({ color: 0x2f6f8c, transparent: true, opacity: 0.85, roughness: 0.2, metalness: 0.5 })
-    );
+    const riverMat = waveMaterial(0x2f6f8c, 0.85);
+    const river = new THREE.Mesh(rgeo, riverMat);
     river.receiveShadow = true;
     scene.add(river);
+    waveMats.push(riverMat);
   }
 
   const rnd = mulberry32(0x1f2e3d);
@@ -299,9 +324,9 @@ export function buildWorld(scene) {
   const ts = new THREE.Vector3();
   const onRiver = (x, z) => Math.abs(x - riverCenterX(z)) < RIVER_OUTER + 60;
 
-  // ---- Forests: clustered conifers + deciduous trees on lowland ----
+  // ---- Forests: dense clustered conifers + deciduous trees on lowland ----
   {
-    const MAX = 2600;
+    const MAX = 3400;
     const trunks = new THREE.InstancedMesh(
       new THREE.CylinderGeometry(0.7, 1.0, 7, 5),
       new THREE.MeshStandardMaterial({ color: 0x5b4326, flatShading: true, roughness: 1 }), MAX);
@@ -318,8 +343,8 @@ export function buildWorld(scene) {
       const z = (rnd() - 0.5) * TERRAIN_SIZE * 0.85;
       const h = terrainHeight(x, z);
       if (h < 8 || h > 720 || onRiver(x, z)) continue;
-      // forest clumping: mostly stick to noisy patches
-      if (smoothNoise(x * 0.0007, z * 0.0007) < 0.42 && rnd() > 0.12) continue;
+      // tight forest clumping: pack into high-noise patches, sparse elsewhere
+      if (smoothNoise(x * 0.0011, z * 0.0011) < 0.55 && rnd() > 0.05) continue;
       const s = 1.0 + rnd() * 1.8;
       tp.set(x, h + 3.5 * s, z); ts.set(s, s, s);
       trunks.setMatrixAt(n, m4.compose(tp, noRot, ts));
@@ -385,63 +410,126 @@ export function buildWorld(scene) {
     scene.add(rocks);
   }
 
-  // ---- Coastal lighthouses ----
+  // ---- Settlements: cities, towns, villages (instanced w/ roofs + colliders) ----
+  const colliders = [];
   {
-    const towerMat = new THREE.MeshStandardMaterial({ color: 0xf2f2f2, flatShading: true, roughness: 0.8 });
-    const bandMat = new THREE.MeshStandardMaterial({ color: 0xd24b4b, flatShading: true });
-    const lampMat = new THREE.MeshStandardMaterial({ color: 0x222a30, emissive: 0xffcc55, emissiveIntensity: 0.6, flatShading: true });
-    const coastPoint = (ang) => {
-      let last = null;
-      for (let d = 3000; d < 9200; d += 160) {
-        const x = Math.cos(ang) * d, z = Math.sin(ang) * d;
-        if (terrainHeight(x, z) > 6) last = { x, z, h: terrainHeight(x, z) };
-      }
-      return last;
-    };
-    for (const ang of [0.5, 2.3, 3.9, 5.4]) {
-      const p = coastPoint(ang);
-      if (!p) continue;
-      const g = new THREE.Group();
-      g.position.set(p.x, p.h, p.z);
-      const tower = new THREE.Mesh(new THREE.CylinderGeometry(3.2, 5, 38, 8), towerMat);
-      tower.position.y = 19; g.add(tower);
-      const band = new THREE.Mesh(new THREE.CylinderGeometry(3.6, 4.2, 7, 8), bandMat);
-      band.position.y = 22; g.add(band);
-      const lamp = new THREE.Mesh(new THREE.CylinderGeometry(4, 4, 6, 8), lampMat);
-      lamp.position.y = 41; g.add(lamp);
-      g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
-      scene.add(g);
-    }
-  }
-
-  // ---- Town clusters (instanced boxes) ----
-  {
-    const MAX = 200;
-    const buildings = new THREE.InstancedMesh(
-      new THREE.BoxGeometry(1, 1, 1),
-      new THREE.MeshStandardMaterial({ color: 0x8b9098, flatShading: true, roughness: 0.85 }),
-      MAX
-    );
-    buildings.castShadow = true; buildings.receiveShadow = true;
-    const towns = [[3200, -3500], [-4200, 2600], [1600, 5200]];
+    const MAX = 900;
+    const wallMat = new THREE.MeshStandardMaterial({ flatShading: true, roughness: 0.82 });
+    const buildings = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), wallMat, MAX);
+    const roofMat = new THREE.MeshStandardMaterial({ flatShading: true, roughness: 0.8 });
+    const roofs = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), roofMat, MAX);
+    buildings.castShadow = buildings.receiveShadow = true;
+    roofs.castShadow = true;
+    const wallTones = [0x8b9098, 0x9a9388, 0x7d8a93, 0xa3a097, 0x6f7a82];
+    const roofTones = [0x5a3b34, 0x40474d, 0x6b5a3a, 0x3a4148];
+    const tmpCol = new THREE.Color();
     let n = 0;
-    for (const [cx, cz] of towns) {
-      for (let gx = -2; gx <= 2 && n < MAX; gx++) {
-        for (let gz = -2; gz <= 2 && n < MAX; gz++) {
-          const x = cx + gx * 115 + (rnd() - 0.5) * 36;
-          const z = cz + gz * 115 + (rnd() - 0.5) * 36;
+
+    // Each settlement: [cx, cz, gridRadius, spacing, maxHeight]
+    const settlements = [
+      [3200, -3500, 2, 115, 150],   // town
+      [-4200, 2600, 2, 115, 140],   // town
+      [1600, 5200, 2, 110, 130],    // town
+      [5200, 2600, 3, 130, 230],    // city
+      [-2600, -5200, 3, 130, 240],  // city
+      [-1000, 3400, 1, 90, 70],     // village
+      [4200, -1200, 1, 90, 70],     // village
+      [-5400, -1800, 1, 85, 60],    // village
+      [2200, 1200, 1, 85, 70],      // village
+    ];
+    for (const [cx, cz, gr, sp, mh] of settlements) {
+      for (let gx = -gr; gx <= gr && n < MAX; gx++) {
+        for (let gz = -gr; gz <= gr && n < MAX; gz++) {
+          if (rnd() < 0.12) continue; // a few empty lots
+          const x = cx + gx * sp + (rnd() - 0.5) * 40;
+          const z = cz + gz * sp + (rnd() - 0.5) * 40;
           const h = terrainHeight(x, z);
-          if (h < -10 || onRiver(x, z)) continue;
-          const bh = 30 + rnd() * 150, bw = 26 + rnd() * 26, bd = 26 + rnd() * 26;
+          if (h < 4 || onRiver(x, z)) continue;
+          const edge = Math.max(Math.abs(gx), Math.abs(gz));
+          const bh = 18 + rnd() * mh * (1 - edge / (gr + 1.5)); // taller toward center
+          const bw = 22 + rnd() * 26, bd = 22 + rnd() * 26;
           tp.set(x, h + bh / 2, z); ts.set(bw, bh, bd);
           buildings.setMatrixAt(n, m4.compose(tp, noRot, ts));
+          buildings.setColorAt(n, tmpCol.setHex(wallTones[(rnd() * wallTones.length) | 0]));
+          // roof cap
+          tp.set(x, h + bh + 1.2, z); ts.set(bw + 3, 2.4, bd + 3);
+          roofs.setMatrixAt(n, m4.compose(tp, noRot, ts));
+          roofs.setColorAt(n, tmpCol.setHex(roofTones[(rnd() * roofTones.length) | 0]));
+          colliders.push({ x, z, hx: bw / 2 + 1, hz: bd / 2 + 1, top: h + bh });
           n++;
         }
       }
     }
-    buildings.count = n;
+    buildings.count = n; roofs.count = n;
     buildings.instanceMatrix.needsUpdate = true;
-    scene.add(buildings);
+    roofs.instanceMatrix.needsUpdate = true;
+    buildings.instanceColor.needsUpdate = true;
+    roofs.instanceColor.needsUpdate = true;
+    scene.add(buildings); scene.add(roofs);
+  }
+
+  // ---- Roads draped over the terrain between key places ----
+  {
+    const roadMat = new THREE.MeshStandardMaterial({ color: 0x3a3d42, roughness: 0.95 });
+    const buildRoad = (waypoints) => {
+      const half = 9, step = 45, positions = [], indices = [];
+      let rows = 0;
+      for (let s = 0; s < waypoints.length - 1; s++) {
+        const [ax, az] = waypoints[s], [bx, bz] = waypoints[s + 1];
+        let dx = bx - ax, dz = bz - az;
+        const segLen = Math.hypot(dx, dz) || 1; dx /= segLen; dz /= segLen;
+        const px = -dz, pz = dx;
+        const steps = Math.max(1, Math.floor(segLen / step));
+        for (let k = (s > 0 ? 1 : 0); k <= steps; k++) {
+          const tt = k / steps;
+          const x = ax + (bx - ax) * tt, z = az + (bz - az) * tt;
+          const y = terrainHeight(x, z) + 0.6;
+          positions.push(x + px * half, y, z + pz * half, x - px * half, y, z - pz * half);
+          rows++;
+        }
+      }
+      for (let i = 0; i < rows - 1; i++) {
+        const a = i * 2, b = i * 2 + 1, cc = (i + 1) * 2, d = (i + 1) * 2 + 1;
+        indices.push(a, cc, b, b, cc, d);
+      }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+      g.setIndex(indices); g.computeVertexNormals();
+      const road = new THREE.Mesh(g, roadMat);
+      road.receiveShadow = true; scene.add(road);
+    };
+    // runway -> towns/cities, with two river crossings (bridges below)
+    buildRoad([[60, 300], [1600, 5200], [5200, 2600]]);
+    buildRoad([[60, -300], [-2600, -5200]]);
+    buildRoad([[3200, -3500], [4200, -1200], [2200, 1200], [1600, 5200]]);
+    buildRoad([[-1000, 3400], [-4200, 2600]]);
+  }
+
+  // ---- Two bridges over the river ----
+  {
+    const deckMat = new THREE.MeshStandardMaterial({ color: 0x6b6f74, flatShading: true, roughness: 0.9 });
+    const railMat = new THREE.MeshStandardMaterial({ color: 0x484c50, flatShading: true });
+    const pierMat = new THREE.MeshStandardMaterial({ color: 0x55585d, flatShading: true });
+    const deckY = 16;
+    for (const bz of [-1600, 2600]) {
+      const cx = riverCenterX(bz);
+      const span = (RIVER_OUTER + 70) * 2;
+      const deck = new THREE.Mesh(new THREE.BoxGeometry(span, 3, 30), deckMat);
+      deck.position.set(cx, deckY, bz);
+      deck.castShadow = deck.receiveShadow = true;
+      scene.add(deck);
+      for (const s of [-1, 1]) {
+        const rail = new THREE.Mesh(new THREE.BoxGeometry(span, 2, 1.6), railMat);
+        rail.position.set(cx, deckY + 2.4, bz + s * 14);
+        scene.add(rail);
+      }
+      for (const px of [cx - RIVER_INNER, cx + RIVER_INNER]) {
+        const ph = deckY - RIVER_BED + 6;
+        const pier = new THREE.Mesh(new THREE.BoxGeometry(9, ph, 9), pierMat);
+        pier.position.set(px, deckY - ph / 2, bz);
+        pier.castShadow = true; scene.add(pier);
+      }
+    }
   }
 
   // ---- Clouds (instanced flattened puffs at altitude) ----
@@ -487,5 +575,5 @@ export function buildWorld(scene) {
     rings.push(ring);
   }
 
-  return { terrain, rings, sun, clouds, carriers };
+  return { terrain, rings, sun, clouds, carriers, colliders, waveMats };
 }
