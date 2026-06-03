@@ -479,9 +479,13 @@ export function buildWorld(scene) {
     }
   }
 
-  // ---- Roads draped over the terrain between key places ----
+  // ---- Roads painted onto the terrain between key places ----
   {
-    const roadMat = new THREE.MeshStandardMaterial({ color: 0x3a3d42, roughness: 0.95 });
+    // polygonOffset lets the ribbon render flush on the ground without z-fighting.
+    const roadMat = new THREE.MeshStandardMaterial({
+      color: 0x3a3d42, roughness: 0.95,
+      polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
+    });
     const buildRoad = (waypoints) => {
       const half = 9, step = 45, positions = [], indices = [];
       let rows = 0;
@@ -494,8 +498,11 @@ export function buildWorld(scene) {
         for (let k = (s > 0 ? 1 : 0); k <= steps; k++) {
           const tt = k / steps;
           const x = ax + (bx - ax) * tt, z = az + (bz - az) * tt;
-          const y = terrainHeight(x, z) + 0.6;
-          positions.push(x + px * half, y, z + pz * half, x - px * half, y, z - pz * half);
+          // Sample terrain at each edge so the ribbon conforms to the slope and
+          // sits on the surface (painted), instead of floating as a flat slab.
+          const lx = x + px * half, lz = z + pz * half;
+          const rx = x - px * half, rz = z - pz * half;
+          positions.push(lx, terrainHeight(lx, lz) + 0.15, lz, rx, terrainHeight(rx, rz) + 0.15, rz);
           rows++;
         }
       }
