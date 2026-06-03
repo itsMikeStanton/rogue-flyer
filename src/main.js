@@ -325,6 +325,14 @@ function frame(now) {
     if (state.crashed && player.health > 0) {
       fx.add(state.position, 2.6);
       fx.burst(state.position, def.color, 16);
+      // If we slammed into the enemy carrier, blow it up too.
+      for (const t of ground.targets) {
+        if (t.info && t.alive &&
+            Math.abs(state.position.x - t.info.x) < t.info.halfW + 14 &&
+            Math.abs(state.position.z - t.info.z) < t.info.halfL + 14) {
+          t.hit(99999);
+        }
+      }
       sound.stopEngine();
       ui.showBanner("CRASHED", "Press R / RESET to respawn");
     }

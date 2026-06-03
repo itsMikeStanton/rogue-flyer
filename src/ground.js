@@ -121,14 +121,15 @@ class CarrierTarget {
   }
   destroy() {
     this.alive = false;
-    // A string of explosions the length of the deck.
-    for (let i = 0; i < 7; i++) {
+    // A string of explosions the length of the deck + flying wreckage.
+    for (let i = 0; i < 9; i++) {
       const p = this._pos.clone();
-      p.x += (Math.random() - 0.5) * 60;
+      p.x += (Math.random() - 0.5) * 64;
       p.z += (Math.random() - 0.5) * this.info.halfL * 1.8;
-      p.y += Math.random() * 22;
-      this.fx.add(p, 3.6);
+      p.y += Math.random() * 24;
+      this.fx.add(p, 3.8);
     }
+    this.fx.burst(this._pos, 0x556070, 26);
     if (this.mesh) this.mesh.visible = false;
   }
   update(dt, player, mgr) {

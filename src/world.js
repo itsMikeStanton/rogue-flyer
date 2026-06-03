@@ -290,33 +290,6 @@ export function buildWorld(scene) {
     mark(6, 42, 10, za);
   }
 
-  // Scatter landmarks: hangars (boxes) and radio towers (thin cones).
-  const rng = (seed) => { let s = seed; return () => (s = (s * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff; };
-  const r = rng(7);
-  const hangarMat = new THREE.MeshStandardMaterial({ color: 0x8a8f96, flatShading: true, roughness: 0.8 });
-  for (let i = 0; i < 60; i++) {
-    const x = (r() - 0.5) * TERRAIN_SIZE * 0.8;
-    const z = (r() - 0.5) * TERRAIN_SIZE * 0.8;
-    const gy = terrainHeight(x, z);
-    if (gy < -100) continue; // not in the sea
-    if (r() < 0.5) {
-      const w = 30 + r() * 60, hh = 20 + r() * 40, d = 30 + r() * 60;
-      const m = new THREE.Mesh(new THREE.BoxGeometry(w, hh, d), hangarMat);
-      m.position.set(x, gy + hh / 2, z);
-      m.castShadow = true; m.receiveShadow = true;
-      scene.add(m);
-    } else {
-      const h = 60 + r() * 140;
-      const t = new THREE.Mesh(
-        new THREE.ConeGeometry(6, h, 6),
-        new THREE.MeshStandardMaterial({ color: 0xd24b4b, flatShading: true })
-      );
-      t.position.set(x, gy + h / 2, z);
-      t.castShadow = true;
-      scene.add(t);
-    }
-  }
-
   // ---- River surface: a translucent ribbon following the carved valley ----
   {
     const z0 = -6800, z1 = 6800, step = 300, half = 150;
