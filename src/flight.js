@@ -89,8 +89,10 @@ export function step(state, def, controls, dt, groundHeight) {
   // --- Aerodynamic forces ---
   _force.set(0, 0, 0);
 
-  // Thrust along the nose
-  _tmp.copy(_fwd).multiplyScalar(controls.throttle * def.maxThrust);
+  // Thrust along the nose. Squared throttle curve = gentle low end, punchy top
+  // (more arcade contrast between idle and full).
+  const thr = controls.throttle * controls.throttle;
+  _tmp.copy(_fwd).multiplyScalar(thr * def.maxThrust);
   _force.add(_tmp);
 
   let cl = 0, stalling = false;
