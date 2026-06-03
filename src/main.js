@@ -12,6 +12,7 @@ import { Enemies } from "./enemies.js";
 import { GroundTargets } from "./ground.js";
 import { Explosions } from "./fx.js";
 import { SoundEngine } from "./audio.js";
+import { Editor } from "./editor.js";
 
 // --- Renderer / scene / camera ---
 const canvas = document.getElementById("scene");
@@ -80,6 +81,12 @@ function missilesForMode(mode) { return mode === "free" ? 0 : 6; }
 const ui = new UI(input, {
   onFly: (type, mode, start) => startFlight(type, mode, start),
 }, touch, tilt);
+
+// World editor (top-down). Entered from the menu button or ?edit.
+const editor = new Editor(scene, renderer, hud);
+editor.onExit = () => ui.showMenu();
+const edBtn = document.getElementById("btn-editor");
+if (edBtn) edBtn.addEventListener("click", () => { ui.hideAll(); touch.setVisible(false); editor.enter(); });
 
 // --- Fullscreen ("takeover") ---
 function fullscreenSupported() {
@@ -259,6 +266,9 @@ function frame(now) {
   let dt = (now - last) / 1000;
   last = now;
   if (dt > 0.1) dt = 0.1; // clamp after tab-out
+
+  // World editor takes over rendering with its top-down camera.
+  if (editor.active) { editor.render(); return; }
 
   const controls = input.getControls(dt);
 
@@ -453,6 +463,9 @@ if (versionEl) {
     .then((v) => { versionEl.textContent = `build ${v.build} · ${v.sha} · ${v.built}`; })
     .catch(() => { versionEl.textContent = "build dev"; });
 }
+
+// Jump straight into the editor with ?edit in the URL.
+if (location.search.includes("edit")) { ui.hideAll(); editor.enter(); }
 
 // Preview aircraft on the menu so the scene isn't empty.
 setAircraft("f16");

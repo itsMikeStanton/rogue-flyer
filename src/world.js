@@ -99,7 +99,7 @@ export function groundHeightAt(x, z) {
   return g;
 }
 
-function buildCarrier(scene, c) {
+function buildCarrier(parent, c) {
   const g = new THREE.Group();
   g.position.set(c.x, SEA_LEVEL, c.z);
   const ally = c.team === "ally";
@@ -140,7 +140,7 @@ function buildCarrier(scene, c) {
   g.add(ring);
 
   g.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
-  scene.add(g);
+  parent.add(g);
   return g;
 }
 
