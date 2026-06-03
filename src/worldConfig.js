@@ -10,7 +10,7 @@ export function defaultWorldConfig() {
     terrain: { islandInner: 7000, islandOuter: 9800, deep: -750 },
     // Tree cover. density is a paintable gridN×gridN grid of 0..1 values over
     // ±extent; null means "use the procedural default" (see world.js).
-    forest: { extent: 10800, gridN: 48, maxTrees: 5200, density: null },
+    forest: { extent: 10800, gridN: 48, maxTrees: 26000, density: null },
     // Coastal cliff/headland (flat-topped mesa with steep sides).
     cliff: { x: -6200, z: 1900, r: 620, h: 560 },
     // Winding river: x(z) = a1*sin(f1*z) + a2*sin(f2*z + phase).
