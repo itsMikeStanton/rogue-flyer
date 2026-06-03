@@ -8,14 +8,14 @@
 
 const STORAGE_KEY = "rogueflyer.bindings.v1";
 
-// Default axis bindings. axis = index into gamepad.axes; invert flips sign.
-// Many throttles rest at -1 (idle) .. +1 (full); throttleMode maps that range
-// to 0..1 so the resting position reads as idle.
+// Default axis bindings, tuned for a Logitech Extreme 3D Pro (a very common
+// HOTAS). axis = index into gamepad.axes; invert flips sign. Throttles often
+// rest at -1 (idle) .. +1 (full); throttleMode maps that range to 0..1.
 const DEFAULTS = {
   roll: { axis: 0, invert: false, deadzone: 0.06 },
   pitch: { axis: 1, invert: false, deadzone: 0.06 },
-  yaw: { axis: 2, invert: false, deadzone: 0.08 },
-  throttle: { axis: 3, invert: true, deadzone: 0.0 },
+  yaw: { axis: 5, invert: true, deadzone: 0.08 },
+  throttle: { axis: 6, invert: true, deadzone: 0.0 },
   // button indices for actions (standard mapping-ish; remappable later)
   buttons: { fire: 0, missile: 1, view: 3, reset: 9 },
 };
