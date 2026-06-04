@@ -173,7 +173,7 @@ function buildCarrier(parent, c) {
 // Water material with a gentle GPU vertex-wave animation (drive uTime each frame).
 function waveMaterial(color, opacity) {
   const mat = new THREE.MeshStandardMaterial({
-    color, transparent: opacity < 1, opacity, roughness: 0.16, metalness: 0.5,
+    color, transparent: opacity < 1, opacity, roughness: 0.06, metalness: 0.7,
   });
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = { value: 0 };
@@ -185,7 +185,7 @@ function waveMaterial(color, opacity) {
       `#include <beginnormal_vertex>
   float wdx = cos(position.x * 0.004 + uTime) * 0.012;
   float wdz = cos(position.z * 0.0055 + uTime * 0.8) * 0.01375;
-  objectNormal = normalize(vec3(-wdx * 14.0, 1.0, -wdz * 14.0));`
+  objectNormal = normalize(vec3(-wdx * 24.0, 1.0, -wdz * 24.0));`
     );
     vs = vs.replace(
       "#include <begin_vertex>",
