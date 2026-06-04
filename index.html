@@ -19,50 +19,61 @@
 
   <!-- Start / jet-select menu -->
   <div id="menu" class="overlay">
-    <div class="panel">
-      <h1>ROGUE&nbsp;FLYER</h1>
-      <p class="tag">Arcade jet combat flight &mdash; plug in a HOTAS, or fly with keyboard.</p>
 
-      <h2>Game mode</h2>
-      <div id="mode-list" class="jet-list"></div>
+    <!-- Utility icons (demoted from the main flow) -->
+    <div class="util-bar">
+      <button id="btn-sound" class="icon-btn" title="Toggle sound">🔊</button>
+      <button id="btn-fullscreen" class="icon-btn" title="Fullscreen">⛶</button>
+      <button id="btn-settings" class="icon-btn" title="Controls / joystick setup">🎮</button>
+      <button id="btn-editor" class="icon-btn" title="World editor">🗺</button>
+    </div>
 
-      <h2>Choose your jet</h2>
-      <div id="jet-list" class="jet-list"></div>
-
-      <label class="start-opt">Start:
-        <select id="start-pos">
-          <option value="air">In the air</option>
-          <option value="runway">On the runway (take off)</option>
-          <option value="carrier">On our carrier (catapult)</option>
-        </select>
-      </label>
-
-      <div class="controls-status">
-        <span id="gamepad-status">No joystick detected &mdash; keyboard fallback active.</span>
+    <div class="panel hero">
+      <div class="brand">
+        <h1 class="logo">ROGUE <span>FLYER</span></h1>
+        <p class="kicker">Arcade Jet Combat</p>
       </div>
 
-      <div class="menu-buttons">
-        <button id="btn-fly" class="primary">FLY</button>
-        <button id="btn-vr" class="primary">🥽 FLY IN VR</button>
-        <button id="btn-settings">Controls / Joystick Setup</button>
-        <button id="btn-fullscreen">⛶ Fullscreen</button>
-        <button id="btn-sound">🔊 Sound on</button>
-        <button id="btn-editor">🗺 World Editor</button>
+      <div class="loadout">
+        <section class="bay">
+          <h2>Mission</h2>
+          <div id="mode-list" class="jet-list"></div>
+        </section>
+        <section class="bay">
+          <h2>Aircraft</h2>
+          <div id="jet-list" class="jet-list"></div>
+        </section>
       </div>
 
-      <details class="help">
-        <summary>Keyboard controls</summary>
-        <ul>
-          <li><b>W / S</b> &mdash; pitch (nose down / up)</li>
-          <li><b>A / D</b> &mdash; roll left / right</li>
-          <li><b>Q / E</b> &mdash; yaw (rudder)</li>
-          <li><b>Shift / Ctrl</b> &mdash; throttle up / down</li>
-          <li><b>Space</b> &mdash; cannon &nbsp;&middot;&nbsp; <b>B</b> &mdash; missile (needs lock) &nbsp;&middot;&nbsp; <b>X</b> &mdash; flares</li>
-          <li><b>C</b> &mdash; camera &nbsp;&middot;&nbsp; <b>R</b> &mdash; reset &nbsp;&middot;&nbsp; <b>F</b> &mdash; fullscreen &nbsp;&middot;&nbsp; <b>M</b> &mdash; mute &nbsp;&middot;&nbsp; <b>Esc</b> &mdash; menu</li>
-        </ul>
-      </details>
+      <div class="launch-bar">
+        <label class="start-opt">Start
+          <select id="start-pos">
+            <option value="air">In the air</option>
+            <option value="runway">On the runway</option>
+            <option value="carrier">Carrier catapult</option>
+          </select>
+        </label>
+        <div class="cta">
+          <button id="btn-vr" class="primary vr">🥽&nbsp;VR</button>
+          <button id="btn-fly" class="primary launch">LAUNCH&nbsp;▸</button>
+        </div>
+      </div>
 
-      <div id="version" class="version">build &hellip;</div>
+      <div class="menu-foot">
+        <div class="status-chip"><span id="gamepad-status">No joystick &mdash; keyboard active.</span></div>
+        <details class="help">
+          <summary>Keyboard controls</summary>
+          <ul>
+            <li><b>W / S</b> &mdash; pitch (nose down / up)</li>
+            <li><b>A / D</b> &mdash; roll left / right</li>
+            <li><b>Q / E</b> &mdash; yaw (rudder)</li>
+            <li><b>Shift / Ctrl</b> &mdash; throttle up / down</li>
+            <li><b>Space</b> &mdash; cannon &nbsp;&middot;&nbsp; <b>B</b> &mdash; missile (needs lock) &nbsp;&middot;&nbsp; <b>X</b> &mdash; flares</li>
+            <li><b>C</b> &mdash; camera &nbsp;&middot;&nbsp; <b>R</b> &mdash; reset &nbsp;&middot;&nbsp; <b>F</b> &mdash; fullscreen &nbsp;&middot;&nbsp; <b>M</b> &mdash; mute &nbsp;&middot;&nbsp; <b>Esc</b> &mdash; menu</li>
+          </ul>
+        </details>
+        <div id="version" class="version">build &hellip;</div>
+      </div>
     </div>
   </div>
 

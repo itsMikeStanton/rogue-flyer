@@ -138,7 +138,7 @@ window.addEventListener("keydown", unlockAudio);
 // Mute toggle button on the menu.
 const soundBtn = document.getElementById("btn-sound");
 function updateSoundButton(muted) {
-  if (soundBtn) soundBtn.textContent = muted ? "🔇 Sound off" : "🔊 Sound on";
+  if (soundBtn) { soundBtn.textContent = muted ? "🔇" : "🔊"; soundBtn.title = muted ? "Sound off" : "Sound on"; }
 }
 if (soundBtn) {
   updateSoundButton(sound.muted);
