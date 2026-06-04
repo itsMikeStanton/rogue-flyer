@@ -32,6 +32,7 @@ const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerH
 const playerRig = new THREE.Group();
 scene.add(playerRig);
 let inXR = false;
+let vrLevelHorizon = false, vrVignetteOn = false; // VR comfort options
 
 const world = buildWorld(scene);
 const fx = new Explosions(scene);
@@ -144,6 +145,16 @@ if (soundBtn) {
   updateSoundButton(sound.muted);
   soundBtn.addEventListener("click", () => { sound.resume(); updateSoundButton(sound.toggleMute()); });
 }
+
+// VR comfort toggles (default off to honour 1:1 head motion).
+try {
+  vrLevelHorizon = localStorage.getItem("rf.vrLevel") === "1";
+  vrVignetteOn = localStorage.getItem("rf.vrVig") === "1";
+} catch (_) { /* ignore */ }
+const vlBox = document.getElementById("vr-level");
+if (vlBox) { vlBox.checked = vrLevelHorizon; vlBox.addEventListener("change", () => { vrLevelHorizon = vlBox.checked; try { localStorage.setItem("rf.vrLevel", vlBox.checked ? "1" : "0"); } catch (_) {} }); }
+const vvBox = document.getElementById("vr-vignette");
+if (vvBox) { vvBox.checked = vrVignetteOn; vvBox.addEventListener("change", () => { vrVignetteOn = vvBox.checked; try { localStorage.setItem("rf.vrVig", vvBox.checked ? "1" : "0"); } catch (_) {} }); }
 
 // Wire the menu's fullscreen button (hide it where unsupported, e.g. iPhone).
 const fsBtn = document.getElementById("btn-fullscreen");
@@ -313,14 +324,122 @@ function updateArming(controls) {
   if (hint !== armHint) { armHint = hint; ui.showBanner("READY?", hint); }
 }
 
-// --- Seated VR: pin the camera rig to the cockpit, head rides with the plane ---
-function updateVRRig() {
+// --- Seated VR: cockpit interior, in-headset HUD, comfort options ---
+let vrCockpit = null, vrHudCanvas = null, vrHudCtx = null, vrHudTex = null, vrVignette = null;
+const _prevQ = new THREE.Quaternion();
+
+function buildVignetteTexture() {
+  const cv = document.createElement("canvas"); cv.width = cv.height = 256;
+  const g = cv.getContext("2d");
+  const grad = g.createRadialGradient(128, 128, 64, 128, 128, 150);
+  grad.addColorStop(0, "rgba(0,0,0,0)");
+  grad.addColorStop(0.7, "rgba(0,0,0,0)");
+  grad.addColorStop(1, "rgba(0,0,0,1)");
+  g.fillStyle = grad; g.fillRect(0, 0, 256, 256);
+  return new THREE.CanvasTexture(cv);
+}
+
+function buildCockpit() {
+  const grp = new THREE.Group();
+  const frame = new THREE.MeshStandardMaterial({ color: 0x14181d, roughness: 0.75, metalness: 0.35, side: THREE.DoubleSide });
+  const dash = new THREE.Mesh(new THREE.BoxGeometry(1.7, 0.55, 0.3), frame);
+  dash.position.set(0, -0.62, -0.95); dash.rotation.x = -0.5; grp.add(dash);
+  for (const s of [-1, 1]) {
+    const con = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.42, 1.3), frame);
+    con.position.set(s * 0.78, -0.55, -0.15); grp.add(con);
+  }
+  const bow = new THREE.Mesh(new THREE.TorusGeometry(0.72, 0.045, 8, 24, Math.PI), frame);
+  bow.position.set(0, 0.18, -0.35); bow.rotation.x = Math.PI / 2; grp.add(bow);
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.62, 0.04, 8, 28), frame);
+  ring.position.set(0, -0.12, -1.0); grp.add(ring);
+  // HUD screen on the dashboard
+  vrHudCanvas = document.createElement("canvas"); vrHudCanvas.width = 512; vrHudCanvas.height = 256;
+  vrHudCtx = vrHudCanvas.getContext("2d");
+  vrHudTex = new THREE.CanvasTexture(vrHudCanvas);
+  const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.82, 0.41),
+    new THREE.MeshBasicMaterial({ map: vrHudTex, transparent: true }));
+  screen.position.set(0, -0.5, -0.9); screen.rotation.x = -0.5; grp.add(screen);
+  return grp;
+}
+
+function drawVRHud() {
+  const c = vrHudCtx; if (!c) return;
+  c.clearRect(0, 0, 512, 256);
+  c.fillStyle = "rgba(6,20,14,0.6)"; c.fillRect(0, 0, 512, 256);
+  c.strokeStyle = "#2ee6a6"; c.lineWidth = 4; c.strokeRect(6, 6, 500, 244);
+  c.textBaseline = "middle";
+  if (armActive) {
+    c.fillStyle = "#ffd27d"; c.font = "bold 34px Consolas, monospace"; c.textAlign = "center";
+    c.fillText("READY?", 256, 80);
+    c.fillStyle = "#36ff9a"; c.font = "22px Consolas, monospace";
+    c.fillText(armHint || "Move throttle", 256, 150);
+    vrHudTex.needsUpdate = true; return;
+  }
+  c.fillStyle = "#36ff9a"; c.textAlign = "left"; c.font = "bold 44px Consolas, monospace";
+  c.fillText(String(Math.round(state.telemetry.speed)), 28, 64);
+  c.fillStyle = "#9fb3c4"; c.font = "16px Consolas, monospace"; c.fillText("KTS", 30, 104);
+  c.fillStyle = "#36ff9a"; c.textAlign = "right"; c.font = "bold 44px Consolas, monospace";
+  c.fillText(String(Math.round(state.position.y)), 484, 64);
+  c.fillStyle = "#9fb3c4"; c.font = "16px Consolas, monospace"; c.fillText("ALT", 484, 104);
+  c.fillStyle = "#16324a"; c.fillRect(28, 168, 456, 28);
+  c.fillStyle = "#2ee6a6"; c.fillRect(28, 168, 456 * THREE.MathUtils.clamp(state.telemetry.throttle, 0, 1), 28);
+  c.fillStyle = "#04140e"; c.font = "bold 16px Consolas, monospace"; c.textAlign = "left"; c.fillText("THR", 36, 183);
+  if (weapons.lock) { c.fillStyle = "#ff5a5a"; c.font = "bold 24px Consolas, monospace"; c.textAlign = "center"; c.fillText("◎ LOCK", 256, 136); }
+  vrHudTex.needsUpdate = true;
+}
+
+function updateVRRig(dt) {
   const q = state.quaternion;
   _v.set(0, 0.9, -1.6).applyQuaternion(q).add(state.position); // pilot's eye
   playerRig.position.copy(_v);
-  playerRig.quaternion.copy(q);
+  if (vrLevelHorizon) {
+    // Keep the horizon level: face the plane's heading, no roll/pitch.
+    _v.set(0, 0, -1).applyQuaternion(q);
+    const len = Math.hypot(_v.x, _v.z) || 1;
+    playerRig.quaternion.setFromEuler(_e.set(0, Math.atan2(-_v.x / len, -_v.z / len), 0));
+  } else {
+    playerRig.quaternion.copy(q);
+  }
   playerRig.updateMatrixWorld(true);
+
+  if (vrVignette) {
+    let target = 0;
+    if (vrVignetteOn) {
+      const ang = 2 * Math.acos(Math.min(1, Math.abs(_prevQ.dot(q)))); // turn this frame
+      const rate = ang / Math.max(dt, 1e-3);
+      target = THREE.MathUtils.clamp((rate - 0.5) / 2.2, 0, 0.85);
+    }
+    const m = vrVignette.material;
+    m.opacity += (target - m.opacity) * Math.min(1, dt * 6);
+  }
+  _prevQ.copy(q);
+  drawVRHud();
 }
+
+renderer.xr.addEventListener("sessionstart", () => {
+  inXR = true;
+  camera.position.set(0, 0, 0);
+  camera.quaternion.identity();
+  camera.near = 0.1; camera.updateProjectionMatrix(); // see the cockpit up close
+  playerRig.add(camera);
+  if (!vrCockpit) vrCockpit = buildCockpit();
+  playerRig.add(vrCockpit);
+  if (!vrVignette) {
+    vrVignette = new THREE.Mesh(new THREE.PlaneGeometry(2.4, 2.4),
+      new THREE.MeshBasicMaterial({ map: buildVignetteTexture(), transparent: true, depthTest: false, opacity: 0 }));
+    vrVignette.position.set(0, 0, -0.5); vrVignette.renderOrder = 999;
+  }
+  camera.add(vrVignette);
+  if (mesh) mesh.visible = false; // hide the exterior, you're inside now
+  _prevQ.copy(state.quaternion);
+});
+renderer.xr.addEventListener("sessionend", () => {
+  inXR = false;
+  scene.add(camera); // detach from the rig for flatscreen
+  camera.near = 1; camera.updateProjectionMatrix();
+  if (vrCockpit) playerRig.remove(vrCockpit);
+  if (vrVignette) camera.remove(vrVignette);
+});
 
 let xrSupported = false;
 if (navigator.xr && navigator.xr.isSessionSupported) {
@@ -333,17 +452,6 @@ if (navigator.xr && navigator.xr.isSessionSupported) {
   const b = document.getElementById("btn-vr");
   if (b) b.style.display = "none";
 }
-
-renderer.xr.addEventListener("sessionstart", () => {
-  inXR = true;
-  camera.position.set(0, 0, 0);
-  camera.quaternion.identity();
-  playerRig.add(camera);
-});
-renderer.xr.addEventListener("sessionend", () => {
-  inXR = false;
-  scene.add(camera); // detach from the rig for flatscreen
-});
 
 async function enterVR(type, mode, start) {
   if (!xrSupported) {
@@ -474,7 +582,7 @@ function frame(now) {
   if (mesh) {
     mesh.position.copy(state.position);
     mesh.quaternion.copy(state.quaternion);
-    mesh.visible = inXR || CAMS[camIndex] !== "Cockpit"; // keep the jet around you in VR
+    mesh.visible = inXR ? false : CAMS[camIndex] !== "Cockpit"; // exterior hidden in VR (cockpit inside)
     const flames = mesh.userData.flames;
     if (flames) {
       const t = state.telemetry.throttle;
@@ -508,7 +616,7 @@ function frame(now) {
     }
   }
 
-  if (inXR) { updateVRRig(); sound.setListener(playerRig); }
+  if (inXR) { updateVRRig(dt); sound.setListener(playerRig); }
   else if (flying) { updateCamera(dt); sound.setListener(camera); }
   else { menuCinematic(dt); sound.setListener(camera); }
   renderer.render(scene, camera);
