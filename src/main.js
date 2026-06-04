@@ -23,9 +23,15 @@ renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.06;
+renderer.xr.enabled = true; // seated VR (head rides in the cockpit)
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 1, 30000);
+// In VR the camera is parented to this rig, which we pin to the cockpit each
+// frame; the headset pose then adds head movement/look on top.
+const playerRig = new THREE.Group();
+scene.add(playerRig);
+let inXR = false;
 
 const world = buildWorld(scene);
 const fx = new Explosions(scene);
@@ -80,6 +86,7 @@ function missilesForMode(mode) { return mode === "free" ? 0 : 6; }
 
 const ui = new UI(input, {
   onFly: (type, mode, start) => startFlight(type, mode, start),
+  onVR: (type, mode, start) => enterVR(type, mode, start),
 }, touch, tilt);
 
 // World editor (top-down). Entered from the menu button or ?edit.
@@ -244,6 +251,53 @@ function updateCamera(dt) {
   camera.lookAt(camTarget);
 }
 
+// --- Seated VR: pin the camera rig to the cockpit, head rides with the plane ---
+function updateVRRig() {
+  const q = state.quaternion;
+  _v.set(0, 0.9, -1.6).applyQuaternion(q).add(state.position); // pilot's eye
+  playerRig.position.copy(_v);
+  playerRig.quaternion.copy(q);
+  playerRig.updateMatrixWorld(true);
+}
+
+let xrSupported = false;
+if (navigator.xr && navigator.xr.isSessionSupported) {
+  navigator.xr.isSessionSupported("immersive-vr").then((ok) => {
+    xrSupported = ok;
+    const b = document.getElementById("btn-vr");
+    if (b && !ok) b.style.display = "none";
+  });
+} else {
+  const b = document.getElementById("btn-vr");
+  if (b) b.style.display = "none";
+}
+
+renderer.xr.addEventListener("sessionstart", () => {
+  inXR = true;
+  camera.position.set(0, 0, 0);
+  camera.quaternion.identity();
+  playerRig.add(camera);
+});
+renderer.xr.addEventListener("sessionend", () => {
+  inXR = false;
+  scene.add(camera); // detach from the rig for flatscreen
+});
+
+async function enterVR(type, mode, start) {
+  if (!xrSupported) {
+    ui.showBanner("VR UNAVAILABLE", "This browser/headset doesn't expose immersive-vr WebXR.");
+    return;
+  }
+  startFlight(type, mode, start);
+  try {
+    const session = await navigator.xr.requestSession("immersive-vr", { optionalFeatures: ["local-floor"] });
+    renderer.xr.setReferenceSpaceType("local"); // seated: eye starts at the rig
+    await renderer.xr.setSession(session);
+  } catch (e) {
+    ui.showBanner("VR FAILED", String((e && e.message) || e));
+  }
+}
+
 // --- Ring checkpoint detection ---
 function checkRings() {
   for (const ring of world.rings) {
@@ -262,7 +316,6 @@ let acc = 0;
 let last = performance.now();
 
 function frame(now) {
-  requestAnimationFrame(frame);
   let dt = (now - last) / 1000;
   last = now;
   if (dt > 0.1) dt = 0.1; // clamp after tab-out
@@ -356,7 +409,7 @@ function frame(now) {
   if (mesh) {
     mesh.position.copy(state.position);
     mesh.quaternion.copy(state.quaternion);
-    mesh.visible = CAMS[camIndex] !== "Cockpit";
+    mesh.visible = inXR || CAMS[camIndex] !== "Cockpit"; // keep the jet around you in VR
     const flames = mesh.userData.flames;
     if (flames) {
       const t = state.telemetry.throttle;
@@ -390,8 +443,8 @@ function frame(now) {
     }
   }
 
-  updateCamera(dt);
-  sound.setListener(camera);
+  if (inXR) { updateVRRig(); sound.setListener(playerRig); }
+  else { updateCamera(dt); sound.setListener(camera); }
   renderer.render(scene, camera);
 
   // HUD
@@ -470,4 +523,4 @@ if (location.search.includes("edit")) { ui.hideAll(); editor.enter(); }
 // Preview aircraft on the menu so the scene isn't empty.
 setAircraft("f16");
 state.position.set(0, terrainHeight(0, 0) + 200, -200);
-requestAnimationFrame(frame);
+renderer.setAnimationLoop(frame); // drives both flatscreen and the XR session

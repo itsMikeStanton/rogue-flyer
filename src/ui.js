@@ -128,6 +128,11 @@ export class UI {
       this.hideAll();
       this.cb.onFly(this.selected, this.mode, this.startPos);
     });
+    const vrBtn = document.getElementById("btn-vr");
+    if (vrBtn) vrBtn.addEventListener("click", () => {
+      this.hideAll();
+      if (this.cb.onVR) this.cb.onVR(this.selected, this.mode, this.startPos);
+    });
     document.getElementById("btn-settings").addEventListener("click", () => this.showSettings());
     document.getElementById("btn-settings-back").addEventListener("click", () => {
       this.settings.classList.add("hidden");
