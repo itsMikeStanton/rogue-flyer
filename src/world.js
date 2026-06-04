@@ -4,7 +4,7 @@ import { defaultWorldConfig } from "./worldConfig.js";
 // Low-poly arcade world, driven by an editable config (see worldConfig.js).
 
 const TERRAIN_SIZE = 24000;
-const SEGMENTS = 200;
+const SEGMENTS = 360; // landmass mesh resolution (higher = finer hills/coast/river)
 
 // Active world config. Loaded from a localStorage override if present so the
 // in-browser editor can iterate; otherwise the built-in default.
@@ -172,26 +172,31 @@ function buildCarrier(parent, c) {
 
 // Water material with a gentle GPU vertex-wave animation (drive uTime each frame).
 function waveMaterial(color, opacity) {
+  // Matte water (no specular glints). Crests are tinted lighter and the surface
+  // gets a subtle low-frequency colour variation so it doesn't read as flat.
   const mat = new THREE.MeshStandardMaterial({
-    color, transparent: opacity < 1, opacity, roughness: 0.06, metalness: 0.7,
+    color, transparent: opacity < 1, opacity, roughness: 0.6, metalness: 0.0,
   });
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = { value: 0 };
-    let vs = "uniform float uTime;\n" + shader.vertexShader;
-    // Tilt the surface normal to match the wave slope so crests catch the sun
-    // (amplified for sparkle). Derivatives of the displacement below.
-    vs = vs.replace(
-      "#include <beginnormal_vertex>",
-      `#include <beginnormal_vertex>
-  float wdx = cos(position.x * 0.004 + uTime) * 0.012;
-  float wdz = cos(position.z * 0.0055 + uTime * 0.8) * 0.01375;
-  objectNormal = normalize(vec3(-wdx * 24.0, 1.0, -wdz * 24.0));`
-    );
+    let vs = "uniform float uTime;\nvarying float vWave;\nvarying float vVar;\n" + shader.vertexShader;
     vs = vs.replace(
       "#include <begin_vertex>",
-      "#include <begin_vertex>\n  transformed.y += sin(transformed.x * 0.004 + uTime) * 3.0 + sin(transformed.z * 0.0055 + uTime * 0.8) * 2.5;"
+      `#include <begin_vertex>
+  float wv = sin(transformed.x * 0.004 + uTime) * 3.0 + sin(transformed.z * 0.0055 + uTime * 0.8) * 2.5;
+  transformed.y += wv;
+  vWave = clamp((wv + 5.5) / 11.0, 0.0, 1.0);
+  vVar = sin(transformed.x * 0.00035) * sin(transformed.z * 0.00035 + 1.7);`
     );
     shader.vertexShader = vs;
+    let fs = "varying float vWave;\nvarying float vVar;\n" + shader.fragmentShader;
+    fs = fs.replace(
+      "#include <map_fragment>",
+      `#include <map_fragment>
+  diffuseColor.rgb *= 1.0 + vVar * 0.07;
+  diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.82, 0.88), smoothstep(0.6, 1.0, vWave) * 0.45);`
+    );
+    shader.fragmentShader = fs;
     mat.userData.shader = shader;
   };
   return mat;
