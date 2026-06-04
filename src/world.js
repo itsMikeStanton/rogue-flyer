@@ -172,29 +172,45 @@ function buildCarrier(parent, c) {
 
 // Water material with a gentle GPU vertex-wave animation (drive uTime each frame).
 function waveMaterial(color, opacity) {
-  // Matte water (no specular glints). Crests are tinted lighter and the surface
-  // gets a subtle low-frequency colour variation so it doesn't read as flat.
+  // Matte water. Detail comes from procedural fbm noise in the fragment shader
+  // (so it's crisp regardless of mesh resolution): subtle colour mottling plus
+  // lighter foam on the wave crests. The vertices ripple with a few sines.
   const mat = new THREE.MeshStandardMaterial({
-    color, transparent: opacity < 1, opacity, roughness: 0.6, metalness: 0.0,
+    color, transparent: opacity < 1, opacity, roughness: 0.65, metalness: 0.0,
   });
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = { value: 0 };
-    let vs = "uniform float uTime;\nvarying float vWave;\nvarying float vVar;\n" + shader.vertexShader;
+    let vs = "uniform float uTime;\nvarying float vWave;\nvarying vec2 vWorld;\n" + shader.vertexShader;
     vs = vs.replace(
       "#include <begin_vertex>",
       `#include <begin_vertex>
-  float wv = sin(transformed.x * 0.004 + uTime) * 3.0 + sin(transformed.z * 0.0055 + uTime * 0.8) * 2.5;
+  float wv = sin(transformed.x * 0.004 + uTime) * 3.0
+           + sin(transformed.z * 0.0055 + uTime * 0.8) * 2.5
+           + sin((transformed.x + transformed.z) * 0.0019 - uTime * 0.6) * 1.6;
   transformed.y += wv;
-  vWave = clamp((wv + 5.5) / 11.0, 0.0, 1.0);
-  vVar = sin(transformed.x * 0.00035) * sin(transformed.z * 0.00035 + 1.7);`
+  vWave = clamp((wv + 7.0) / 14.0, 0.0, 1.0);
+  vWorld = transformed.xz;`
     );
     shader.vertexShader = vs;
-    let fs = "varying float vWave;\nvarying float vVar;\n" + shader.fragmentShader;
+    const helpers = `
+varying float vWave;
+varying vec2 vWorld;
+uniform float uTime;
+float wHash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+float wNoise(vec2 p){ vec2 i = floor(p), f = fract(p); vec2 u = f * f * (3.0 - 2.0 * f);
+  return mix(mix(wHash(i), wHash(i + vec2(1.0, 0.0)), u.x),
+             mix(wHash(i + vec2(0.0, 1.0)), wHash(i + vec2(1.0, 1.0)), u.x), u.y); }
+float wFbm(vec2 p){ float v = 0.0, a = 0.5; for (int k = 0; k < 4; k++){ v += a * wNoise(p); p *= 2.0; a *= 0.5; } return v; }
+`;
+    let fs = helpers + shader.fragmentShader;
     fs = fs.replace(
       "#include <map_fragment>",
       `#include <map_fragment>
-  diffuseColor.rgb *= 1.0 + vVar * 0.07;
-  diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.62, 0.82, 0.88), smoothstep(0.6, 1.0, vWave) * 0.45);`
+  float n  = wFbm(vWorld * 0.0016 + vec2(uTime * 0.02, uTime * 0.015));
+  float n2 = wFbm(vWorld * 0.012  - vec2(uTime * 0.05, 0.0));
+  diffuseColor.rgb *= 0.82 + n * 0.36;
+  float foam = smoothstep(0.72, 0.98, vWave * 0.45 + n2 * 0.6);
+  diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.72, 0.86, 0.92), foam * 0.5);`
     );
     shader.fragmentShader = fs;
     mat.userData.shader = shader;
@@ -288,7 +304,7 @@ export function buildWorld(scene) {
   scene.add(terrain);
 
   // Water plane at sea level — segmented for gentle wave animation
-  const wgeo = new THREE.PlaneGeometry(TERRAIN_SIZE * 1.5, TERRAIN_SIZE * 1.5, 140, 140);
+  const wgeo = new THREE.PlaneGeometry(TERRAIN_SIZE * 1.5, TERRAIN_SIZE * 1.5, 220, 220);
   wgeo.rotateX(-Math.PI / 2);
   const waterMat = waveMaterial(0x21506e, 0.9);
   const water = new THREE.Mesh(wgeo, waterMat);
