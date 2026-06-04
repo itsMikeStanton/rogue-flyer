@@ -55,8 +55,11 @@ export class Editor {
     this.scene.fog = null; // would otherwise fog out the whole map from up high
     if (!this.roadGroup) { this.roadGroup = new THREE.Group(); this.scene.add(this.roadGroup); }
     this.roadGroup.visible = true;
+    if (!this.riverGroup) { this.riverGroup = new THREE.Group(); this.scene.add(this.riverGroup); }
+    this.riverGroup.visible = true;
     this.scene.add(this.gizmos);
     this.rebuildGizmos();
+    this._drawRiver();
     this._ensureDensOverlay();
     this._syncOverlay();
     this.applyCamera();
@@ -69,6 +72,7 @@ export class Editor {
     this.scene.remove(this.gizmos);
     if (this.densMesh) this.densMesh.visible = false;
     if (this.roadGroup) this.roadGroup.visible = false;
+    if (this.riverGroup) this.riverGroup.visible = false;
     this._road = [];
     this.panel.style.display = "none";
     if (this.onExit) this.onExit();
@@ -198,34 +202,47 @@ export class Editor {
   }
 
   // ---- road drawing ----
+  // A flat, mitred ribbon over a polyline (matches the in-game road/river look).
+  _ribbonMesh(pts, color, half, y, opacity) {
+    if (pts.length < 2) return null;
+    const positions = [], indices = [];
+    for (let i = 0; i < pts.length; i++) {
+      const p = pts[i], a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)];
+      let dx = b[0] - a[0], dz = b[1] - a[1];
+      const L = Math.hypot(dx, dz) || 1; dx /= L; dz /= L;
+      const px = -dz, pz = dx;
+      positions.push(p[0] + px * half, y, p[1] + pz * half, p[0] - px * half, y, p[1] - pz * half);
+    }
+    for (let i = 0; i < pts.length - 1; i++) {
+      const a = i * 2, b = i * 2 + 1, cc = (i + 1) * 2, d = (i + 1) * 2 + 1;
+      indices.push(a, cc, b, b, cc, d);
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+    g.setIndex(indices);
+    return new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthTest: false, side: THREE.DoubleSide }));
+  }
+
   _redrawRoadLines() {
     const grp = this.roadGroup;
     if (!grp) return;
     for (const c of [...grp.children]) { grp.remove(c); c.geometry.dispose(); c.material.dispose(); }
-    // A flat ribbon (mitred like the in-game road) so the preview matches reality.
-    const ribbon = (pts, color, half) => {
-      if (pts.length < 2) return;
-      const positions = [], indices = [];
-      for (let i = 0; i < pts.length; i++) {
-        const p = pts[i], a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)];
-        let dx = b[0] - a[0], dz = b[1] - a[1];
-        const L = Math.hypot(dx, dz) || 1; dx /= L; dz /= L;
-        const px = -dz, pz = dx;
-        positions.push(p[0] + px * half, GY - 15, p[1] + pz * half, p[0] - px * half, GY - 15, p[1] - pz * half);
-      }
-      for (let i = 0; i < pts.length - 1; i++) {
-        const a = i * 2, b = i * 2 + 1, cc = (i + 1) * 2, d = (i + 1) * 2 + 1;
-        indices.push(a, cc, b, b, cc, d);
-      }
-      const g = new THREE.BufferGeometry();
-      g.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
-      g.setIndex(indices);
-      const m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.85, depthTest: false, side: THREE.DoubleSide }));
-      m.renderOrder = 6;
-      grp.add(m);
-    };
-    for (const road of this.cfg.roads) ribbon(road, 0x71767d, 12);
-    ribbon(this._road, 0xffe08a, 12);
+    const add = (pts, color) => { const m = this._ribbonMesh(pts, color, 12, GY - 15, 0.85); if (m) { m.renderOrder = 6; grp.add(m); } };
+    for (const road of this.cfg.roads) add(road, 0x71767d);
+    add(this._road, 0xffe08a);
+  }
+
+  // River preview: bank band + water ribbon sampled from the live config.
+  _drawRiver() {
+    const grp = this.riverGroup;
+    if (!grp) return;
+    for (const c of [...grp.children]) { grp.remove(c); c.geometry.dispose(); c.material.dispose(); }
+    const r = this.cfg.river, e = r.extent, center = [];
+    for (let z = -e; z <= e; z += 160) center.push([riverCenterX(z), z]);
+    const bank = this._ribbonMesh(center, 0x3a86a0, r.outer, GY - 22, 0.28);
+    const water = this._ribbonMesh(center, 0x2f6f8c, r.inner, GY - 18, 0.8);
+    if (bank) { bank.renderOrder = 4; grp.add(bank); }
+    if (water) { water.renderOrder = 5; grp.add(water); }
   }
   finishRoad() {
     if (this._road.length >= 2) this.cfg.roads.push(this._road.map((p) => [...p]));
@@ -292,7 +309,8 @@ export class Editor {
         if (g) { this._road.push([Math.round(g.x), Math.round(g.z)]); this._redrawRoadLines(); this._refreshProps(); }
         return;
       }
-      if (this.tool !== "select") { if (g) this.place(g); return; }
+      // River is edited via the panel only — clicking the map just pans.
+      if (this.tool !== "select" && this.tool !== "river") { if (g) this.place(g); return; }
       const m = this._pick(e);
       if (m) { this.select(m); this._drag = m; }
       else { this.select(null); this._pan = { x: e.clientX, y: e.clientY }; }
@@ -395,7 +413,7 @@ export class Editor {
       ["select", "Select"], ["settle:city", "+City"], ["settle:town", "+Town"],
       ["settle:village", "+Village"], ["carrier:ally", "+Ally CV"], ["carrier:enemy", "+Enemy CV"],
       ["bridge", "+Bridge"], ["base", "+Target"], ["road", "🛣 Road"],
-      ["trees", "🌲 Trees"], ["erase", "🧹 Clear"],
+      ["river", "🌊 River"], ["trees", "🌲 Trees"], ["erase", "🧹 Clear"],
     ];
     const tt = p.querySelector("#ed-tools");
     for (const [id, label] of tools) {
@@ -446,6 +464,19 @@ export class Editor {
         <div class="ed-actions"><button id="rd-fin" class="primary">Finish road</button><button id="rd-can">Cancel</button></div>`;
       host.querySelector("#rd-fin").addEventListener("click", () => this.finishRoad());
       host.querySelector("#rd-can").addEventListener("click", () => this.cancelRoad());
+      return;
+    }
+    if (this.tool === "river") {
+      const r = this.cfg.river;
+      const fld = (k, label, step) => `<label>${label}<input type="number" id="rv_${k}" value="${r[k]}" step="${step}"></label>`;
+      host.innerHTML = `<div class="ed-sel">river shape</div>
+        ${fld("a1", "bend 1 amp", 50)}${fld("f1", "bend 1 freq", 0.00002)}
+        ${fld("a2", "bend 2 amp", 50)}${fld("f2", "bend 2 freq", 0.00002)}
+        ${fld("inner", "water width", 10)}${fld("outer", "bank width", 10)}
+        <div class="ed-none">Blue = water, faint = banks. Apply &amp; Reload to carve it.</div>`;
+      for (const k of ["a1", "f1", "a2", "f2", "inner", "outer"]) {
+        host.querySelector("#rv_" + k).addEventListener("input", (e) => { r[k] = +e.target.value; this._drawRiver(); this.rebuildGizmos(); });
+      }
       return;
     }
     const u = this.selected && this.selected.userData;

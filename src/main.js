@@ -261,6 +261,35 @@ function updateCamera(dt) {
   camera.lookAt(camTarget);
 }
 
+// Cinematic idle: orbit a gently banking jet with a soft afterburner glow so
+// the menu reads as a living scene rather than a parked preview.
+let menuT = 0;
+const _e = new THREE.Euler();
+function menuCinematic(dt) {
+  menuT += dt;
+  const jx = 0, jz = -160;
+  const jy = terrainHeight(jx, jz) + 240;
+  if (mesh) {
+    const bank = Math.sin(menuT * 0.45) * 0.32;
+    const pitch = Math.sin(menuT * 0.32) * 0.07;
+    mesh.position.set(jx, jy + Math.sin(menuT * 0.6) * 5, jz);
+    _e.set(pitch, 0, bank);
+    mesh.quaternion.setFromEuler(_e);
+    mesh.visible = true;
+    const flames = mesh.userData.flames;
+    if (flames) for (const fl of flames) {
+      fl.material.opacity = 0.32 + Math.sin(menuT * 6) * 0.08;
+      fl.scale.setScalar((fl.userData.base || 1) * 0.9);
+    }
+  }
+  const r = 46, a = menuT * 0.16;
+  camera.position.set(jx + Math.cos(a) * r, jy + 14 + Math.sin(menuT * 0.22) * 4, jz + Math.sin(a) * r);
+  camera.up.set(0, 1, 0);
+  camera.lookAt(jx, jy + 2, jz);
+  camera.fov += (58 - camera.fov) * Math.min(1, dt * 2);
+  camera.updateProjectionMatrix();
+}
+
 // Gate the start of a flight on a throttle gesture. Ground starts arm at idle
 // (bump up-then-down if the lever is already idle); air starts arm at full
 // (bump down-then-up if already full). Clears armActive when satisfied.
@@ -480,7 +509,8 @@ function frame(now) {
   }
 
   if (inXR) { updateVRRig(); sound.setListener(playerRig); }
-  else { updateCamera(dt); sound.setListener(camera); }
+  else if (flying) { updateCamera(dt); sound.setListener(camera); }
+  else { menuCinematic(dt); sound.setListener(camera); }
   renderer.render(scene, camera);
 
   // HUD
