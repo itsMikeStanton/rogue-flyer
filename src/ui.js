@@ -15,6 +15,8 @@ export class UI {
     this.menu = document.getElementById("menu");
     this.settings = document.getElementById("settings");
     this.banner = document.getElementById("banner");
+    this.pickerMode = document.getElementById("picker-mode");
+    this.pickerJet = document.getElementById("picker-jet");
 
     this.buildModeList();
     this.buildJetList();
@@ -22,6 +24,7 @@ export class UI {
     this.buildBindingControls();
     this.wireMobile();
     this.updateGamepadStatus();
+    this.updateSummaries();
 
     this.input.onConnect = () => this.updateGamepadStatus();
   }
@@ -75,7 +78,7 @@ export class UI {
   get visible() { return !this.menu.classList.contains("hidden") || !this.settings.classList.contains("hidden"); }
 
   buildModeList() {
-    const modes = [
+    this.modesData = [
       { key: "dogfight", name: "Dogfight", desc: "Enemy jets hunt you. Guns + lock-on missiles. Survive and rack up kills." },
       { key: "mission", name: "Strike Mission", desc: "Destroy every ground target. Air-to-ground guns + missiles." },
       { key: "practice", name: "Target Practice", desc: "Gun down drifting drones. No one shoots back." },
@@ -83,7 +86,7 @@ export class UI {
     ];
     const list = document.getElementById("mode-list");
     list.innerHTML = "";
-    for (const m of modes) {
+    for (const m of this.modesData) {
       const card = document.createElement("div");
       card.className = "jet-card" + (m.key === this.mode ? " selected" : "");
       card.innerHTML = `<div class="name">${m.name}</div><div class="role">${m.desc}</div>`;
@@ -91,6 +94,8 @@ export class UI {
         this.mode = m.key;
         [...list.children].forEach((c) => c.classList.remove("selected"));
         card.classList.add("selected");
+        this.updateSummaries();
+        this.closePickers();
       });
       list.appendChild(card);
     }
@@ -113,9 +118,30 @@ export class UI {
         this.selected = key;
         [...list.children].forEach((c) => c.classList.remove("selected"));
         card.classList.add("selected");
+        if (this.cb.onSelectJet) this.cb.onSelectJet(key); // swap the hero model
+        this.updateSummaries();
+        this.closePickers();
       });
       list.appendChild(card);
     }
+  }
+
+  updateSummaries() {
+    const m = (this.modesData || []).find((x) => x.key === this.mode);
+    if (m) {
+      const n = document.getElementById("sel-mode-name"); if (n) n.textContent = m.name;
+      const s = document.getElementById("sel-mode-sub"); if (s) s.textContent = m.desc;
+    }
+    const def = AIRCRAFT[this.selected];
+    if (def) {
+      const n = document.getElementById("sel-jet-name"); if (n) n.textContent = def.name;
+      const s = document.getElementById("sel-jet-sub"); if (s) s.textContent = def.role;
+    }
+  }
+
+  closePickers() {
+    this.pickerMode.classList.add("hidden");
+    this.pickerJet.classList.add("hidden");
   }
 
   bindButtons() {
@@ -133,6 +159,14 @@ export class UI {
       this.hideAll();
       if (this.cb.onVR) this.cb.onVR(this.selected, this.mode, this.startPos);
     });
+    const selMode = document.getElementById("sel-mode");
+    if (selMode) selMode.addEventListener("click", () => this.pickerMode.classList.remove("hidden"));
+    const selJet = document.getElementById("sel-jet");
+    if (selJet) selJet.addEventListener("click", () => this.pickerJet.classList.remove("hidden"));
+    const pmDone = document.getElementById("pick-mode-done");
+    if (pmDone) pmDone.addEventListener("click", () => this.pickerMode.classList.add("hidden"));
+    const pjDone = document.getElementById("pick-jet-done");
+    if (pjDone) pjDone.addEventListener("click", () => this.pickerJet.classList.add("hidden"));
     document.getElementById("btn-settings").addEventListener("click", () => this.showSettings());
     document.getElementById("btn-settings-back").addEventListener("click", () => {
       this.settings.classList.add("hidden");
@@ -235,6 +269,7 @@ export class UI {
   hideAll() {
     this.menu.classList.add("hidden");
     this.settings.classList.add("hidden");
+    this.closePickers();
   }
 
   showBanner(title, sub) {

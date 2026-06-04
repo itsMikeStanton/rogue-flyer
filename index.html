@@ -17,6 +17,16 @@
   <canvas id="scene"></canvas>
   <canvas id="hud"></canvas>
 
+  <!-- Boot / loading sequence -->
+  <div id="loader" class="overlay loader">
+    <div class="load-inner">
+      <h1 class="logo">ROGUE <span>FLYER</span></h1>
+      <p class="kicker">Arcade Jet Combat</p>
+      <div class="load-bar"><div class="load-fill"></div></div>
+      <div class="load-status">BOOTING AVIONICS</div>
+    </div>
+  </div>
+
   <!-- Start / jet-select menu -->
   <div id="menu" class="overlay">
 
@@ -35,14 +45,18 @@
       </div>
 
       <div class="loadout">
-        <section class="bay">
-          <h2>Mission</h2>
-          <div id="mode-list" class="jet-list"></div>
-        </section>
-        <section class="bay">
-          <h2>Aircraft</h2>
-          <div id="jet-list" class="jet-list"></div>
-        </section>
+        <button class="select-card" id="sel-mode">
+          <span class="sc-label">Mission</span>
+          <span class="sc-name" id="sel-mode-name">Dogfight</span>
+          <span class="sc-sub" id="sel-mode-sub"></span>
+          <span class="sc-go">Change ▸</span>
+        </button>
+        <button class="select-card" id="sel-jet">
+          <span class="sc-label">Aircraft</span>
+          <span class="sc-name" id="sel-jet-name">F-16</span>
+          <span class="sc-sub" id="sel-jet-sub"></span>
+          <span class="sc-go">Change ▸</span>
+        </button>
       </div>
 
       <div class="launch-bar">
@@ -118,6 +132,24 @@
         <button id="btn-settings-reset">Reset to defaults</button>
       </div>
       <p class="hint">Tip: to find your throttle axis, push the throttle and watch which bar moves in <b>Live axes</b>, then pick it below. Settings are saved automatically.</p>
+    </div>
+  </div>
+
+  <!-- Mission picker -->
+  <div id="picker-mode" class="overlay picker hidden">
+    <div class="panel wide">
+      <h2>Select Mission</h2>
+      <div id="mode-list" class="jet-list"></div>
+      <div class="menu-buttons"><button id="pick-mode-done" class="primary">Done</button></div>
+    </div>
+  </div>
+
+  <!-- Aircraft picker -->
+  <div id="picker-jet" class="overlay picker hidden">
+    <div class="panel wide">
+      <h2>Select Aircraft</h2>
+      <div id="jet-list" class="jet-list"></div>
+      <div class="menu-buttons"><button id="pick-jet-done" class="primary">Done</button></div>
     </div>
   </div>
 

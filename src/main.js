@@ -92,6 +92,7 @@ function missilesForMode(mode) { return mode === "free" ? 0 : 6; }
 const ui = new UI(input, {
   onFly: (type, mode, start) => startFlight(type, mode, start),
   onVR: (type, mode, start) => enterVR(type, mode, start),
+  onSelectJet: (type) => { if (!flying) setAircraft(type); }, // live hero swap on the menu
 }, touch, tilt);
 
 // World editor (top-down). Entered from the menu button or ?edit.
@@ -698,3 +699,26 @@ if (location.search.includes("edit")) { ui.hideAll(); editor.enter(); }
 setAircraft("f16");
 state.position.set(0, terrainHeight(0, 0) + 200, -200);
 renderer.setAnimationLoop(frame); // drives both flatscreen and the XR session
+
+// Boot sequence: animate the loader, then fade it to reveal the live menu.
+(function runLoader() {
+  const el = document.getElementById("loader");
+  if (!el) return;
+  if (location.search.includes("edit")) { el.remove(); return; } // skip straight to editor
+  const fill = el.querySelector(".load-fill");
+  const status = el.querySelector(".load-status");
+  const steps = ["BOOTING AVIONICS", "SPOOLING TURBINES", "CALIBRATING GYROS", "LINKING CONTROLS", "ARMING SYSTEMS"];
+  const t0 = performance.now(), dur = 2200;
+  let si = -1;
+  (function tick(now) {
+    const p = Math.min(1, (now - t0) / dur);
+    if (fill) fill.style.width = (p * 100).toFixed(0) + "%";
+    const idx = Math.min(steps.length - 1, Math.floor(p * steps.length));
+    if (idx !== si && status) { si = idx; status.textContent = steps[idx]; }
+    if (p < 1) requestAnimationFrame(tick);
+    else {
+      if (status) status.textContent = "READY";
+      setTimeout(() => { el.classList.add("done"); setTimeout(() => el.remove(), 700); }, 280);
+    }
+  })(t0);
+})();
