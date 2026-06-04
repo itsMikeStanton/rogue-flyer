@@ -273,6 +273,64 @@ function updateCamera(dt) {
   camera.lookAt(camTarget);
 }
 
+// Touch-controller flight input for VR (backup when no USB stick is exposed).
+// Left stick = roll/pitch, right stick = yaw + throttle (integrated), triggers
+// fire, A = missile, B/Y = flares, stick-press = camera. A real (non-XR)
+// gamepad, if the browser exposes one in VR, overrides the sticks.
+let xrThrottle = 0;
+const xrEdge = {};
+function xrPressed(id, down) { const was = xrEdge[id] || false; xrEdge[id] = down; return down && !was; }
+function getXRControls(dt) {
+  let pitch = 0, roll = 0, yaw = 0;
+  let fire = false, missilePressed = false, flarePressed = false, viewPressed = false, resetPressed = false;
+  const dz = (v) => (Math.abs(v) < 0.12 ? 0 : v);
+  const session = renderer.xr.getSession();
+  let usedStick = false;
+  if (session) for (const src of session.inputSources) {
+    const gp = src.gamepad; if (!gp) continue;
+    const ax = gp.axes, bt = gp.buttons;
+    const sx = dz(ax.length >= 4 ? ax[2] : (ax[0] || 0));
+    const sy = dz(ax.length >= 4 ? ax[3] : (ax[1] || 0));
+    const btn = (i) => bt[i] && bt[i].pressed;
+    if (btn(0)) fire = true; // either trigger fires
+    if (src.handedness === "right") {
+      yaw += sx;
+      xrThrottle = THREE.MathUtils.clamp(xrThrottle - sy * dt * 0.9, 0, 1); // push up = more throttle
+      usedStick = true;
+      if (xrPressed("xR-msl", btn(4))) missilePressed = true; // A
+      if (xrPressed("xR-flr", btn(5))) flarePressed = true;   // B
+      if (xrPressed("xR-view", btn(3))) viewPressed = true;   // stick press
+    } else { // left (and any unknown handedness)
+      roll += sx; pitch += sy;
+      if (xrPressed("xL-flr", btn(5))) flarePressed = true;   // Y
+      if (xrPressed("xL-reset", btn(4))) resetPressed = true; // X
+      if (xrPressed("xL-view", btn(3))) viewPressed = true;
+    }
+  }
+  // A genuine USB/Bluetooth stick (non-XR mapping) takes over the axes if present.
+  const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+  let stick = null;
+  for (const p of pads) if (p && p.mapping !== "xr-standard") { stick = p; break; }
+  if (stick) {
+    roll = input.readAxis(stick, input.bindings.roll);
+    pitch = input.readAxis(stick, input.bindings.pitch);
+    yaw = input.readAxis(stick, input.bindings.yaw);
+    const t = input.bindings.throttle; let raw = stick.axes[t.axis] || 0; if (t.invert) raw = -raw;
+    xrThrottle = (raw + 1) / 2;
+    const b = input.bindings.buttons;
+    if (stick.buttons[b.fire] && stick.buttons[b.fire].pressed) fire = true;
+    if (xrPressed("us-msl", !!(stick.buttons[b.missile] && stick.buttons[b.missile].pressed))) missilePressed = true;
+    usedStick = true;
+  }
+  return {
+    pitch: Math.max(-1, Math.min(1, pitch)),
+    roll: Math.max(-1, Math.min(1, roll)),
+    yaw: Math.max(-1, Math.min(1, yaw)),
+    throttle: usedStick ? xrThrottle : 0,
+    viewPressed, resetPressed, fire, missilePressed, flarePressed,
+  };
+}
+
 // Cinematic idle: orbit a gently banking jet with a soft afterburner glow so
 // the menu reads as a living scene rather than a parked preview.
 let menuT = 0;
@@ -494,7 +552,7 @@ function frame(now) {
   // World editor takes over rendering with its top-down camera.
   if (editor.active) { editor.render(); return; }
 
-  const controls = input.getControls(dt);
+  const controls = inXR ? getXRControls(dt) : input.getControls(dt);
 
   // Live monitor for the settings panel
   ui.updateMonitors();

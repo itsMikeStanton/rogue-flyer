@@ -207,10 +207,17 @@ float wFbm(vec2 p){ float v = 0.0, a = 0.5; for (int k = 0; k < 4; k++){ v += a 
       "#include <map_fragment>",
       `#include <map_fragment>
   float n  = wFbm(vWorld * 0.0016 + vec2(uTime * 0.02, uTime * 0.015));
+  float nc = wFbm(vWorld * 0.0008 + vec2(11.0, 4.0) + vec2(uTime * 0.006, 0.0));
   float n2 = wFbm(vWorld * 0.012  - vec2(uTime * 0.05, 0.0));
-  diffuseColor.rgb *= 0.82 + n * 0.36;
-  float foam = smoothstep(0.72, 0.98, vWave * 0.45 + n2 * 0.6);
-  diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.72, 0.86, 0.92), foam * 0.5);`
+  float n3 = wFbm(vWorld * 0.045  + vec2(uTime * 0.08, -uTime * 0.06));
+  diffuseColor.rgb *= 0.82 + n * 0.34;
+  // colour variety: drift between teal and deeper-blue zones
+  diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.80, 1.08, 1.05), smoothstep(0.45, 0.75, nc));
+  diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.72, 0.84, 1.18), smoothstep(0.45, 0.18, nc));
+  // foam: crests plus fine speckle spots
+  float foam = smoothstep(0.58, 0.90, vWave * 0.5 + n2 * 0.6);
+  foam += smoothstep(0.86, 1.0, n3) * 0.7;
+  diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.86, 0.93, 0.97), clamp(foam, 0.0, 1.0) * 0.6);`
     );
     shader.fragmentShader = fs;
     mat.userData.shader = shader;
