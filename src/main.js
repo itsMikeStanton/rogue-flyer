@@ -208,7 +208,7 @@ function resetFlight() {
   armHint = "";
 }
 
-function startFlight(type, mode, start) {
+function startFlight(type, mode, start, vr) {
   gameMode = mode || gameMode;
   startPos = start || "air";
   setAircraft(type);
@@ -218,8 +218,9 @@ function startFlight(type, mode, start) {
   touch.setVisible(true);
   sound.resume();
   sound.startEngine();
-  // On touch devices, take over the full screen for an immersive cockpit.
-  if (touch.enabled && fullscreenSupported() && !isFullscreen()) enterFullscreen();
+  // On touch devices, take over the full screen for an immersive cockpit — but
+  // never in VR (that would fight the immersive XR session for the gesture).
+  if (!vr && touch.enabled && fullscreenSupported() && !isFullscreen()) enterFullscreen();
 }
 
 function togglePause() {
@@ -517,11 +518,14 @@ async function enterVR(type, mode, start) {
     ui.showBanner("VR UNAVAILABLE", "This browser/headset doesn't expose immersive-vr WebXR.");
     return;
   }
-  startFlight(type, mode, start);
+  // Request the immersive session FIRST, straight off the click gesture — a
+  // fullscreen request (from startFlight) would otherwise consume the gesture
+  // and the page would just fullscreen its 2D window instead of entering VR.
   try {
     const session = await navigator.xr.requestSession("immersive-vr", { optionalFeatures: ["local-floor"] });
     renderer.xr.setReferenceSpaceType("local"); // seated: eye starts at the rig
     await renderer.xr.setSession(session);
+    startFlight(type, mode, start, true); // true = VR (skip fullscreen)
   } catch (e) {
     ui.showBanner("VR FAILED", String((e && e.message) || e));
   }
@@ -776,7 +780,11 @@ renderer.setAnimationLoop(frame); // drives both flatscreen and the XR session
     if (p < 1) requestAnimationFrame(tick);
     else {
       if (status) status.textContent = "READY";
-      setTimeout(() => { el.classList.add("done"); setTimeout(() => el.remove(), 700); }, 280);
+      setTimeout(() => {
+        ui.showMenu();            // reveal the menu only now
+        el.classList.add("done"); // fade the loader out
+        setTimeout(() => el.remove(), 700);
+      }, 280);
     }
   })(t0);
 })();
