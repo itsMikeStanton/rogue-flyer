@@ -58,6 +58,10 @@ let gameMode = "dogfight";
 let missionDone = false;
 let startPos = "air"; // "air" | "runway" | "carrier"
 
+// Throttle "arming" gesture before a flight begins (see updateArming).
+let armActive = false, armUp = false, armOpposite = false, armInit = false, armHint = "";
+const ARM_HI = 0.9, ARM_LO = 0.08;
+
 const CAMS = ["Chase", "Far Chase", "Cockpit"];
 let camIndex = 0;
 let ringsHit = 0;
@@ -184,6 +188,12 @@ function resetFlight() {
   player.health = 100;
   fx.reset();
   ui.hideBanner();
+  // Require a deliberate throttle gesture before the sim runs: idle for a ground
+  // start (so a parked jet doesn't bolt), full for an air start.
+  armActive = true;
+  armUp = startPos === "air";
+  armInit = false;
+  armHint = "";
 }
 
 function startFlight(type, mode, start) {
@@ -249,6 +259,29 @@ function updateCamera(dt) {
   camTarget.copy(pos).addScaledVector(_v.set(0, 0, -1).applyQuaternion(q), 30);
   camTarget.y += 4;
   camera.lookAt(camTarget);
+}
+
+// Gate the start of a flight on a throttle gesture. Ground starts arm at idle
+// (bump up-then-down if the lever is already idle); air starts arm at full
+// (bump down-then-up if already full). Clears armActive when satisfied.
+function updateArming(controls) {
+  const t = controls.throttle;
+  if (!armInit) {
+    armInit = true;
+    armOpposite = armUp ? t >= ARM_HI : t <= ARM_LO;
+  }
+  if (armOpposite) {
+    if (armUp ? t <= ARM_LO : t >= ARM_HI) armOpposite = false;
+  } else if (armUp ? t >= ARM_HI : t <= ARM_LO) {
+    armActive = false;
+    armHint = "";
+    ui.hideBanner();
+    return;
+  }
+  const hint = armUp
+    ? (armOpposite ? "Throttle to IDLE, then to FULL to launch" : "Throttle to FULL to launch")
+    : (armOpposite ? "Throttle UP, then back to IDLE to launch" : "Throttle to IDLE to launch");
+  if (hint !== armHint) { armHint = hint; ui.showBanner("READY?", hint); }
 }
 
 // --- Seated VR: pin the camera rig to the cockpit, head rides with the plane ---
@@ -328,7 +361,10 @@ function frame(now) {
   // Live monitor for the settings panel
   ui.updateMonitors();
 
-  if (flying && !state.crashed) {
+  // Throttle-arming gate: hold the sim until the player engages the throttle.
+  if (flying && !state.crashed && armActive) updateArming(controls);
+
+  if (flying && !state.crashed && !armActive) {
     if (controls.viewPressed) camIndex = (camIndex + 1) % CAMS.length;
     if (controls.resetPressed) resetFlight();
 
