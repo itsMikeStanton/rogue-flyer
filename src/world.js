@@ -278,12 +278,17 @@ function waveMaterial(color, opacity) {
     vs = vs.replace(
       "#include <begin_vertex>",
       `#include <begin_vertex>
-  float wv = sin(transformed.x * 0.004 + uTime) * 3.0
-           + sin(transformed.z * 0.0055 + uTime * 0.8) * 2.5
-           + sin((transformed.x + transformed.z) * 0.0019 - uTime * 0.6) * 1.6;
+  // Waves are computed in WORLD space so a camera-following ocean plane stays
+  // put (no swimming), and the directions are off-axis/incommensurate so the
+  // surface reads as rolling swell rather than a diamond grid.
+  vec2 wxz = (modelMatrix * vec4(transformed, 1.0)).xz;
+  float wv = sin(dot(wxz, vec2(0.0042, 0.0011)) + uTime * 1.00) * 2.6
+           + sin(dot(wxz, vec2(-0.0017, 0.0039)) + uTime * 0.83) * 2.2
+           + sin(dot(wxz, vec2(0.0026, -0.0022)) - uTime * 0.60) * 1.7
+           + sin(dot(wxz, vec2(0.0009, 0.0014)) + uTime * 0.40) * 1.2;
   transformed.y += wv;
   vWave = clamp((wv + 7.0) / 14.0, 0.0, 1.0);
-  vWorld = transformed.xz;`
+  vWorld = wxz;`
     );
     shader.vertexShader = vs;
     const helpers = `
@@ -371,6 +376,18 @@ export function buildWorld(scene) {
   farSea.position.y = SEA_LEVEL - 10; // just below the wave troughs (no poke-through)
   scene.add(farSea);
 
+  // Detailed wave ocean (global): one plane that follows the camera each frame
+  // (main.js). Waves are world-anchored in the shader, so it never swims, and a
+  // single system means water exists everywhere, not just around islands.
+  const oceanGeo = new THREE.PlaneGeometry(56000, 56000, 256, 256);
+  oceanGeo.rotateX(-Math.PI / 2);
+  const oceanMat = waveMaterial(0x21506e, 1.0);
+  const ocean = new THREE.Mesh(oceanGeo, oceanMat);
+  ocean.position.y = SEA_LEVEL;
+  ocean.renderOrder = -1; // draw before land props that sit at the shoreline
+  scene.add(ocean);
+  waveMats.push(oceanMat);
+
   // Carriers (global, world coordinates across all islands).
   const carriers = {};
   for (const c of getCarriers()) carriers[c.team] = buildCarrier(scene, c);
@@ -385,46 +402,51 @@ export function buildWorld(scene) {
     islands.push({ group: built.group, center: is.center, name: is.name, faction: is.faction });
   }
 
-  // Clouds (global) spread across the whole archipelago.
-  let clouds;
-  {
-    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
-    for (const is of CFG.islands) {
-      minX = Math.min(minX, is.center.x); maxX = Math.max(maxX, is.center.x);
-      minZ = Math.min(minZ, is.center.z); maxZ = Math.max(maxZ, is.center.z);
-    }
-    const pad = TERRAIN_SIZE * 0.5;
-    minX -= pad; maxX += pad; minZ -= pad; maxZ += pad;
-    const rnd = mulberry32(0xc10da5);
-    const m4 = new THREE.Matrix4(), noRot = new THREE.Quaternion(), tp = new THREE.Vector3(), ts = new THREE.Vector3();
-    const MAX = 700;
-    clouds = new THREE.InstancedMesh(
-      new THREE.SphereGeometry(1, 7, 6),
-      new THREE.MeshStandardMaterial({ color: 0xffffff, flatShading: true, transparent: true, opacity: 0.92, roughness: 1, emissive: 0x6378a0, emissiveIntensity: 0.18 }),
-      MAX
-    );
-    clouds.castShadow = false;
-    let n = 0;
-    const clusters = 40 + CFG.islands.length * 30;
-    for (let cc = 0; cc < clusters && n < MAX; cc++) {
-      const cx = minX + rnd() * (maxX - minX);
-      const cz = minZ + rnd() * (maxZ - minZ);
-      const cy = 1400 + rnd() * 2300;
-      const puffs = 4 + Math.floor(rnd() * 5);
-      for (let p = 0; p < puffs && n < MAX; p++) {
-        tp.set(cx + (rnd() - 0.5) * 260, cy + (rnd() - 0.5) * 55, cz + (rnd() - 0.5) * 260);
-        ts.set(70 + rnd() * 95, 32 + rnd() * 30, 70 + rnd() * 95);
-        clouds.setMatrixAt(n, m4.compose(tp, noRot, ts));
-        n++;
-      }
-    }
-    clouds.count = n;
-    clouds.instanceMatrix.needsUpdate = true;
-    scene.add(clouds);
-  }
+  // Clouds (global): a large tiled field of big, billowy cumulus that follows
+  // the camera each frame (main.js) by snapping to CLOUD_TILE. Because the tile
+  // (80km) dwarfs the fog distance, the snap is never visible — clouds simply
+  // exist everywhere. Much larger puffs than before.
+  const clouds = buildClouds(scene);
 
   const rings = [];
-  return { terrain: firstTerrain, rings, sun, clouds, carriers, colliders, waveMats, islands };
+  return { terrain: firstTerrain, rings, sun, clouds, ocean, carriers, colliders, waveMats, islands };
+}
+
+// One big tiled cumulus field. Returned mesh carries userData.tile so main can
+// snap it to the camera (the tile dwarfs fog distance, so the wrap is unseen).
+const CLOUD_TILE = 80000;
+function buildClouds(scene) {
+  const rnd = mulberry32(0xc10da5);
+  const m4 = new THREE.Matrix4(), noRot = new THREE.Quaternion(), tp = new THREE.Vector3(), ts = new THREE.Vector3();
+  const MAX = 1100;
+  const clouds = new THREE.InstancedMesh(
+    new THREE.SphereGeometry(1, 8, 6),
+    new THREE.MeshStandardMaterial({ color: 0xffffff, flatShading: true, transparent: true, opacity: 0.95, roughness: 1, emissive: 0x6b7fa6, emissiveIntensity: 0.16 }),
+    MAX
+  );
+  clouds.castShadow = false;
+  clouds.frustumCulled = false; // it's recentred on the camera every frame
+  const H = CLOUD_TILE / 2;
+  let n = 0;
+  const clusters = 110;
+  for (let cc = 0; cc < clusters && n < MAX; cc++) {
+    const cx = (rnd() - 0.5) * CLOUD_TILE;
+    const cz = (rnd() - 0.5) * CLOUD_TILE;
+    const cy = 1700 + rnd() * 2600;
+    const puffs = 5 + Math.floor(rnd() * 6);
+    const big = 0.7 + rnd() * 1.6; // some small fair-weather, some towering
+    for (let p = 0; p < puffs && n < MAX; p++) {
+      tp.set(cx + (rnd() - 0.5) * 620, cy + (rnd() - 0.5) * 130, cz + (rnd() - 0.5) * 620);
+      ts.set((180 + rnd() * 260) * big, (90 + rnd() * 120) * big, (180 + rnd() * 260) * big);
+      clouds.setMatrixAt(n, m4.compose(tp, noRot, ts));
+      n++;
+    }
+  }
+  clouds.count = n;
+  clouds.instanceMatrix.needsUpdate = true;
+  clouds.userData.tile = CLOUD_TILE;
+  scene.add(clouds);
+  return clouds;
 }
 
 // Build one island into a group positioned at its world centre. All internal
@@ -479,15 +501,7 @@ function buildIsland(scene, is, waveMats, colliders) {
   terrain.receiveShadow = true;
   grp.add(terrain);
 
-  // Detailed wave water around this island (local; sized so neighbouring
-  // islands' water planes don't overlap and z-fight — the far sea fills gaps).
-  const wgeo = new THREE.PlaneGeometry(TERRAIN_SIZE * 1.15, TERRAIN_SIZE * 1.15, 220, 220);
-  wgeo.rotateX(-Math.PI / 2);
-  const waterMat = waveMaterial(0x21506e, 1.0);
-  const water = new THREE.Mesh(wgeo, waterMat);
-  water.position.y = SEA_LEVEL;
-  grp.add(water);
-  waveMats.push(waterMat);
+  // (Ocean is a single global, camera-following system — see buildWorld.)
 
   // Runway near spawn (local)
   const ry = H(0, 0);

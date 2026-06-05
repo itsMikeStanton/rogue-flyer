@@ -99,6 +99,26 @@ const ui = new UI(input, {
 const editor = new Editor(scene, renderer, hud);
 editor.onExit = () => ui.showMenu();
 function showAllIslands() { if (world.islands) for (const isl of world.islands) isl.group.visible = true; }
+
+// Keep the global ocean + cloud field centred on the active camera so they
+// exist everywhere (water never runs out; clouds wrap seamlessly past the fog).
+const _skyPos = new THREE.Vector3();
+function updateSky(cam, showClouds) {
+  cam.getWorldPosition(_skyPos);
+  if (world.ocean) {
+    const c = 56000 / 256; // snap to the mesh cell so vertices stay world-aligned
+    world.ocean.position.x = Math.round(_skyPos.x / c) * c;
+    world.ocean.position.z = Math.round(_skyPos.z / c) * c;
+  }
+  if (world.clouds) {
+    world.clouds.visible = showClouds;
+    if (showClouds) {
+      const t = world.clouds.userData.tile;
+      world.clouds.position.x = Math.round(_skyPos.x / t) * t;
+      world.clouds.position.z = Math.round(_skyPos.z / t) * t;
+    }
+  }
+}
 const edBtn = document.getElementById("btn-editor");
 if (edBtn) edBtn.addEventListener("click", () => { ui.hideAll(); touch.setVisible(false); showAllIslands(); editor.enter(); });
 
@@ -568,8 +588,9 @@ function frame(now) {
   last = now;
   if (dt > 0.1) dt = 0.1; // clamp after tab-out
 
-  // World editor takes over rendering with its top-down camera.
-  if (editor.active) { editor.render(); return; }
+  // World editor takes over rendering with its top-down camera. The ocean still
+  // follows so coasts read right; clouds are hidden (no geometry over the map).
+  if (editor.active) { updateSky(editor.cam, false); editor.render(); return; }
 
   const controls = inXR ? getXRControls(dt) : input.getControls(dt);
 
@@ -683,9 +704,6 @@ function frame(now) {
   // Spin rings for visibility
   for (const r of world.rings) r.rotation.z += dt * 0.5;
 
-  // Drift the cloud layer gently on the wind.
-  if (world.clouds) world.clouds.position.x += dt * 3;
-
   // Distance-cull far islands (cheap archipelago LOD).
   if (world.islands && world.islands.length > 1) {
     const px = state.position.x, pz = state.position.z, R = 40000;
@@ -706,6 +724,7 @@ function frame(now) {
   if (inXR) { updateVRRig(dt); sound.setListener(playerRig); }
   else if (flying) { updateCamera(dt); sound.setListener(camera); }
   else { menuCinematic(dt); sound.setListener(camera); }
+  updateSky(camera, true); // ocean + clouds follow the active camera
   renderer.render(scene, camera);
 
   // HUD
