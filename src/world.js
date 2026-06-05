@@ -634,19 +634,28 @@ function buildIsland(scene, is, waveMats, colliders) {
   }
 
   // ---- Settlements ----
+  // Tall lots become flat-roofed towers (slab roof + rooftop AC/antenna, with a
+  // setback penthouse on the tallest); short lots become pitched-roof houses.
+  // Everything stays instanced so a whole city is still a handful of draw calls.
   {
     const MAX = 900;
     const win = makeWindowTextures();
     const wallMat = new THREE.MeshStandardMaterial({ map: win.map, emissive: 0xffcf86, emissiveMap: win.emissiveMap, emissiveIntensity: 0.9, roughness: 0.8 });
     const buildings = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), wallMat, MAX);
-    const roofMat = new THREE.MeshStandardMaterial({ flatShading: true, roughness: 0.8 });
-    const roofs = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), roofMat, MAX);
+    const flatRoofMat = new THREE.MeshStandardMaterial({ flatShading: true, roughness: 0.85 });
+    const flatRoofs = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), flatRoofMat, MAX);
+    const hipGeo = new THREE.ConeGeometry(0.707, 1, 4); hipGeo.rotateY(Math.PI / 4); // square pyramid roof
+    const hipRoofs = new THREE.InstancedMesh(hipGeo, new THREE.MeshStandardMaterial({ flatShading: true, roughness: 0.85 }), MAX);
+    const caps = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), wallMat, 300); // setback penthouses
+    const detailMat = new THREE.MeshStandardMaterial({ color: 0x3a3f45, flatShading: true, roughness: 0.9 });
+    const acUnits = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), detailMat, 500);
+    const antennas = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.4, 0.4, 1, 5), detailMat, 250);
     buildings.castShadow = buildings.receiveShadow = true;
-    roofs.castShadow = true;
+    flatRoofs.castShadow = hipRoofs.castShadow = caps.castShadow = acUnits.castShadow = antennas.castShadow = true;
     const wallTones = [0x8b9098, 0x9a9388, 0x7d8a93, 0xa3a097, 0x6f7a82];
     const roofTones = [0x5a3b34, 0x40474d, 0x6b5a3a, 0x3a4148];
     const tmpCol = new THREE.Color();
-    let n = 0;
+    let n = 0, fr = 0, hr = 0, cp = 0, ac = 0, an = 0;
     for (const s of is.settlements) {
       const cx = s.x, cz = s.z, gr = s.radius, sp = s.spacing, mh = s.maxHeight;
       for (let gx = -gr; gx <= gr && n < MAX; gx++) {
@@ -658,22 +667,47 @@ function buildIsland(scene, is, waveMats, colliders) {
           if (h < 4 || onRiver(x, z)) continue;
           const edge = Math.max(Math.abs(gx), Math.abs(gz));
           const bh = 18 + rnd() * mh * (1 - edge / (gr + 1.5));
-          const bw = 22 + rnd() * 26, bd = 22 + rnd() * 26;
+          const tall = bh > 50;
+          const bw = tall ? 16 + rnd() * 18 : 20 + rnd() * 24;
+          const bd = tall ? 16 + rnd() * 18 : 20 + rnd() * 24;
           tp.set(x, h + bh / 2, z); ts.set(bw, bh, bd);
           buildings.setMatrixAt(n, m4.compose(tp, noRot, ts));
           buildings.setColorAt(n, tmpCol.setHex(wallTones[(rnd() * wallTones.length) | 0]));
-          tp.set(x, h + bh + 1.2, z); ts.set(bw + 3, 2.4, bd + 3);
-          roofs.setMatrixAt(n, m4.compose(tp, noRot, ts));
-          roofs.setColorAt(n, tmpCol.setHex(roofTones[(rnd() * roofTones.length) | 0]));
+          if (tall) {
+            tp.set(x, h + bh + 1.2, z); ts.set(bw + 2, 2.4, bd + 2);
+            flatRoofs.setMatrixAt(fr, m4.compose(tp, noRot, ts));
+            flatRoofs.setColorAt(fr, tmpCol.setHex(roofTones[(rnd() * roofTones.length) | 0])); fr++;
+            if (ac < 500) { // a rooftop AC/plant box
+              const aw = 4 + rnd() * 5;
+              tp.set(x + (rnd() - 0.5) * bw * 0.4, h + bh + 2.4 + aw / 2, z + (rnd() - 0.5) * bd * 0.4); ts.set(aw, aw, aw);
+              acUnits.setMatrixAt(ac++, m4.compose(tp, noRot, ts));
+            }
+            if (rnd() < 0.45 && an < 250) { // an antenna mast
+              const ah = 7 + rnd() * 12;
+              tp.set(x + (rnd() - 0.5) * bw * 0.3, h + bh + 2.4 + ah / 2, z + (rnd() - 0.5) * bd * 0.3); ts.set(1, ah, 1);
+              antennas.setMatrixAt(an++, m4.compose(tp, noRot, ts));
+            }
+            if (bh > 95 && cp < 300) { // stepped-back penthouse on the tallest towers
+              const ch = 10 + rnd() * 16;
+              tp.set(x, h + bh + ch / 2, z); ts.set(bw * 0.6, ch, bd * 0.6);
+              caps.setMatrixAt(cp, m4.compose(tp, noRot, ts));
+              caps.setColorAt(cp, tmpCol.setHex(wallTones[(rnd() * wallTones.length) | 0])); cp++;
+            }
+          } else {
+            const roofH = 5 + rnd() * 5; // pitched hip roof
+            tp.set(x, h + bh + roofH / 2, z); ts.set(bw + 2, roofH, bd + 2);
+            hipRoofs.setMatrixAt(hr, m4.compose(tp, noRot, ts));
+            hipRoofs.setColorAt(hr, tmpCol.setHex(roofTones[(rnd() * roofTones.length) | 0])); hr++;
+          }
           colliders.push({ x: x + cx0, z: z + cz0, hx: bw / 2 + 1, hz: bd / 2 + 1, top: h + bh });
           n++;
         }
       }
     }
-    buildings.count = n; roofs.count = n;
-    buildings.instanceMatrix.needsUpdate = roofs.instanceMatrix.needsUpdate = true;
-    buildings.instanceColor.needsUpdate = roofs.instanceColor.needsUpdate = true;
-    grp.add(buildings); grp.add(roofs);
+    buildings.count = n; flatRoofs.count = fr; hipRoofs.count = hr; caps.count = cp; acUnits.count = ac; antennas.count = an;
+    for (const im of [buildings, flatRoofs, hipRoofs, caps, acUnits, antennas]) im.instanceMatrix.needsUpdate = true;
+    for (const im of [buildings, flatRoofs, hipRoofs, caps]) if (im.instanceColor) im.instanceColor.needsUpdate = true;
+    grp.add(buildings); grp.add(flatRoofs); grp.add(hipRoofs); grp.add(caps); grp.add(acUnits); grp.add(antennas);
   }
 
   // ---- Roads ----
@@ -709,29 +743,62 @@ function buildIsland(scene, is, waveMats, colliders) {
     for (const road of is.roads) buildRoad(road);
   }
 
-  // ---- Bridges ----
+  // ---- Bridges (suspension): deck + towers + sagging main cables + hangers ----
   {
     const deckMat = new THREE.MeshStandardMaterial({ color: 0x6b6f74, flatShading: true, roughness: 0.9 });
     const railMat = new THREE.MeshStandardMaterial({ color: 0x484c50, flatShading: true });
     const pierMat = new THREE.MeshStandardMaterial({ color: 0x55585d, flatShading: true });
-    const deckY = 16;
+    const towerMat = new THREE.MeshStandardMaterial({ color: 0x8a6f63, flatShading: true, roughness: 0.9 });
+    const cableMat = new THREE.MeshStandardMaterial({ color: 0x30343a, metalness: 0.6, roughness: 0.5 });
+    const lineMat = new THREE.MeshStandardMaterial({ color: 0xeef0f2, roughness: 0.7 });
+    const deckY = 16, towerH = 34, halfW = 14;
     for (const bz of is.bridges) {
       const cx = RC(bz);
       const span = (is.river.outer + 70) * 2;
+      const half = span / 2, inner = is.river.inner, top = deckY + towerH;
+      // roadway deck + painted centreline
       const deck = new THREE.Mesh(new THREE.BoxGeometry(span, 3, 30), deckMat);
-      deck.position.set(cx, deckY, bz);
-      deck.castShadow = deck.receiveShadow = true;
-      grp.add(deck);
+      deck.position.set(cx, deckY, bz); deck.castShadow = deck.receiveShadow = true; grp.add(deck);
+      const line = new THREE.Mesh(new THREE.BoxGeometry(span, 0.2, 1.2), lineMat);
+      line.position.set(cx, deckY + 1.65, bz); grp.add(line);
       for (const s of [-1, 1]) {
-        const rail = new THREE.Mesh(new THREE.BoxGeometry(span, 2, 1.6), railMat);
-        rail.position.set(cx, deckY + 2.4, bz + s * 14);
-        grp.add(rail);
+        const rail = new THREE.Mesh(new THREE.BoxGeometry(span, 2, 1.2), railMat);
+        rail.position.set(cx, deckY + 2.4, bz + s * halfW); grp.add(rail);
       }
-      for (const px of [cx - is.river.inner, cx + is.river.inner]) {
+      // two towers (paired legs + crossbeam) standing on pier footings
+      for (const tx of [cx - inner, cx + inner]) {
+        for (const s of [-1, 1]) {
+          const leg = new THREE.Mesh(new THREE.BoxGeometry(4, towerH + 8, 4), towerMat);
+          leg.position.set(tx, deckY - 4 + (towerH + 8) / 2, bz + s * halfW);
+          leg.castShadow = true; grp.add(leg);
+        }
+        const beam = new THREE.Mesh(new THREE.BoxGeometry(5, 3, 2 * halfW + 4), towerMat);
+        beam.position.set(tx, top, bz); grp.add(beam);
         const ph = deckY - is.river.bed + 6;
-        const pier = new THREE.Mesh(new THREE.BoxGeometry(9, ph, 9), pierMat);
-        pier.position.set(px, deckY - ph / 2, bz);
-        pier.castShadow = true; grp.add(pier);
+        const pier = new THREE.Mesh(new THREE.BoxGeometry(10, ph, 2 * halfW + 6), pierMat);
+        pier.position.set(tx, deckY - ph / 2, bz); pier.castShadow = true; grp.add(pier);
+      }
+      // main cables (sag between the towers, anchored at the deck ends) + hangers
+      for (const s of [-1, 1]) {
+        const z = bz + s * halfW;
+        const curve = new THREE.CatmullRomCurve3([
+          new THREE.Vector3(cx - half, deckY + 2, z),
+          new THREE.Vector3(cx - inner, top, z),
+          new THREE.Vector3(cx, deckY + 6, z),
+          new THREE.Vector3(cx + inner, top, z),
+          new THREE.Vector3(cx + half, deckY + 2, z),
+        ]);
+        grp.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 40, 0.6, 6, false), cableMat));
+        const N = 9;
+        for (let i = 1; i < N; i++) {
+          const xx = cx - inner + (2 * inner) * (i / N);
+          const tn = (xx - cx) / inner;
+          const cy = top - (top - (deckY + 6)) * (1 - tn * tn); // parabola matching the cable
+          const hh = cy - (deckY + 1.6);
+          if (hh < 1) continue;
+          const hanger = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, hh, 5), cableMat);
+          hanger.position.set(xx, deckY + 1.6 + hh / 2, z); grp.add(hanger);
+        }
       }
     }
   }
