@@ -310,10 +310,20 @@ export function buildWorld(scene) {
   terrain.receiveShadow = true;
   scene.add(terrain);
 
-  // Water plane at sea level — segmented for gentle wave animation
-  const wgeo = new THREE.PlaneGeometry(TERRAIN_SIZE * 1.5, TERRAIN_SIZE * 1.5, 220, 220);
+  // Far ocean: a big opaque plane so you never see the water's edge — the seam
+  // with the detailed water below is buried in fog.
+  const farSea = new THREE.Mesh(
+    new THREE.PlaneGeometry(240000, 240000, 1, 1),
+    new THREE.MeshStandardMaterial({ color: 0x21506e, roughness: 0.7, metalness: 0.0 })
+  );
+  farSea.rotation.x = -Math.PI / 2;
+  farSea.position.y = SEA_LEVEL - 3;
+  scene.add(farSea);
+
+  // Detailed wave water near the island (opaque).
+  const wgeo = new THREE.PlaneGeometry(TERRAIN_SIZE * 2, TERRAIN_SIZE * 2, 300, 300);
   wgeo.rotateX(-Math.PI / 2);
-  const waterMat = waveMaterial(0x21506e, 0.9);
+  const waterMat = waveMaterial(0x21506e, 1.0);
   const water = new THREE.Mesh(wgeo, waterMat);
   water.position.y = SEA_LEVEL;
   scene.add(water);

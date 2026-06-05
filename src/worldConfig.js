@@ -11,7 +11,7 @@ export function defaultWorldConfig() {
     // Tree cover. density is a paintable gridN×gridN grid of 0..1 values over
     // ±extent; null means "use the procedural default" (see world.js). perCell
     // is how many trees a fully-painted cell seeds; maxTrees is the global cap.
-    forest: { extent: 10800, gridN: 48, maxTrees: 45000, perCell: 90, density: null },
+    forest: { extent: 10800, gridN: 96, maxTrees: 45000, perCell: 22, density: null },
     // Coastal cliff/headland (flat-topped mesa with steep sides).
     cliff: { x: -6200, z: 1900, r: 620, h: 560 },
     // Winding river: x(z) = a1*sin(f1*z) + a2*sin(f2*z + phase).

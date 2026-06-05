@@ -132,7 +132,9 @@ export function step(state, def, controls, dt, groundHeight) {
   // Integrate linear motion (semi-implicit Euler)
   const invMass = 1 / def.mass;
   vel.addScaledVector(_force, invMass * dt);
-  state.position.addScaledVector(vel, dt);
+  // World-movement multiplier: how far airspeed carries you through the world.
+  // Bumped so jets feel like jets (covering ground) rather than fast helicopters.
+  state.position.addScaledVector(vel, dt * 1.6);
 
   // --- Rotational control ---
   // Low-pass the inputs so a flick of the stick ramps in instead of snapping —

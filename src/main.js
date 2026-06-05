@@ -240,6 +240,8 @@ const camTarget = new THREE.Vector3();
 const camPos = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 const _v = new THREE.Vector3();
+const _v2 = new THREE.Vector3();
+const _v3 = new THREE.Vector3();
 
 function updateCamera(dt) {
   const mode = CAMS[camIndex];
@@ -731,7 +733,15 @@ function frame(now) {
       }
     }
     const isMissionHud = gameMode === "mission";
+    // Attitude for the HUD horizon ladder.
+    _v.set(0, 0, -1).applyQuaternion(state.quaternion);
+    const pitchAng = Math.asin(THREE.MathUtils.clamp(_v.y, -1, 1));
+    _v2.set(1, 0, 0).applyQuaternion(state.quaternion);
+    _v3.set(0, 1, 0).applyQuaternion(state.quaternion);
+    const rollAng = Math.atan2(_v2.y, _v3.y);
     hud.draw(state.telemetry, {
+      pitch: pitchAng,
+      roll: rollAng,
       jetName: def.name,
       camName: CAMS[camIndex],
       mode: gameMode,

@@ -28,6 +28,17 @@ export class Hud {
     ctx.lineWidth = 1.5;
     ctx.font = "14px 'Consolas', monospace";
 
+    // Artificial horizon + pitch ladder (behind the reticle)
+    if (extra.pitch != null) this.horizon(cx, cy, extra.pitch, extra.roll || 0, green);
+
+    // Fixed aircraft reference (boresight) — stays put as the ladder moves
+    ctx.beginPath();
+    ctx.moveTo(cx - 60, cy); ctx.lineTo(cx - 30, cy);
+    ctx.moveTo(cx + 30, cy); ctx.lineTo(cx + 60, cy);
+    ctx.moveTo(cx - 30, cy); ctx.lineTo(cx - 24, cy + 7);
+    ctx.moveTo(cx + 30, cy); ctx.lineTo(cx + 24, cy + 7);
+    ctx.stroke();
+
     // Center reticle (velocity-ish marker)
     ctx.beginPath();
     ctx.arc(cx, cy, 8, 0, Math.PI * 2);
@@ -109,6 +120,52 @@ export class Hud {
 
     // Mission objective marker (on-screen diamond or edge arrow).
     if (extra.objective) this.objective(extra.objective);
+  }
+
+  // Attitude indicator: a horizon bar and pitch-ladder rungs that bank with
+  // roll and slide with pitch, clipped to a box around the centre.
+  horizon(cx, cy, pitch, roll, color) {
+    const ctx = this.ctx;
+    const k = 5.2; // pixels per degree
+    const pdeg = pitch * 180 / Math.PI;
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(cx - 230, cy - 150, 460, 300); // keep the ladder near centre
+    ctx.clip();
+    ctx.translate(cx, cy);
+    ctx.rotate(roll);
+    ctx.translate(0, pdeg * k);
+    ctx.strokeStyle = color; ctx.fillStyle = color;
+    ctx.lineWidth = 1.5;
+    ctx.font = "11px 'Consolas', monospace";
+    ctx.textAlign = "left";
+    // horizon (0°) line with a centre gap
+    ctx.globalAlpha = 0.9;
+    ctx.beginPath();
+    ctx.moveTo(-200, 0); ctx.lineTo(-26, 0);
+    ctx.moveTo(26, 0); ctx.lineTo(200, 0);
+    ctx.stroke();
+    // pitch rungs
+    ctx.globalAlpha = 0.75;
+    for (let a = -60; a <= 60; a += 10) {
+      if (a === 0) continue;
+      const y = -a * k;
+      const half = a > 0 ? 60 : 50;
+      const tick = a > 0 ? 8 : -8;
+      ctx.beginPath();
+      if (a < 0) ctx.setLineDash([7, 6]); else ctx.setLineDash([]);
+      ctx.moveTo(-half, y); ctx.lineTo(-26, y);
+      ctx.moveTo(26, y); ctx.lineTo(half, y);
+      // end caps point toward the horizon
+      ctx.moveTo(-26, y); ctx.lineTo(-26, y + tick);
+      ctx.moveTo(26, y); ctx.lineTo(26, y + tick);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      const lbl = String(Math.abs(a));
+      ctx.fillText(lbl, -half - 18, y + 4);
+      ctx.fillText(lbl, half + 6, y + 4);
+    }
+    ctx.restore();
   }
 
   objective(o) {
