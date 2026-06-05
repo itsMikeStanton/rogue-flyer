@@ -39,10 +39,15 @@ export function getForestDensity() {
   return f.density;
 }
 function forestDensityAt(x, z) {
+  // Bilinear so the tree field (and its painted edges) are smooth, not blocky.
   const f = CFG.forest, g = f.gridN, e = f.extent, d = getForestDensity();
-  const i = Math.round(THREE.MathUtils.clamp((x / (2 * e) + 0.5) * (g - 1), 0, g - 1));
-  const j = Math.round(THREE.MathUtils.clamp((z / (2 * e) + 0.5) * (g - 1), 0, g - 1));
-  return d[j * g + i];
+  const fx = THREE.MathUtils.clamp((x / (2 * e) + 0.5) * (g - 1), 0, g - 1);
+  const fz = THREE.MathUtils.clamp((z / (2 * e) + 0.5) * (g - 1), 0, g - 1);
+  const i0 = Math.floor(fx), j0 = Math.floor(fz);
+  const i1 = Math.min(g - 1, i0 + 1), j1 = Math.min(g - 1, j0 + 1);
+  const tx = fx - i0, tz = fz - j0;
+  const a = d[j0 * g + i0], b = d[j0 * g + i1], cc = d[j1 * g + i0], dd = d[j1 * g + i1];
+  return THREE.MathUtils.lerp(THREE.MathUtils.lerp(a, b, tx), THREE.MathUtils.lerp(cc, dd, tx), tz);
 }
 
 // Paintable ground materials (index 0 = "auto", i.e. keep height-based colour).
@@ -61,13 +66,23 @@ export function getPaintGrid() {
   if (!p.cells) p.cells = new Array(p.gridN * p.gridN).fill(0);
   return p.cells;
 }
-function paintMaterialAt(x, z) {
+const _pcA = new THREE.Color(), _pcB = new THREE.Color(), _pcOut = new THREE.Color();
+// Bilinearly blend the painted material colours (auto cells fall back to the
+// supplied height-based colour) so material edges are smooth, not stair-stepped.
+function paintColorAt(x, z, base, out) {
   const p = CFG.paint;
-  if (!p || !p.cells) return 0;
+  if (!p || !p.cells) { out.copy(base); return out; }
   const g = p.gridN, e = p.extent;
-  const i = Math.round(THREE.MathUtils.clamp((x / (2 * e) + 0.5) * (g - 1), 0, g - 1));
-  const j = Math.round(THREE.MathUtils.clamp((z / (2 * e) + 0.5) * (g - 1), 0, g - 1));
-  return p.cells[j * g + i] || 0;
+  const fx = THREE.MathUtils.clamp((x / (2 * e) + 0.5) * (g - 1), 0, g - 1);
+  const fz = THREE.MathUtils.clamp((z / (2 * e) + 0.5) * (g - 1), 0, g - 1);
+  const i0 = Math.floor(fx), j0 = Math.floor(fz);
+  const i1 = Math.min(g - 1, i0 + 1), j1 = Math.min(g - 1, j0 + 1);
+  const tx = fx - i0, tz = fz - j0;
+  const col = (ii, jj) => { const m = p.cells[jj * g + ii] || 0; return m === 0 ? base : PAINT_COLORS[m]; };
+  _pcA.copy(col(i0, j0)).lerp(col(i1, j0), tx);
+  _pcB.copy(col(i0, j1)).lerp(col(i1, j1), tx);
+  out.copy(_pcA).lerp(_pcB, tz);
+  return out;
 }
 
 // Cheap deterministic value-noise so terrain is repeatable run-to-run.
@@ -318,9 +333,8 @@ export function buildWorld(scene) {
       else if (t < 0.8) c.copy(mid).lerp(high, (t - 0.45) / 0.35);
       else c.copy(high).lerp(snow, (t - 0.8) / 0.2);
     }
-    // Painted ground material overrides the height-based colour.
-    const pm = paintMaterialAt(x, z);
-    if (pm > 0) c.copy(PAINT_COLORS[pm]);
+    // Painted ground material (bilinearly blended) overrides the height colour.
+    paintColorAt(x, z, c, _pcOut); c.copy(_pcOut);
     // subtle per-vertex variation so it isn't flat
     const j = (hash2(x * 0.05, z * 0.05) - 0.5) * 0.06;
     colors.push(

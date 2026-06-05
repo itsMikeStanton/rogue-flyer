@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { getWorldConfig, riverCenterX, getForestDensity, getPaintGrid, PAINT_MATERIALS } from "./world.js";
+import { getWorldConfig, setWorldConfig, riverCenterX, getForestDensity, getPaintGrid, PAINT_MATERIALS } from "./world.js";
 
 // In-browser world editor: a top-down map view with draggable markers for the
 // editable objects (settlements, carriers, bridges, mission bases, spawn,
@@ -26,10 +26,13 @@ export class Editor {
     this.selected = null;
     this.view = 16000;
     this.brush = 700;
+    this.strength = 0.5;    // paint strength / softness for the tree brush
     this._painting = 0;
     this.densMesh = null;
     this.terrMesh = null;
-    this.paintMat = 1; // current ground material for the Terrain brush
+    this.paintMat = 1;      // current ground material for the Terrain brush
+    this._undo = [];        // JSON snapshots for undo / redo
+    this._redo = [];
     this._road = [];        // waypoints of the road currently being drawn
     this.roadGroup = null;  // line overlay for committed + in-progress roads
 
@@ -164,6 +167,7 @@ export class Editor {
     const f = this.cfg.forest, g = f.gridN;
     this._densData = new Uint8Array(g * g * 4);
     this._densTex = new THREE.DataTexture(this._densData, g, g, THREE.RGBAFormat);
+    this._densTex.magFilter = this._densTex.minFilter = THREE.LinearFilter;
     const mat = new THREE.MeshBasicMaterial({ map: this._densTex, transparent: true, opacity: 0.7, depthTest: false });
     this.densMesh = new THREE.Mesh(new THREE.PlaneGeometry(2 * f.extent, 2 * f.extent), mat);
     this.densMesh.rotation.x = -Math.PI / 2;
@@ -195,6 +199,7 @@ export class Editor {
     const p = this.cfg.paint, g = p.gridN;
     this._terrData = new Uint8Array(g * g * 4);
     this._terrTex = new THREE.DataTexture(this._terrData, g, g, THREE.RGBAFormat);
+    this._terrTex.magFilter = this._terrTex.minFilter = THREE.LinearFilter;
     const mat = new THREE.MeshBasicMaterial({ map: this._terrTex, transparent: true, opacity: 0.65, depthTest: false });
     this.terrMesh = new THREE.Mesh(new THREE.PlaneGeometry(2 * p.extent, 2 * p.extent), mat);
     this.terrMesh.rotation.x = -Math.PI / 2;
@@ -237,7 +242,7 @@ export class Editor {
   }
   paintAt(p) {
     const f = this.cfg.forest, g = f.gridN, e = f.extent, d = getForestDensity();
-    const rad = this.brush, rate = 0.5, cell = (2 * e) / (g - 1);
+    const rad = this.brush, cell = (2 * e) / (g - 1);
     const span = Math.ceil(rad / cell) + 1;
     const ci = (p.x / (2 * e) + 0.5) * (g - 1);
     const cj = (p.z / (2 * e) + 0.5) * (g - 1);
@@ -246,11 +251,39 @@ export class Editor {
         const wx = (i / (g - 1) - 0.5) * 2 * e, wz = (j / (g - 1) - 0.5) * 2 * e;
         const dist = Math.hypot(wx - p.x, wz - p.z);
         if (dist > rad) continue;
+        // Smoothstep falloff = soft, feathered brush edges.
+        const t = 1 - dist / rad;
+        const fall = t * t * (3 - 2 * t);
         const k = j * g + i;
-        d[k] = THREE.MathUtils.clamp(d[k] + this._painting * rate * (1 - dist / rad), 0, 1);
+        d[k] = THREE.MathUtils.clamp(d[k] + this._painting * this.strength * fall, 0, 1);
       }
     }
     this._updateDensTex();
+  }
+
+  // ---- undo / redo (whole-config snapshots) ----
+  pushUndo() {
+    try {
+      this._undo.push(JSON.stringify(this.cfg));
+      if (this._undo.length > 40) this._undo.shift();
+      this._redo.length = 0;
+    } catch (_) { /* ignore */ }
+  }
+  undo() { this._restore(this._undo, this._redo); }
+  redo() { this._restore(this._redo, this._undo); }
+  _restore(from, to) {
+    if (!from.length) return;
+    try { to.push(JSON.stringify(this.cfg)); } catch (_) {}
+    const cfg = JSON.parse(from.pop());
+    this.cfg = cfg;
+    setWorldConfig(cfg);
+    this.select(null);
+    this.rebuildGizmos();
+    this._drawRiver();
+    this._redrawRoadLines();
+    this._updateDensTex();
+    this._updateTerrainTex();
+    this._refreshProps();
   }
 
   // ---- road drawing ----
@@ -353,32 +386,35 @@ export class Editor {
       if (!this.active || (e.target.closest && e.target.closest("#editor-panel"))) return;
       const g = this._ground(e);
       if (this.tool === "trees" || this.tool === "erase") {
+        this.pushUndo();
         this._painting = this.tool === "trees" ? 1 : -1;
         if (g) this.paintAt(g);
         return;
       }
       if (this.tool === "terrain") {
+        this.pushUndo();
         this._painting = 2; // terrain-paint mode
         if (g) this.paintTerrainAt(g);
         return;
       }
       if (this.tool === "road") {
+        if (!this._road.length) this.pushUndo();
         if (g) { this._road.push([Math.round(g.x), Math.round(g.z)]); this._redrawRoadLines(); this._refreshProps(); }
         return;
       }
       // River is edited via the panel only — clicking the map just pans.
       if (this.tool !== "select" && this.tool !== "river") { if (g) this.place(g); return; }
       const m = this._pick(e);
-      if (m) { this.select(m); this._drag = m; }
+      if (m) { this.pushUndo(); this.select(m); this._drag = m; }
       else { this.select(null); this._pan = { x: e.clientX, y: e.clientY }; }
     });
     window.addEventListener("pointermove", (e) => {
       if (!this.active) return;
+      const g = this._ground(e);
+      if (g && this._coordEl) this._coordEl.textContent = `X ${Math.round(g.x)}   Z ${Math.round(g.z)}`;
       if (this._painting) {
-        const g = this._ground(e);
         if (g) { if (this._painting === 2) this.paintTerrainAt(g); else this.paintAt(g); }
       } else if (this._drag) {
-        const g = this._ground(e);
         if (g) {
           this._setPos(this._drag.userData, g.x, g.z);
           this._syncMarker(this._drag);
@@ -400,6 +436,8 @@ export class Editor {
     }, { passive: true });
     window.addEventListener("keydown", (e) => {
       if (!this.active) return;
+      if ((e.ctrlKey || e.metaKey) && e.code === "KeyZ") { e.preventDefault(); if (e.shiftKey) this.redo(); else this.undo(); return; }
+      if ((e.ctrlKey || e.metaKey) && e.code === "KeyY") { e.preventDefault(); this.redo(); return; }
       if (this.tool === "road" && e.code === "Enter") { this.finishRoad(); return; }
       if (this.tool === "road" && e.code === "Escape") { this.cancelRoad(); return; }
       if (e.code === "Delete" || e.code === "Backspace") this.deleteSelected();
@@ -407,6 +445,7 @@ export class Editor {
   }
 
   place(g) {
+    this.pushUndo();
     const c = this.cfg;
     if (this.tool.startsWith("settle:")) {
       const kind = this.tool.split(":")[1];
@@ -426,6 +465,7 @@ export class Editor {
   deleteSelected() {
     const u = this.selected && this.selected.userData;
     if (!u) return;
+    this.pushUndo();
     const c = this.cfg;
     if (u.kind === "settlement") c.settlements.splice(u.i, 1);
     else if (u.kind === "carrier") c.carriers.splice(u.i, 1);
@@ -451,7 +491,13 @@ export class Editor {
     const p = document.createElement("div");
     p.id = "editor-panel";
     p.innerHTML = `
-      <h3>World Editor</h3>
+      <div class="ed-head">
+        <h3>World Editor</h3>
+        <div class="ed-undo">
+          <button data-a="undo" title="Undo (Ctrl+Z)">↶</button>
+          <button data-a="redo" title="Redo (Ctrl+Shift+Z)">↷</button>
+        </div>
+      </div>
       <div class="ed-row" id="ed-tools"></div>
       <div id="ed-props"></div>
       <div class="ed-actions">
@@ -461,16 +507,29 @@ export class Editor {
         <button data-a="reset">Reset</button>
         <button data-a="exit">Exit</button>
       </div>
-      <p class="ed-hint">Drag markers to move. Pick a "+" tool then click the map to place. Del removes. Scroll to zoom, drag empty space to pan.</p>
+      <div class="ed-coords" id="ed-coords">X 0   Z 0</div>
+      <details class="ed-help"><summary>How it works</summary>
+        <ul>
+          <li><b>Select</b> — click a marker to edit it; drag to move; <b>Del</b> removes.</li>
+          <li><b>+City/Town/Village/CV/Bridge/Target</b> — click the map to drop one.</li>
+          <li><b>🛣 Road</b> — click to drop waypoints, <b>Enter</b> to finish, <b>Esc</b> to cancel; road nodes are draggable in Select.</li>
+          <li><b>🌊 River</b> — tune the bends &amp; width with the sliders (live preview).</li>
+          <li><b>🌲 Trees / 🪓 Thin</b> — paint or remove tree cover; Size + Strength feather the brush.</li>
+          <li><b>🎨 Ground</b> — paint a material (Auto erases back to height colour).</li>
+          <li><b>Ctrl+Z / Ctrl+Shift+Z</b> — undo / redo · scroll = zoom · drag empty = pan.</li>
+          <li><b>Apply &amp; Reload</b> bakes it into the live world; <b>Export</b> saves a world.json.</li>
+        </ul>
+      </details>
       <input type="file" id="ed-file" accept="application/json" style="display:none" />`;
     document.body.appendChild(p);
     this.panel = p;
+    this._coordEl = p.querySelector("#ed-coords");
 
     const tools = [
       ["select", "Select"], ["settle:city", "+City"], ["settle:town", "+Town"],
       ["settle:village", "+Village"], ["carrier:ally", "+Ally CV"], ["carrier:enemy", "+Enemy CV"],
       ["bridge", "+Bridge"], ["base", "+Target"], ["road", "🛣 Road"],
-      ["river", "🌊 River"], ["trees", "🌲 Trees"], ["erase", "🧹 Clear"],
+      ["river", "🌊 River"], ["trees", "🌲 Trees"], ["erase", "🪓 Thin"],
       ["terrain", "🎨 Ground"],
     ];
     const tt = p.querySelector("#ed-tools");
@@ -485,14 +544,18 @@ export class Editor {
     }
     this._highlightTools();
 
-    p.querySelector(".ed-actions").addEventListener("click", (e) => {
+    const onAction = (e) => {
       const a = e.target.dataset.a;
       if (a === "apply") { this.save(); location.reload(); }
       else if (a === "export") this.exportJSON();
       else if (a === "import") p.querySelector("#ed-file").click();
       else if (a === "reset") { localStorage.removeItem("rogueflyer.world"); location.reload(); }
       else if (a === "exit") this.exit();
-    });
+      else if (a === "undo") this.undo();
+      else if (a === "redo") this.redo();
+    };
+    p.querySelector(".ed-actions").addEventListener("click", onAction);
+    p.querySelector(".ed-undo").addEventListener("click", onAction);
     p.querySelector("#ed-file").addEventListener("change", (e) => {
       const f = e.target.files[0]; if (!f) return;
       const r = new FileReader();
@@ -510,10 +573,12 @@ export class Editor {
   _refreshProps() {
     const host = this.panel.querySelector("#ed-props");
     if (this.tool === "trees" || this.tool === "erase") {
-      host.innerHTML = `<div class="ed-sel">tree brush</div>
+      host.innerHTML = `<div class="ed-sel">${this.tool === "trees" ? "tree brush" : "thin trees"}</div>
         <label>size<input type="range" id="p_brush" min="200" max="2500" value="${this.brush}"></label>
-        <div class="ed-none">Drag the map to ${this.tool === "trees" ? "add" : "remove"} trees. Green overlay = cover.</div>`;
+        <label>strength<input type="range" id="p_str" min="0.08" max="1" step="0.02" value="${this.strength}"></label>
+        <div class="ed-none">Drag the map to ${this.tool === "trees" ? "grow" : "remove"} trees. Lower strength = softer, feathered edges. Green overlay = cover.</div>`;
       host.querySelector("#p_brush").addEventListener("input", (e) => { this.brush = +e.target.value; });
+      host.querySelector("#p_str").addEventListener("input", (e) => { this.strength = +e.target.value; });
       return;
     }
     if (this.tool === "terrain") {
