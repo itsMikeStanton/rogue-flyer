@@ -83,6 +83,7 @@ export class UI {
       { key: "mission", name: "Strike Mission", desc: "Destroy every ground target. Air-to-ground guns + missiles." },
       { key: "practice", name: "Target Practice", desc: "Gun down drifting drones. No one shoots back." },
       { key: "free", name: "Free Flight", desc: "Just fly. Chase the rings, no combat." },
+      { key: "ffa", name: "Multiplayer FFA", desc: "LAN free-for-all. Connects to the local server; see and fight other pilots." },
     ];
     const list = document.getElementById("mode-list");
     list.innerHTML = "";

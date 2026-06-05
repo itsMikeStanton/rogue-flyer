@@ -1,0 +1,13 @@
+{
+  "name": "rogue-flyer-server",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "description": "LAN multiplayer relay + static host for Rogue Flyer.",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "ws": "^8.16.0"
+  }
+}

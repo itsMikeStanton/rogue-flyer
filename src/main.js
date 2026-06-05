@@ -14,6 +14,7 @@ import { Explosions } from "./fx.js";
 import { SoundEngine } from "./audio.js";
 import { Editor } from "./editor.js";
 import { PostFX } from "./postfx.js";
+import { Net } from "./net.js";
 
 // --- Renderer / scene / camera ---
 const canvas = document.getElementById("scene");
@@ -110,6 +111,38 @@ const ui = new UI(input, {
   onVR: (type, mode, start) => enterVR(type, mode, start),
   onSelectJet: (type) => { if (!flying) setAircraft(type); }, // live hero swap on the menu
 }, touch, tilt);
+
+// --- Multiplayer (LAN free-for-all) ---
+const net = new Net();
+const netMeshes = new Map(); // remote player id -> jet mesh
+let playerName = "Pilot";
+try {
+  playerName = localStorage.getItem("rf.name") || ("Pilot-" + Math.floor(Math.random() * 900 + 100));
+  localStorage.setItem("rf.name", playerName);
+} catch (_) { /* ignore */ }
+function playerColor(id) { return new THREE.Color().setHSL(((id * 47) % 360) / 360, 0.62, 0.55).getHex(); }
+net.onEvent = (t, m) => {
+  if (t === "leave") { const mesh = netMeshes.get(m.id); if (mesh) { scene.remove(mesh); netMeshes.delete(m.id); } }
+};
+function clearRemotePlayers() { for (const mesh of netMeshes.values()) scene.remove(mesh); netMeshes.clear(); }
+function updateRemotePlayers(dt) {
+  net.interpolate(dt);
+  for (const [id, mesh] of netMeshes) if (!net.players.has(id) || id === net.id) { scene.remove(mesh); netMeshes.delete(id); }
+  for (const p of net.players.values()) {
+    if (p.id === net.id) continue;
+    let mesh = netMeshes.get(p.id);
+    if (!mesh || mesh.userData.jet !== p.jet) {
+      if (mesh) scene.remove(mesh);
+      mesh = buildAircraftMesh(p.jet, playerColor(p.id));
+      mesh.userData.jet = p.jet;
+      scene.add(mesh);
+      netMeshes.set(p.id, mesh);
+    }
+    mesh.position.copy(p.cur.p);
+    mesh.quaternion.copy(p.cur.q);
+    mesh.visible = p.alive !== false;
+  }
+}
 
 // World editor (top-down). Entered from the menu button or ?edit.
 const editor = new Editor(scene, renderer, hud);
@@ -250,6 +283,9 @@ function startFlight(type, mode, start, vr) {
   startPos = start || "air";
   setAircraft(type);
   resetFlight();
+  // Multiplayer: connect for FFA, drop the connection for any other mode.
+  if (gameMode === "ffa") net.connect(playerName, type);
+  else if (net.status !== "offline") { net.disconnect(); clearRemotePlayers(); }
   flying = true;
   lastLock = null;
   touch.setVisible(true);
@@ -266,6 +302,7 @@ function togglePause() {
     flying = false;
     touch.setVisible(false);
     sound.stopEngine();
+    if (net.status !== "offline") { net.disconnect(); clearRemotePlayers(); }
     ui.showMenu();
   } else if (ui.menu.classList.contains("hidden") === false) {
     // resuming from menu is done via FLY button
@@ -717,6 +754,12 @@ function frame(now) {
     }
   }
 
+  // Multiplayer: broadcast our state + sync remote jets (runs even while dead).
+  if (flying && gameMode === "ffa" && net.connected) {
+    net.sendState(state, jetType, player.health, !state.crashed);
+    updateRemotePlayers(dt);
+  }
+
   // Spin rings for visibility
   for (const r of world.rings) r.rotation.z += dt * 0.5;
 
@@ -803,6 +846,25 @@ function frame(now) {
         });
       }
     }
+    // Multiplayer: connection status + name/health tags floating over each jet.
+    let netStatus = null, netLabels = null;
+    if (gameMode === "ffa") {
+      netStatus = net.status === "online" ? `LAN  ·  ${net.count() + 1} pilots` :
+        net.status === "connecting" ? "Connecting…" :
+        net.status === "error" ? "No server (run the LAN server)" : "Offline";
+      netLabels = [];
+      for (const [id, m] of netMeshes) {
+        const p = net.players.get(id);
+        if (!p || p.alive === false) continue;
+        _v.copy(m.position); _v.y += 14; _v.project(camera);
+        if (_v.z > 1 || Math.abs(_v.x) > 1 || Math.abs(_v.y) > 1) continue;
+        netLabels.push({
+          name: p.name, health: p.health,
+          x: (_v.x * 0.5 + 0.5) * hud.w, y: (-_v.y * 0.5 + 0.5) * hud.h,
+          dist: state.position.distanceTo(m.position),
+        });
+      }
+    }
     // Attitude for the HUD horizon ladder.
     _v.set(0, 0, -1).applyQuaternion(state.quaternion);
     const pitchAng = Math.asin(THREE.MathUtils.clamp(_v.y, -1, 1));
@@ -826,6 +888,8 @@ function frame(now) {
       lock,
       objective,
       islandMarkers,
+      netStatus,
+      netLabels,
     });
   } else {
     hud.ctx.clearRect(0, 0, hud.w, hud.h);

@@ -123,6 +123,31 @@ export class Hud {
 
     // Nav markers pointing to the other islands.
     if (extra.islandMarkers) for (const m of extra.islandMarkers) this.islandMarker(m);
+
+    // Multiplayer: connection status (top centre) + name/health tags on jets.
+    if (extra.netStatus) {
+      ctx.textAlign = "center";
+      ctx.fillStyle = extra.netStatus.startsWith("LAN") ? "#36ff9a" : "#ffd23f";
+      ctx.font = "12px 'Consolas', monospace";
+      ctx.fillText("◈ " + extra.netStatus, cx, 74);
+    }
+    if (extra.netLabels) for (const m of extra.netLabels) this.netLabel(m);
+  }
+
+  netLabel(m) {
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.textAlign = "center";
+    ctx.font = "11px 'Consolas', monospace";
+    ctx.fillStyle = "#dbe6f0";
+    ctx.fillText(`${m.name}  ${(m.dist / 1000).toFixed(1)}km`, m.x, m.y - 10);
+    // small health bar
+    const w = 46, h = 4, x = m.x - w / 2, y = m.y - 6;
+    ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.fillRect(x, y, w, h);
+    const hp = Math.max(0, Math.min(100, m.health == null ? 100 : m.health)) / 100;
+    ctx.fillStyle = hp > 0.5 ? "#36ff9a" : hp > 0.25 ? "#ffd23f" : "#ff5b5b";
+    ctx.fillRect(x, y, w * hp, h);
+    ctx.restore();
   }
 
   islandMarker(m) {
