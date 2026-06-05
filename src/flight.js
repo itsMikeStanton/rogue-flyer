@@ -74,7 +74,7 @@ export function step(state, def, controls, dt, groundHeight) {
 
   const vel = state.velocity;
   const speed = vel.length();
-  const altitude = state.position.y;
+  const altitude = state.position.y - SEA_LEVEL; // height above the sea surface
   const rho = airDensity(altitude);
   const qDyn = 0.5 * rho * speed * speed; // dynamic pressure
 
@@ -228,7 +228,7 @@ export function step(state, def, controls, dt, groundHeight) {
   const liftG = speed > 1 ? (qDyn * def.wingArea * cl) / (def.mass * GRAVITY) : 0;
   state.telemetry = {
     speed,
-    altitude: state.position.y,
+    altitude, // height above sea level (0 at the water surface)
     heading,
     throttle: controls.throttle,
     aoa: THREE.MathUtils.radToDeg(aoa),

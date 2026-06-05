@@ -345,7 +345,7 @@ export function buildWorld(scene) {
     new THREE.MeshStandardMaterial({ color: 0x21506e, roughness: 0.7, metalness: 0.0 })
   );
   farSea.rotation.x = -Math.PI / 2;
-  farSea.position.y = SEA_LEVEL - 3;
+  farSea.position.y = SEA_LEVEL - 30; // below the wave troughs so it never z-fights/pokes through
   scene.add(farSea);
 
   // Detailed wave water near the island (opaque).
