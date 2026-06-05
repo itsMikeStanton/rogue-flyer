@@ -98,8 +98,9 @@ const ui = new UI(input, {
 // World editor (top-down). Entered from the menu button or ?edit.
 const editor = new Editor(scene, renderer, hud);
 editor.onExit = () => ui.showMenu();
+function showAllIslands() { if (world.islands) for (const isl of world.islands) isl.group.visible = true; }
 const edBtn = document.getElementById("btn-editor");
-if (edBtn) edBtn.addEventListener("click", () => { ui.hideAll(); touch.setVisible(false); editor.enter(); });
+if (edBtn) edBtn.addEventListener("click", () => { ui.hideAll(); touch.setVisible(false); showAllIslands(); editor.enter(); });
 
 // --- Fullscreen ("takeover") ---
 function fullscreenSupported() {
@@ -805,7 +806,7 @@ if (versionEl) {
 }
 
 // Jump straight into the editor with ?edit in the URL.
-if (location.search.includes("edit")) { ui.hideAll(); editor.enter(); }
+if (location.search.includes("edit")) { ui.hideAll(); showAllIslands(); editor.enter(); }
 
 // Preview aircraft on the menu so the scene isn't empty.
 setAircraft("f16");

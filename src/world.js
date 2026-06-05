@@ -32,6 +32,17 @@ function migrate(cfg) {
 
 let activeIsland = 0; // which island the editor is currently editing
 export function getActiveIsland() { return CFG.islands[activeIsland]; }
+export function getActiveIslandIndex() { return activeIsland; }
+// A fresh island (default terrain/props) at a given world center.
+export function newIsland(center, name, faction) {
+  const is = defaultWorldConfig().islands[0]; // fresh objects each call
+  is.center = { x: center.x, z: center.z };
+  is.name = name; is.faction = faction;
+  is.seed = (Math.random() * 0xffffff) | 0;
+  is.carriers = []; is.missionBases = [];
+  is.forest.density = null; is.paint.cells = null;
+  return is;
+}
 export function setActiveIsland(i) { activeIsland = Math.max(0, Math.min(CFG.islands.length - 1, i | 0)); }
 export function setWorldConfig(cfg) { CFG = migrate(cfg); if (activeIsland >= CFG.islands.length) activeIsland = 0; }
 export function getWorldConfig() { return CFG; }

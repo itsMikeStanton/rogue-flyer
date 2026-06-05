@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { getWorldConfig, setWorldConfig, getActiveIsland, riverCenterX, getForestDensity, getPaintGrid, PAINT_MATERIALS } from "./world.js";
+import { getWorldConfig, setWorldConfig, getActiveIsland, getActiveIslandIndex, setActiveIsland, newIsland, riverCenterX, getForestDensity, getPaintGrid, PAINT_MATERIALS } from "./world.js";
 
 // In-browser world editor: a top-down map view with draggable markers for the
 // editable objects (settlements, carriers, bridges, mission bases, spawn,
@@ -22,6 +22,7 @@ export class Editor {
     this.active = false;
     this.onExit = null;
     this.cfg = getActiveIsland();
+    this.origin = { x: this.cfg.center.x, z: this.cfg.center.z }; // active island's world centre
     this.tool = "select";
     this.selected = null;
     this.view = 16000;
@@ -55,6 +56,7 @@ export class Editor {
   // ---------- lifecycle ----------
   enter() {
     this.cfg = getActiveIsland();
+    this.origin = { x: this.cfg.center.x, z: this.cfg.center.z };
     this.active = true;
     this._fog = this.scene.fog;
     this.scene.fog = null; // would otherwise fog out the whole map from up high
@@ -68,9 +70,62 @@ export class Editor {
     this._ensureDensOverlay();
     this._ensureTerrainOverlay();
     this._syncOverlay();
-    this.applyCamera();
+    this._applyOrigin();
+    this._refreshIslandBar();
     this.panel.style.display = "block";
     this.select(null);
+  }
+
+  // Pin the editor's groups, overlays and camera to the active island's centre,
+  // so its local-coordinate gizmos overlay the real (offset) geometry.
+  _applyOrigin() {
+    const o = this.origin;
+    this.gizmos.position.set(o.x, 0, o.z);
+    if (this.roadGroup) this.roadGroup.position.set(o.x, 0, o.z);
+    if (this.riverGroup) this.riverGroup.position.set(o.x, 0, o.z);
+    if (this.densMesh) this.densMesh.position.set(o.x, GY - 40, o.z);
+    if (this.terrMesh) this.terrMesh.position.set(o.x, GY - 35, o.z);
+    this.cam.position.set(o.x, 30000, o.z);
+    this.cam.lookAt(o.x, 0, o.z);
+    this.applyCamera();
+  }
+  _localOf(g) { return { x: g.x - this.origin.x, z: g.z - this.origin.z }; }
+
+  // Switch which island the editor is editing.
+  switchIsland(i) {
+    setActiveIsland(i);
+    this.cfg = getActiveIsland();
+    this.origin = { x: this.cfg.center.x, z: this.cfg.center.z };
+    // Overlays are sized to the island's grids — rebuild them for the new one.
+    for (const m of [this.densMesh, this.terrMesh]) {
+      if (m) { this.scene.remove(m); m.geometry.dispose(); m.material.dispose(); }
+    }
+    this.densMesh = null; this.terrMesh = null;
+    this._ensureDensOverlay();
+    this._ensureTerrainOverlay();
+    this.rebuildGizmos();
+    this._drawRiver();
+    this._redrawRoadLines();
+    this._applyOrigin();
+    this._syncOverlay();
+    this.select(null);
+    this._refreshIslandBar();
+    this._refreshProps();
+  }
+  addIsland() {
+    this.pushUndo();
+    const o = this.origin;
+    const cfg = getWorldConfig();
+    const is = newIsland({ x: o.x + 36000, z: o.z }, "Island " + (cfg.islands.length + 1), "neutral");
+    cfg.islands.push(is);
+    this.switchIsland(cfg.islands.length - 1);
+  }
+  deleteIsland() {
+    const cfg = getWorldConfig();
+    if (cfg.islands.length <= 1) return; // keep at least one
+    this.pushUndo();
+    cfg.islands.splice(getActiveIslandIndex(), 1);
+    this.switchIsland(0);
   }
   exit() {
     this.active = false;
@@ -385,25 +440,26 @@ export class Editor {
     window.addEventListener("pointerdown", (e) => {
       if (!this.active || (e.target.closest && e.target.closest("#editor-panel"))) return;
       const g = this._ground(e);
+      const L = g && this._localOf(g);
       if (this.tool === "trees" || this.tool === "erase") {
         this.pushUndo();
         this._painting = this.tool === "trees" ? 1 : -1;
-        if (g) this.paintAt(g);
+        if (L) this.paintAt(L);
         return;
       }
       if (this.tool === "terrain") {
         this.pushUndo();
         this._painting = 2; // terrain-paint mode
-        if (g) this.paintTerrainAt(g);
+        if (L) this.paintTerrainAt(L);
         return;
       }
       if (this.tool === "road") {
         if (!this._road.length) this.pushUndo();
-        if (g) { this._road.push([Math.round(g.x), Math.round(g.z)]); this._redrawRoadLines(); this._refreshProps(); }
+        if (L) { this._road.push([Math.round(L.x), Math.round(L.z)]); this._redrawRoadLines(); this._refreshProps(); }
         return;
       }
       // River is edited via the panel only — clicking the map just pans.
-      if (this.tool !== "select" && this.tool !== "river") { if (g) this.place(g); return; }
+      if (this.tool !== "select" && this.tool !== "river") { if (L) this.place(L); return; }
       const m = this._pick(e);
       if (m) { this.pushUndo(); this.select(m); this._drag = m; }
       else { this.select(null); this._pan = { x: e.clientX, y: e.clientY }; }
@@ -411,12 +467,13 @@ export class Editor {
     window.addEventListener("pointermove", (e) => {
       if (!this.active) return;
       const g = this._ground(e);
+      const L = g && this._localOf(g);
       if (g && this._coordEl) this._coordEl.textContent = `X ${Math.round(g.x)}   Z ${Math.round(g.z)}`;
       if (this._painting) {
-        if (g) { if (this._painting === 2) this.paintTerrainAt(g); else this.paintAt(g); }
+        if (L) { if (this._painting === 2) this.paintTerrainAt(L); else this.paintAt(L); }
       } else if (this._drag) {
-        if (g) {
-          this._setPos(this._drag.userData, g.x, g.z);
+        if (L) {
+          this._setPos(this._drag.userData, L.x, L.z);
           this._syncMarker(this._drag);
           if (this._drag.userData.kind === "roadpt") this._redrawRoadLines();
           this._refreshProps();
@@ -498,6 +555,7 @@ export class Editor {
           <button data-a="redo" title="Redo (Ctrl+Shift+Z)">↷</button>
         </div>
       </div>
+      <div class="ed-island" id="ed-island"></div>
       <div class="ed-row" id="ed-tools"></div>
       <div id="ed-props"></div>
       <div class="ed-actions">
@@ -510,6 +568,7 @@ export class Editor {
       <div class="ed-coords" id="ed-coords">X 0   Z 0</div>
       <details class="ed-help"><summary>How it works</summary>
         <ul>
+          <li><b>Islands</b> — switch which island you're editing up top; ＋ adds one, 🗑 deletes; set its name/faction/centre. New islands appear after Apply &amp; Reload.</li>
           <li><b>Select</b> — click a marker to edit it; drag to move; <b>Del</b> removes.</li>
           <li><b>+City/Town/Village/CV/Bridge/Target</b> — click the map to drop one.</li>
           <li><b>🛣 Road</b> — click to drop waypoints, <b>Enter</b> to finish, <b>Esc</b> to cancel; road nodes are draggable in Select.</li>
@@ -568,6 +627,46 @@ export class Editor {
     for (const b of this.panel.querySelectorAll("#ed-tools button")) {
       b.classList.toggle("on", b.dataset.tool === this.tool);
     }
+  }
+
+  _refreshIslandBar() {
+    const host = this.panel && this.panel.querySelector("#ed-island");
+    if (!host) return;
+    const cfg = getWorldConfig();
+    const idx = getActiveIslandIndex();
+    const opts = cfg.islands.map((is, i) => `<option value="${i}" ${i === idx ? "selected" : ""}>${i + 1}. ${is.name} (${is.faction})</option>`).join("");
+    const c = this.cfg;
+    host.innerHTML = `
+      <div class="ed-isl-row">
+        <select id="isl-sel">${opts}</select>
+        <button id="isl-add" title="Add island">＋</button>
+        <button id="isl-del" title="Delete island"${cfg.islands.length <= 1 ? " disabled" : ""}>🗑</button>
+      </div>
+      <div class="ed-isl-row">
+        <input id="isl-name" value="${c.name}" placeholder="name">
+        <select id="isl-fac">
+          <option ${c.faction === "ally" ? "selected" : ""}>ally</option>
+          <option ${c.faction === "enemy" ? "selected" : ""}>enemy</option>
+          <option ${c.faction === "neutral" ? "selected" : ""}>neutral</option>
+        </select>
+      </div>
+      <div class="ed-isl-row">
+        <label>center X<input type="number" id="isl-cx" value="${c.center.x}" step="500"></label>
+        <label>Z<input type="number" id="isl-cz" value="${c.center.z}" step="500"></label>
+      </div>`;
+    host.querySelector("#isl-sel").addEventListener("change", (e) => this.switchIsland(+e.target.value));
+    host.querySelector("#isl-add").addEventListener("click", () => this.addIsland());
+    host.querySelector("#isl-del").addEventListener("click", () => this.deleteIsland());
+    host.querySelector("#isl-name").addEventListener("change", (e) => { c.name = e.target.value; this._refreshIslandBar(); });
+    host.querySelector("#isl-fac").addEventListener("change", (e) => { c.faction = e.target.value; this._refreshIslandBar(); });
+    const moveCenter = () => {
+      c.center.x = +host.querySelector("#isl-cx").value;
+      c.center.z = +host.querySelector("#isl-cz").value;
+      this.origin = { x: c.center.x, z: c.center.z };
+      this._applyOrigin();
+    };
+    host.querySelector("#isl-cx").addEventListener("change", moveCenter);
+    host.querySelector("#isl-cz").addEventListener("change", moveCenter);
   }
 
   _refreshProps() {
