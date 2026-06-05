@@ -515,7 +515,10 @@ if (navigator.xr && navigator.xr.isSessionSupported) {
 
 async function enterVR(type, mode, start) {
   if (!navigator.xr) {
-    ui.showBanner("VR UNAVAILABLE", "navigator.xr is missing — open this page in the Meta Quest Browser.");
+    const why = !window.isSecureContext
+      ? "the page isn't a secure context — load it over https://"
+      : "this browser doesn't expose WebXR (use the Meta Quest Browser)";
+    ui.showBanner("VR UNAVAILABLE", "navigator.xr missing — " + why + ".");
     return;
   }
   // requestSession MUST be the first call off the click gesture (no await before
