@@ -17,6 +17,9 @@ const GradeShader = {
     uGrain: { value: 0.03 },
     uScan: { value: 0.0 },
     uChroma: { value: 0.0016 },
+    uDistort: { value: 0.10 },   // barrel lens distortion (edge warp)
+    uOverscan: { value: 0.03 },  // zoom so distorted edges don't sample past frame
+    uRgbShift: { value: 0.3 },   // extra horizontal R/B channel split (pixels)
     uWarm: { value: 0.25 },
     uTealOrange: { value: 0.25 },
     uContrast: { value: 1.06 },
@@ -30,20 +33,22 @@ const GradeShader = {
     varying vec2 vUv;
     uniform sampler2D tDiffuse;
     uniform vec2 uResolution;
-    uniform float uTime, uVignette, uGrain, uScan, uChroma, uWarm, uTealOrange, uContrast, uSat;
+    uniform float uTime, uVignette, uGrain, uScan, uChroma, uWarm, uTealOrange, uContrast, uSat, uDistort, uOverscan, uRgbShift;
     float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
     void main() {
-      vec2 uv = vUv;
+      // Zoom in a touch so the barrel-warped edges keep sampling inside the frame.
+      vec2 uv = 0.5 + (vUv - 0.5) * (1.0 - uOverscan);
       vec2 toC = uv - 0.5;
+      float r2 = dot(toC, toC);
+      // Barrel lens distortion — bows the image out toward the edges.
+      vec2 base = uv + toC * (uDistort * r2);
+      // Chromatic aberration grows toward the edges (real-lens CA) + a flat RGB shift.
+      vec2 ca = toC * uChroma * (0.35 + r2 * 2.0);
+      vec2 px = vec2(uRgbShift / uResolution.x, 0.0);
       vec3 col;
-      if (uChroma > 0.0) {
-        vec2 off = toC * uChroma;
-        col.r = texture2D(tDiffuse, uv + off).r;
-        col.g = texture2D(tDiffuse, uv).g;
-        col.b = texture2D(tDiffuse, uv - off).b;
-      } else {
-        col = texture2D(tDiffuse, uv).rgb;
-      }
+      col.r = texture2D(tDiffuse, base + ca + px).r;
+      col.g = texture2D(tDiffuse, base).g;
+      col.b = texture2D(tDiffuse, base - ca - px).b;
       // contrast about mid-grey
       col = (col - 0.5) * uContrast + 0.5;
       // saturation
@@ -77,9 +82,9 @@ const GradeShader = {
 
 // Per-look bloom + grade parameters.
 const LOOKS = {
-  cinematic: { bloom: [0.55, 0.7, 0.55], grade: { uVignette: 0.35, uGrain: 0.03, uScan: 0.0, uChroma: 0.0016, uWarm: 0.25, uTealOrange: 0.28, uContrast: 1.06, uSat: 1.05 } },
-  golden:    { bloom: [0.95, 0.8, 0.45], grade: { uVignette: 0.42, uGrain: 0.02, uScan: 0.0, uChroma: 0.0020, uWarm: 0.6, uTealOrange: 0.55, uContrast: 1.05, uSat: 1.14 } },
-  retro:     { bloom: [0.8, 0.6, 0.5], grade: { uVignette: 0.5, uGrain: 0.12, uScan: 0.1, uChroma: 0.004, uWarm: -0.12, uTealOrange: 0.32, uContrast: 1.14, uSat: 1.0 } },
+  cinematic: { bloom: [0.55, 0.7, 0.55], grade: { uVignette: 0.36, uGrain: 0.03, uScan: 0.0, uChroma: 0.0045, uDistort: 0.11, uOverscan: 0.035, uRgbShift: 0.35, uWarm: 0.25, uTealOrange: 0.28, uContrast: 1.06, uSat: 1.05 } },
+  golden:    { bloom: [0.95, 0.8, 0.45], grade: { uVignette: 0.42, uGrain: 0.02, uScan: 0.0, uChroma: 0.0055, uDistort: 0.13, uOverscan: 0.04, uRgbShift: 0.45, uWarm: 0.6, uTealOrange: 0.55, uContrast: 1.05, uSat: 1.14 } },
+  retro:     { bloom: [0.8, 0.6, 0.5], grade: { uVignette: 0.5, uGrain: 0.12, uScan: 0.1, uChroma: 0.012, uDistort: 0.24, uOverscan: 0.07, uRgbShift: 1.8, uWarm: -0.12, uTealOrange: 0.32, uContrast: 1.14, uSat: 1.0 } },
 };
 
 export class PostFX {
