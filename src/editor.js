@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { getWorldConfig, riverCenterX, getForestDensity } from "./world.js";
+import { getWorldConfig, riverCenterX, getForestDensity, getPaintGrid, PAINT_MATERIALS } from "./world.js";
 
 // In-browser world editor: a top-down map view with draggable markers for the
 // editable objects (settlements, carriers, bridges, mission bases, spawn,
@@ -28,6 +28,8 @@ export class Editor {
     this.brush = 700;
     this._painting = 0;
     this.densMesh = null;
+    this.terrMesh = null;
+    this.paintMat = 1; // current ground material for the Terrain brush
     this._road = [];        // waypoints of the road currently being drawn
     this.roadGroup = null;  // line overlay for committed + in-progress roads
 
@@ -61,6 +63,7 @@ export class Editor {
     this.rebuildGizmos();
     this._drawRiver();
     this._ensureDensOverlay();
+    this._ensureTerrainOverlay();
     this._syncOverlay();
     this.applyCamera();
     this.panel.style.display = "block";
@@ -71,6 +74,7 @@ export class Editor {
     this.scene.fog = this._fog;
     this.scene.remove(this.gizmos);
     if (this.densMesh) this.densMesh.visible = false;
+    if (this.terrMesh) this.terrMesh.visible = false;
     if (this.roadGroup) this.roadGroup.visible = false;
     if (this.riverGroup) this.riverGroup.visible = false;
     this._road = [];
@@ -182,6 +186,54 @@ export class Editor {
   }
   _syncOverlay() {
     if (this.densMesh) this.densMesh.visible = this.tool === "trees" || this.tool === "erase";
+    if (this.terrMesh) this.terrMesh.visible = this.tool === "terrain";
+  }
+
+  // ---- ground-material paint overlay + brush ----
+  _ensureTerrainOverlay() {
+    if (this.terrMesh) return;
+    const p = this.cfg.paint, g = p.gridN;
+    this._terrData = new Uint8Array(g * g * 4);
+    this._terrTex = new THREE.DataTexture(this._terrData, g, g, THREE.RGBAFormat);
+    const mat = new THREE.MeshBasicMaterial({ map: this._terrTex, transparent: true, opacity: 0.65, depthTest: false });
+    this.terrMesh = new THREE.Mesh(new THREE.PlaneGeometry(2 * p.extent, 2 * p.extent), mat);
+    this.terrMesh.rotation.x = -Math.PI / 2;
+    this.terrMesh.position.set(0, GY - 35, 0);
+    this.terrMesh.renderOrder = 5;
+    this.scene.add(this.terrMesh);
+    this._updateTerrainTex();
+  }
+  _updateTerrainTex() {
+    const cells = getPaintGrid(), g = this.cfg.paint.gridN;
+    for (let j = 0; j < g; j++) {
+      for (let i = 0; i < g; i++) {
+        const m = cells[j * g + i] || 0;
+        const k = ((g - 1 - j) * g + i) * 4;
+        if (m === 0) { this._terrData[k + 3] = 0; continue; }
+        const col = PAINT_MATERIALS[m].color;
+        this._terrData[k] = (col >> 16) & 255;
+        this._terrData[k + 1] = (col >> 8) & 255;
+        this._terrData[k + 2] = col & 255;
+        this._terrData[k + 3] = 210;
+      }
+    }
+    this._terrTex.needsUpdate = true;
+  }
+  paintTerrainAt(p) {
+    const pc = this.cfg.paint, g = pc.gridN, e = pc.extent, cells = getPaintGrid();
+    const rad = this.brush, cell = (2 * e) / (g - 1);
+    const span = Math.ceil(rad / cell) + 1;
+    const ci = (p.x / (2 * e) + 0.5) * (g - 1);
+    const cj = (p.z / (2 * e) + 0.5) * (g - 1);
+    const val = this.paintMat; // selecting the "Auto" material erases
+    for (let j = Math.max(0, Math.floor(cj - span)); j <= Math.min(g - 1, Math.ceil(cj + span)); j++) {
+      for (let i = Math.max(0, Math.floor(ci - span)); i <= Math.min(g - 1, Math.ceil(ci + span)); i++) {
+        const wx = (i / (g - 1) - 0.5) * 2 * e, wz = (j / (g - 1) - 0.5) * 2 * e;
+        if (Math.hypot(wx - p.x, wz - p.z) > rad) continue;
+        cells[j * g + i] = val;
+      }
+    }
+    this._updateTerrainTex();
   }
   paintAt(p) {
     const f = this.cfg.forest, g = f.gridN, e = f.extent, d = getForestDensity();
@@ -305,6 +357,11 @@ export class Editor {
         if (g) this.paintAt(g);
         return;
       }
+      if (this.tool === "terrain") {
+        this._painting = 2; // terrain-paint mode
+        if (g) this.paintTerrainAt(g);
+        return;
+      }
       if (this.tool === "road") {
         if (g) { this._road.push([Math.round(g.x), Math.round(g.z)]); this._redrawRoadLines(); this._refreshProps(); }
         return;
@@ -319,7 +376,7 @@ export class Editor {
       if (!this.active) return;
       if (this._painting) {
         const g = this._ground(e);
-        if (g) this.paintAt(g);
+        if (g) { if (this._painting === 2) this.paintTerrainAt(g); else this.paintAt(g); }
       } else if (this._drag) {
         const g = this._ground(e);
         if (g) {
@@ -414,6 +471,7 @@ export class Editor {
       ["settle:village", "+Village"], ["carrier:ally", "+Ally CV"], ["carrier:enemy", "+Enemy CV"],
       ["bridge", "+Bridge"], ["base", "+Target"], ["road", "🛣 Road"],
       ["river", "🌊 River"], ["trees", "🌲 Trees"], ["erase", "🧹 Clear"],
+      ["terrain", "🎨 Ground"],
     ];
     const tt = p.querySelector("#ed-tools");
     for (const [id, label] of tools) {
@@ -455,6 +513,19 @@ export class Editor {
       host.innerHTML = `<div class="ed-sel">tree brush</div>
         <label>size<input type="range" id="p_brush" min="200" max="2500" value="${this.brush}"></label>
         <div class="ed-none">Drag the map to ${this.tool === "trees" ? "add" : "remove"} trees. Green overlay = cover.</div>`;
+      host.querySelector("#p_brush").addEventListener("input", (e) => { this.brush = +e.target.value; });
+      return;
+    }
+    if (this.tool === "terrain") {
+      const swatches = PAINT_MATERIALS.map((m, i) =>
+        `<button class="mat-sw${i === this.paintMat ? " on" : ""}" data-mat="${i}" style="background:#${m.color.toString(16).padStart(6, "0")}">${m.name}</button>`).join("");
+      host.innerHTML = `<div class="ed-sel">ground paint</div>
+        <div class="mat-list">${swatches}</div>
+        <label>size<input type="range" id="p_brush" min="200" max="2500" value="${this.brush}"></label>
+        <div class="ed-none">Pick a material, drag the map to paint. "Auto" erases back to height-based.</div>`;
+      for (const b of host.querySelectorAll(".mat-sw")) {
+        b.addEventListener("click", () => { this.paintMat = +b.dataset.mat; this._refreshProps(); });
+      }
       host.querySelector("#p_brush").addEventListener("input", (e) => { this.brush = +e.target.value; });
       return;
     }

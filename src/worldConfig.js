@@ -12,6 +12,9 @@ export function defaultWorldConfig() {
     // ±extent; null means "use the procedural default" (see world.js). perCell
     // is how many trees a fully-painted cell seeds; maxTrees is the global cap.
     forest: { extent: 10800, gridN: 96, maxTrees: 45000, perCell: 22, density: null },
+    // Paintable ground material per grid cell (0 = auto height-based; otherwise
+    // an index into PAINT_MATERIALS). null = all auto.
+    paint: { extent: 11000, gridN: 96, cells: null },
     // Coastal cliff/headland (flat-topped mesa with steep sides).
     cliff: { x: -6200, z: 1900, r: 620, h: 560 },
     // Winding river: x(z) = a1*sin(f1*z) + a2*sin(f2*z + phase).

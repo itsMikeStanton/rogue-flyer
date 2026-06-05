@@ -45,6 +45,31 @@ function forestDensityAt(x, z) {
   return d[j * g + i];
 }
 
+// Paintable ground materials (index 0 = "auto", i.e. keep height-based colour).
+export const PAINT_MATERIALS = [
+  { name: "Auto", color: 0x000000 },
+  { name: "Grass", color: 0x4a7a3c },
+  { name: "Sand", color: 0xcdbd87 },
+  { name: "Stone", color: 0x7c7d80 },
+  { name: "Gravel", color: 0x9a9080 },
+  { name: "Dirt", color: 0x6b5436 },
+  { name: "Snow", color: 0xeef2f5 },
+];
+const PAINT_COLORS = PAINT_MATERIALS.map((m) => new THREE.Color(m.color));
+export function getPaintGrid() {
+  const p = CFG.paint;
+  if (!p.cells) p.cells = new Array(p.gridN * p.gridN).fill(0);
+  return p.cells;
+}
+function paintMaterialAt(x, z) {
+  const p = CFG.paint;
+  if (!p || !p.cells) return 0;
+  const g = p.gridN, e = p.extent;
+  const i = Math.round(THREE.MathUtils.clamp((x / (2 * e) + 0.5) * (g - 1), 0, g - 1));
+  const j = Math.round(THREE.MathUtils.clamp((z / (2 * e) + 0.5) * (g - 1), 0, g - 1));
+  return p.cells[j * g + i] || 0;
+}
+
 // Cheap deterministic value-noise so terrain is repeatable run-to-run.
 function hash2(x, z) {
   const s = Math.sin(x * 127.1 + z * 311.7) * 43758.5453;
@@ -293,6 +318,9 @@ export function buildWorld(scene) {
       else if (t < 0.8) c.copy(mid).lerp(high, (t - 0.45) / 0.35);
       else c.copy(high).lerp(snow, (t - 0.8) / 0.2);
     }
+    // Painted ground material overrides the height-based colour.
+    const pm = paintMaterialAt(x, z);
+    if (pm > 0) c.copy(PAINT_COLORS[pm]);
     // subtle per-vertex variation so it isn't flat
     const j = (hash2(x * 0.05, z * 0.05) - 0.5) * 0.06;
     colors.push(

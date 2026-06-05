@@ -504,3 +504,13 @@ button.vr:hover { background: rgba(46,230,166,0.26); }
 
 /* Picker modals sit above the menu */
 .overlay.picker { z-index: 20; }
+
+/* Editor: ground-material swatches */
+.mat-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.mat-sw {
+  flex: 1 1 60px; min-width: 60px;
+  font-size: 11px; font-weight: 700;
+  color: #0a0a0a; text-shadow: 0 1px 2px rgba(255,255,255,0.45);
+  border: 2px solid transparent; border-radius: 7px; padding: 8px 6px; cursor: pointer;
+}
+.mat-sw.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
