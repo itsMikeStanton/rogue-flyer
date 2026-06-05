@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { AIRCRAFT, buildAircraftMesh } from "./aircraft.js";
 import { createState, step } from "./flight.js";
-import { buildWorld, terrainHeight, groundHeightAt, getCarriers } from "./world.js";
+import { buildWorld, terrainHeight, groundHeightAt, getCarriers, SEA_LEVEL } from "./world.js";
 import { Input } from "./input.js";
 import { Hud } from "./hud.js";
 import { UI } from "./ui.js";
@@ -685,6 +685,15 @@ function frame(now) {
   // Drift the cloud layer gently on the wind.
   if (world.clouds) world.clouds.position.x += dt * 3;
 
+  // Distance-cull far islands (cheap archipelago LOD).
+  if (world.islands && world.islands.length > 1) {
+    const px = state.position.x, pz = state.position.z, R = 40000;
+    for (const isl of world.islands) {
+      const dx = px - isl.center.x, dz = pz - isl.center.z;
+      isl.group.visible = dx * dx + dz * dz < R * R;
+    }
+  }
+
   // Animate the sea/river waves.
   if (world.waveMats) {
     const tsec = now / 1000;
@@ -733,6 +742,24 @@ function frame(now) {
       }
     }
     const isMissionHud = gameMode === "mission";
+    // Nav markers to other islands (so the open ocean isn't a void).
+    let islandMarkers = null;
+    if (world.islands && world.islands.length > 1) {
+      islandMarkers = [];
+      for (const isl of world.islands) {
+        const dx = state.position.x - isl.center.x, dz = state.position.z - isl.center.z;
+        const dist = Math.hypot(dx, dz);
+        if (dist < 9000) continue; // don't mark the island you're over
+        _v.set(isl.center.x, SEA_LEVEL + 1500, isl.center.z).project(camera);
+        islandMarkers.push({
+          name: isl.name, faction: isl.faction, dist,
+          ndcx: _v.x, ndcy: _v.y, behind: _v.z > 1,
+          onscreen: _v.z < 1 && Math.abs(_v.x) <= 1 && Math.abs(_v.y) <= 1,
+          x: (_v.x * 0.5 + 0.5) * hud.w,
+          y: (-_v.y * 0.5 + 0.5) * hud.h,
+        });
+      }
+    }
     // Attitude for the HUD horizon ladder.
     _v.set(0, 0, -1).applyQuaternion(state.quaternion);
     const pitchAng = Math.asin(THREE.MathUtils.clamp(_v.y, -1, 1));
@@ -755,6 +782,7 @@ function frame(now) {
       missiles: weapons.missileCount,
       lock,
       objective,
+      islandMarkers,
     });
   } else {
     hud.ctx.clearRect(0, 0, hud.w, hud.h);

@@ -120,6 +120,42 @@ export class Hud {
 
     // Mission objective marker (on-screen diamond or edge arrow).
     if (extra.objective) this.objective(extra.objective);
+
+    // Nav markers pointing to the other islands.
+    if (extra.islandMarkers) for (const m of extra.islandMarkers) this.islandMarker(m);
+  }
+
+  islandMarker(m) {
+    const ctx = this.ctx;
+    const cx = this.w / 2, cy = this.h / 2;
+    const col = m.faction === "enemy" ? "#ff6b6b" : m.faction === "ally" ? "#7fd2ff" : "#cbd5e0";
+    const km = (m.dist / 1000).toFixed(1);
+    ctx.save();
+    ctx.strokeStyle = col; ctx.fillStyle = col;
+    ctx.font = "11px 'Consolas', monospace";
+    if (m.onscreen && !m.behind) {
+      ctx.lineWidth = 1.5;
+      ctx.globalAlpha = 0.9;
+      ctx.beginPath(); ctx.arc(m.x, m.y, 7, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(m.x, m.y - 12); ctx.lineTo(m.x, m.y - 7); ctx.stroke();
+      ctx.textAlign = "center";
+      ctx.fillText(`${m.name}  ${km}km`, m.x, m.y - 18);
+    } else {
+      // off-screen / behind: arrow at the screen edge pointing toward it
+      let dx = m.ndcx, dy = m.ndcy;
+      if (m.behind) { dx = -dx; dy = -dy; }
+      const ang = Math.atan2(-dy, dx);
+      const rx = this.w / 2 - 64, ry = this.h / 2 - 64;
+      const x = cx + Math.cos(ang) * rx, y = cy + Math.sin(ang) * ry;
+      ctx.save();
+      ctx.translate(x, y); ctx.rotate(ang);
+      ctx.globalAlpha = 0.9;
+      ctx.beginPath(); ctx.moveTo(14, 0); ctx.lineTo(-7, -8); ctx.lineTo(-7, 8); ctx.closePath(); ctx.fill();
+      ctx.restore();
+      ctx.textAlign = "center";
+      ctx.fillText(`${m.name}  ${km}km`, x, y - 14);
+    }
+    ctx.restore();
   }
 
   // Attitude indicator: a horizon bar and pitch-ladder rungs that bank with

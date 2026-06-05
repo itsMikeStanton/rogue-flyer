@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { getWorldConfig, setWorldConfig, riverCenterX, getForestDensity, getPaintGrid, PAINT_MATERIALS } from "./world.js";
+import { getWorldConfig, setWorldConfig, getActiveIsland, riverCenterX, getForestDensity, getPaintGrid, PAINT_MATERIALS } from "./world.js";
 
 // In-browser world editor: a top-down map view with draggable markers for the
 // editable objects (settlements, carriers, bridges, mission bases, spawn,
@@ -21,7 +21,7 @@ export class Editor {
     this.hud = hud;
     this.active = false;
     this.onExit = null;
-    this.cfg = getWorldConfig();
+    this.cfg = getActiveIsland();
     this.tool = "select";
     this.selected = null;
     this.view = 16000;
@@ -54,7 +54,7 @@ export class Editor {
 
   // ---------- lifecycle ----------
   enter() {
-    this.cfg = getWorldConfig();
+    this.cfg = getActiveIsland();
     this.active = true;
     this._fog = this.scene.fog;
     this.scene.fog = null; // would otherwise fog out the whole map from up high
@@ -264,7 +264,7 @@ export class Editor {
   // ---- undo / redo (whole-config snapshots) ----
   pushUndo() {
     try {
-      this._undo.push(JSON.stringify(this.cfg));
+      this._undo.push(JSON.stringify(getWorldConfig()));
       if (this._undo.length > 40) this._undo.shift();
       this._redo.length = 0;
     } catch (_) { /* ignore */ }
@@ -273,7 +273,7 @@ export class Editor {
   redo() { this._restore(this._redo, this._undo); }
   _restore(from, to) {
     if (!from.length) return;
-    try { to.push(JSON.stringify(this.cfg)); } catch (_) {}
+    try { to.push(JSON.stringify(getWorldConfig())); } catch (_) {}
     const cfg = JSON.parse(from.pop());
     this.cfg = cfg;
     setWorldConfig(cfg);
@@ -652,10 +652,10 @@ export class Editor {
   }
 
   save() {
-    try { localStorage.setItem("rogueflyer.world", JSON.stringify(this.cfg)); } catch (_) {}
+    try { localStorage.setItem("rogueflyer.world", JSON.stringify(getWorldConfig())); } catch (_) {}
   }
   exportJSON() {
-    const blob = new Blob([JSON.stringify(this.cfg, null, 2)], { type: "application/json" });
+    const blob = new Blob([JSON.stringify(getWorldConfig(), null, 2)], { type: "application/json" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
     a.download = "world.json";
