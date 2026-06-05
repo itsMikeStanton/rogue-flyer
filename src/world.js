@@ -91,6 +91,32 @@ function forestDensityForLocal(is, x, z) {
   return THREE.MathUtils.lerp(THREE.MathUtils.lerp(a, b, tx), THREE.MathUtils.lerp(cc, dd, tx), tz);
 }
 
+// Forest species painted per density cell (0 Pine, 1 Oak, 2 Birch). Default is
+// low-frequency noise so trees naturally cluster into single-species stands.
+export const FOREST_TYPES = [
+  { name: "Pine", color: 0x46604a },
+  { name: "Oak", color: 0x5e7350 },
+  { name: "Birch", color: 0x8a9461 },
+];
+function defaultForestTypes(is) {
+  const f = is.forest, g = f.gridN, e = f.extent, a = new Array(g * g);
+  for (let j = 0; j < g; j++) {
+    for (let i = 0; i < g; i++) {
+      const x = (i / (g - 1) - 0.5) * 2 * e + is.center.x;
+      const z = (j / (g - 1) - 0.5) * 2 * e + is.center.z;
+      const t = smoothNoise(x * 0.00055, z * 0.00055);
+      a[j * g + i] = t < 0.42 ? 0 : (t < 0.60 ? 2 : 1);
+    }
+  }
+  return a;
+}
+function forestTypesArr(is) {
+  const f = is.forest;
+  if (!f.types) f.types = defaultForestTypes(is);
+  return f.types;
+}
+export function getForestTypes() { return forestTypesArr(getActiveIsland()); }
+
 // Paintable ground materials (index 0 = "auto", i.e. keep height-based colour).
 export const PAINT_MATERIALS = [
   { name: "Auto", color: 0x000000 },
@@ -345,7 +371,7 @@ function makeWindowTextures() {
   t.colorSpace = THREE.SRGBColorSpace;
   e.colorSpace = THREE.SRGBColorSpace;
   t.wrapS = t.wrapT = e.wrapS = e.wrapT = THREE.RepeatWrapping;
-  t.repeat.set(2, 3); e.repeat.set(2, 3);
+  t.repeat.set(1, 1); e.repeat.set(1, 1); // identical -> shared UV; tiling is set per-instance in the shader
   return { map: t, emissiveMap: e };
 }
 
@@ -553,20 +579,23 @@ function buildIsland(scene, is, waveMats, colliders) {
     waveMats.push(riverMat);
   }
 
-  // ---- Forests ----
+  // ---- Forests: three species (Pine/Oak/Birch) grouped into stands by the
+  //      forest-type grid; muted/desaturated greens. ----
   {
     const MAX = is.forest.maxTrees;
-    const trunks = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.7, 1.0, 7, 5), new THREE.MeshStandardMaterial({ color: 0x5b4326, flatShading: true, roughness: 1 }), MAX);
-    const conifer = new THREE.InstancedMesh(new THREE.ConeGeometry(4.6, 13, 6), new THREE.MeshStandardMaterial({ color: 0x2f6d34, flatShading: true, roughness: 1 }), MAX);
-    const decid = new THREE.InstancedMesh(new THREE.SphereGeometry(5.5, 6, 5), new THREE.MeshStandardMaterial({ color: 0x4f7d3a, flatShading: true, roughness: 1 }), MAX);
-    let n = 0, ci = 0, di = 0;
-    const f = is.forest, g = f.gridN, e = f.extent, dens = forestDensityArr(is);
+    const trunks = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.7, 1.0, 7, 5), new THREE.MeshStandardMaterial({ color: 0x6a5436, flatShading: true, roughness: 1 }), MAX);
+    const pine = new THREE.InstancedMesh(new THREE.ConeGeometry(4.4, 13, 6), new THREE.MeshStandardMaterial({ color: FOREST_TYPES[0].color, flatShading: true, roughness: 1 }), MAX);
+    const oak = new THREE.InstancedMesh(new THREE.SphereGeometry(5.5, 6, 5), new THREE.MeshStandardMaterial({ color: FOREST_TYPES[1].color, flatShading: true, roughness: 1 }), MAX);
+    const birch = new THREE.InstancedMesh(new THREE.SphereGeometry(4.4, 6, 5), new THREE.MeshStandardMaterial({ color: FOREST_TYPES[2].color, flatShading: true, roughness: 1 }), MAX);
+    let n = 0, pc = 0, oc = 0, bc = 0;
+    const f = is.forest, g = f.gridN, e = f.extent, dens = forestDensityArr(is), types = forestTypesArr(is);
     const perCell = f.perCell, cellW = (2 * e) / (g - 1);
     outer:
     for (let j = 0; j < g; j++) {
       for (let i = 0; i < g; i++) {
         const d = dens[j * g + i];
         if (d <= 0.02) continue;
+        const cellType = types[j * g + i] | 0;
         const count = Math.round(d * perCell);
         const cxw = (i / (g - 1) - 0.5) * 2 * e;
         const czw = (j / (g - 1) - 0.5) * 2 * e;
@@ -576,25 +605,28 @@ function buildIsland(scene, is, waveMats, colliders) {
           const z = czw + (rnd() - 0.5) * cellW;
           const h = H(x, z);
           if (h < 8 || h > 760 || onRiver(x, z)) continue;
+          // mostly the cell's species; an occasional neighbour for soft edges
+          let sp = cellType;
+          if (rnd() < 0.12) sp = (cellType + 1 + ((rnd() * 2) | 0)) % 3;
           const s = (0.9 + rnd() * 1.4) * (1 + d * 0.9);
           tp.set(x, h + 3.5 * s, z); ts.set(s, s, s);
           trunks.setMatrixAt(n, m4.compose(tp, noRot, ts));
-          if (rnd() < 0.6) { tp.set(x, h + 13.5 * s, z); ts.set(s, s, s); conifer.setMatrixAt(ci++, m4.compose(tp, noRot, ts)); }
-          else { tp.set(x, h + 9 * s, z); ts.set(s * 1.1, s * 0.95, s * 1.1); decid.setMatrixAt(di++, m4.compose(tp, noRot, ts)); }
+          if (sp === 0) { tp.set(x, h + 13.5 * s, z); ts.set(s, s, s); pine.setMatrixAt(pc++, m4.compose(tp, noRot, ts)); }
+          else if (sp === 1) { tp.set(x, h + 9 * s, z); ts.set(s * 1.1, s * 0.95, s * 1.1); oak.setMatrixAt(oc++, m4.compose(tp, noRot, ts)); }
+          else { tp.set(x, h + 8 * s, z); ts.set(s * 0.85, s * 1.15, s * 0.85); birch.setMatrixAt(bc++, m4.compose(tp, noRot, ts)); }
           n++;
         }
       }
     }
-    trunks.count = n; conifer.count = ci; decid.count = di;
-    trunks.instanceMatrix.needsUpdate = conifer.instanceMatrix.needsUpdate = decid.instanceMatrix.needsUpdate = true;
-    trunks.receiveShadow = conifer.receiveShadow = decid.receiveShadow = true;
-    grp.add(trunks); grp.add(conifer); grp.add(decid);
+    trunks.count = n; pine.count = pc; oak.count = oc; birch.count = bc;
+    for (const im of [trunks, pine, oak, birch]) { im.instanceMatrix.needsUpdate = true; im.receiveShadow = true; }
+    grp.add(trunks); grp.add(pine); grp.add(oak); grp.add(birch);
   }
 
   // ---- Bushes ----
   {
     const MAX = 900;
-    const bush = new THREE.InstancedMesh(new THREE.SphereGeometry(2.2, 5, 4), new THREE.MeshStandardMaterial({ color: 0x4a6b32, flatShading: true, roughness: 1 }), MAX);
+    const bush = new THREE.InstancedMesh(new THREE.SphereGeometry(2.2, 5, 4), new THREE.MeshStandardMaterial({ color: 0x55664a, flatShading: true, roughness: 1 }), MAX);
     let n = 0, guard = 0;
     while (n < MAX && guard < MAX * 8) {
       guard++;
@@ -641,6 +673,25 @@ function buildIsland(scene, is, waveMats, colliders) {
     const MAX = 900;
     const win = makeWindowTextures();
     const wallMat = new THREE.MeshStandardMaterial({ map: win.map, emissive: 0xffcf86, emissiveMap: win.emissiveMap, emissiveIntensity: 0.9, roughness: 0.8 });
+    // Tile the window texture per-instance from each building's world size, so
+    // windows stay a constant size instead of stretching to the box dimensions.
+    wallMat.onBeforeCompile = (sh) => {
+      sh.vertexShader = sh.vertexShader.replace(
+        "#include <uv_vertex>",
+        `#include <uv_vertex>
+#ifdef USE_INSTANCING
+        {
+          vec3 isc = vec3(length(instanceMatrix[0].xyz), length(instanceMatrix[1].xyz), length(instanceMatrix[2].xyz));
+          vec3 an = abs(normal);
+          vec2 pUV, sz;
+          if (an.y > 0.5) { pUV = position.xz; sz = vec2(isc.x, isc.z); }
+          else if (an.x > 0.5) { pUV = position.zy; sz = vec2(isc.z, isc.y); }
+          else { pUV = position.xy; sz = vec2(isc.x, isc.y); }
+          vMapUv = (pUV + 0.5) * (sz / 30.0);
+        }
+#endif`
+      );
+    };
     const buildings = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), wallMat, MAX);
     const flatRoofMat = new THREE.MeshStandardMaterial({ flatShading: true, roughness: 0.85 });
     const flatRoofs = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), flatRoofMat, MAX);
@@ -652,8 +703,9 @@ function buildIsland(scene, is, waveMats, colliders) {
     const antennas = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.4, 0.4, 1, 5), detailMat, 250);
     buildings.castShadow = buildings.receiveShadow = true;
     flatRoofs.castShadow = hipRoofs.castShadow = caps.castShadow = acUnits.castShadow = antennas.castShadow = true;
-    const wallTones = [0x8b9098, 0x9a9388, 0x7d8a93, 0xa3a097, 0x6f7a82];
-    const roofTones = [0x5a3b34, 0x40474d, 0x6b5a3a, 0x3a4148];
+    // Cement/concrete greys (cool, low-saturation) rather than warm brick tones.
+    const wallTones = [0xb3b6b7, 0x9b9ea0, 0x868a8c, 0xa6a8a7, 0x787c7e];
+    const roofTones = [0x52565b, 0x40474d, 0x6b6f74, 0x3a4148];
     const tmpCol = new THREE.Color();
     let n = 0, fr = 0, hr = 0, cp = 0, ac = 0, an = 0;
     for (const s of is.settlements) {
