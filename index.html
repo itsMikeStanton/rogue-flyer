@@ -8,7 +8,8 @@
   <script type="importmap">
   {
     "imports": {
-      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js"
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
     }
   }
   </script>
@@ -113,6 +114,19 @@
         <label class="inv"><input type="checkbox" id="tilt-inv-roll" /> Invert tilt roll</label>
         <button id="tilt-recenter">Recenter tilt</button>
         <span id="tilt-status" class="hint"></span>
+      </div>
+
+      <h3>Visuals</h3>
+      <div class="mobile-opts">
+        <label class="row">Screen FX
+          <select id="fx-look">
+            <option value="off">Off</option>
+            <option value="cinematic">Cinematic bloom</option>
+            <option value="golden">Golden hour</option>
+            <option value="retro">Retro arcade</option>
+          </select>
+        </label>
+        <span class="hint">Bloom + colour grade. Auto-off in VR. Saved automatically.</span>
       </div>
 
       <h3>VR comfort</h3>

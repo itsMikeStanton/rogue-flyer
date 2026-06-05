@@ -13,6 +13,7 @@ import { GroundTargets } from "./ground.js";
 import { Explosions } from "./fx.js";
 import { SoundEngine } from "./audio.js";
 import { Editor } from "./editor.js";
+import { PostFX } from "./postfx.js";
 
 // --- Renderer / scene / camera ---
 const canvas = document.getElementById("scene");
@@ -45,6 +46,21 @@ enemies.onFire = (pos) => sound.enemyGun(pos);         // positional enemy guns
 ground.onFire = (pos) => sound.enemyGun(pos);          // carrier flak
 let lastLock = null;
 const hud = new Hud(document.getElementById("hud"));
+
+// Post-processing (bloom + colour grade). Off in VR. Look chosen in settings.
+const post = new PostFX(renderer, scene, camera);
+let fxLook = "cinematic";
+try { fxLook = localStorage.getItem("rf.fx") || "cinematic"; } catch (_) { /* ignore */ }
+post.setLook(fxLook);
+const fxSel = document.getElementById("fx-look");
+if (fxSel) {
+  fxSel.value = fxLook;
+  fxSel.addEventListener("change", () => {
+    fxLook = fxSel.value;
+    post.setLook(fxLook);
+    try { localStorage.setItem("rf.fx", fxLook); } catch (_) { /* ignore */ }
+  });
+}
 const input = new Input();
 const touch = new TouchControls(input.touchState);
 const tilt = new TiltControls(input.touchState);
@@ -725,7 +741,14 @@ function frame(now) {
   else if (flying) { updateCamera(dt); sound.setListener(camera); }
   else { menuCinematic(dt); sound.setListener(camera); }
   updateSky(camera, true); // ocean + clouds follow the active camera
-  renderer.render(scene, camera);
+  // Post FX on flat screen; VR renders direct (composer + WebXR don't mix).
+  // Any composer failure falls back to a plain render so FX can't break the game.
+  if (!inXR && post.enabled) {
+    try { post.render(dt); }
+    catch (e) { console.error("post FX disabled:", e); post.enabled = false; renderer.render(scene, camera); }
+  } else {
+    renderer.render(scene, camera);
+  }
 
   // HUD
   if (flying) {
@@ -813,6 +836,7 @@ window.addEventListener("resize", () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
+  post.setSize(window.innerWidth, window.innerHeight);
 });
 
 // Show the deployed build version on the home screen (stamped at deploy time).
