@@ -384,7 +384,7 @@ export function buildWorld(scene) {
     }
     const pad = TERRAIN_SIZE * 0.5;
     minX -= pad; maxX += pad; minZ -= pad; maxZ += pad;
-    const rnd = mulberry32(0xc10ud5);
+    const rnd = mulberry32(0xc10da5);
     const m4 = new THREE.Matrix4(), noRot = new THREE.Quaternion(), tp = new THREE.Vector3(), ts = new THREE.Vector3();
     const MAX = 700;
     clouds = new THREE.InstancedMesh(
