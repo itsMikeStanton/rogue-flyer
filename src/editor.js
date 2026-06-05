@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { getWorldConfig, setWorldConfig, getActiveIsland, getActiveIslandIndex, setActiveIsland, newIsland, riverCenterX, getForestDensity, getPaintGrid, PAINT_MATERIALS } from "./world.js";
+import { getWorldConfig, setWorldConfig, getActiveIsland, getActiveIslandIndex, setActiveIsland, newIsland, riverCenterX, getForestDensity, getForestTypes, FOREST_TYPES, getPaintGrid, PAINT_MATERIALS } from "./world.js";
 
 // In-browser world editor: a top-down map view with draggable markers for the
 // editable objects (settlements, carriers, bridges, mission bases, spawn,
@@ -32,6 +32,7 @@ export class Editor {
     this.densMesh = null;
     this.terrMesh = null;
     this.paintMat = 1;      // current ground material for the Terrain brush
+    this.forestType = 0;    // species the tree brush plants (0 Pine, 1 Oak, 2 Birch)
     this._undo = [];        // JSON snapshots for undo / redo
     this._redo = [];
     this._road = [];        // waypoints of the road currently being drawn
@@ -232,13 +233,15 @@ export class Editor {
     this._updateDensTex();
   }
   _updateDensTex() {
-    const d = getForestDensity(), g = this.cfg.forest.gridN;
+    const d = getForestDensity(), types = getForestTypes(), g = this.cfg.forest.gridN;
     for (let j = 0; j < g; j++) {
       for (let i = 0; i < g; i++) {
-        const v = d[j * g + i];
+        const idx = j * g + i;
+        const v = d[idx];
+        const col = FOREST_TYPES[types[idx] | 0].color; // tint the overlay by species
         const k = ((g - 1 - j) * g + i) * 4; // flip Z so the overlay matches the map
-        this._densData[k] = 40; this._densData[k + 1] = 210; this._densData[k + 2] = 70;
-        this._densData[k + 3] = Math.round(v * 200);
+        this._densData[k] = (col >> 16) & 255; this._densData[k + 1] = (col >> 8) & 255; this._densData[k + 2] = col & 255;
+        this._densData[k + 3] = Math.round(v * 215);
       }
     }
     this._densTex.needsUpdate = true;
@@ -296,7 +299,7 @@ export class Editor {
     this._updateTerrainTex();
   }
   paintAt(p) {
-    const f = this.cfg.forest, g = f.gridN, e = f.extent, d = getForestDensity();
+    const f = this.cfg.forest, g = f.gridN, e = f.extent, d = getForestDensity(), types = getForestTypes();
     const rad = this.brush, cell = (2 * e) / (g - 1);
     const span = Math.ceil(rad / cell) + 1;
     const ci = (p.x / (2 * e) + 0.5) * (g - 1);
@@ -311,6 +314,8 @@ export class Editor {
         const fall = t * t * (3 - 2 * t);
         const k = j * g + i;
         d[k] = THREE.MathUtils.clamp(d[k] + this._painting * this.strength * fall, 0, 1);
+        // Growing also stamps the chosen species onto the cells it covers.
+        if (this._painting > 0 && fall > 0.15) types[k] = this.forestType;
       }
     }
     this._updateDensTex();
@@ -672,10 +677,16 @@ export class Editor {
   _refreshProps() {
     const host = this.panel.querySelector("#ed-props");
     if (this.tool === "trees" || this.tool === "erase") {
+      const species = this.tool === "trees" ? FOREST_TYPES.map((s, i) =>
+        `<button class="mat-sw${i === this.forestType ? " on" : ""}" data-sp="${i}" style="background:#${s.color.toString(16).padStart(6, "0")}">${s.name}</button>`).join("") : "";
       host.innerHTML = `<div class="ed-sel">${this.tool === "trees" ? "tree brush" : "thin trees"}</div>
+        ${this.tool === "trees" ? `<div class="mat-list">${species}</div>` : ""}
         <label>size<input type="range" id="p_brush" min="200" max="2500" value="${this.brush}"></label>
         <label>strength<input type="range" id="p_str" min="0.08" max="1" step="0.02" value="${this.strength}"></label>
-        <div class="ed-none">Drag the map to ${this.tool === "trees" ? "grow" : "remove"} trees. Lower strength = softer, feathered edges. Green overlay = cover.</div>`;
+        <div class="ed-none">${this.tool === "trees" ? "Pick a species, drag to grow that stand." : "Drag to thin out trees."} Lower strength = softer edges. Overlay colour = species.</div>`;
+      for (const b of host.querySelectorAll(".mat-sw")) {
+        b.addEventListener("click", () => { this.forestType = +b.dataset.sp; this._refreshProps(); });
+      }
       host.querySelector("#p_brush").addEventListener("input", (e) => { this.brush = +e.target.value; });
       host.querySelector("#p_str").addEventListener("input", (e) => { this.strength = +e.target.value; });
       return;
