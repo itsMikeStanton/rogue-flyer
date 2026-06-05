@@ -146,12 +146,13 @@ button.primary:hover { background: #4ff5b8; }
   position: fixed;
   top: 50%; left: 50%;
   transform: translate(-50%, -50%);
-  background: rgba(120, 10, 10, 0.85);
+  background: rgba(120, 10, 10, 0.9);
   border: 1px solid #ff6b6b;
+  max-width: 90vw;
   border-radius: 12px;
   padding: 18px 28px;
   text-align: center;
-  z-index: 9;
+  z-index: 40;
   box-shadow: 0 10px 40px rgba(0,0,0,0.6);
 }
 .banner.hidden { display: none; }

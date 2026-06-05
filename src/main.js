@@ -514,21 +514,30 @@ if (navigator.xr && navigator.xr.isSessionSupported) {
 }
 
 async function enterVR(type, mode, start) {
-  if (!xrSupported) {
-    ui.showBanner("VR UNAVAILABLE", "This browser/headset doesn't expose immersive-vr WebXR.");
+  if (!navigator.xr) {
+    ui.showBanner("VR UNAVAILABLE", "navigator.xr is missing — open this page in the Meta Quest Browser.");
     return;
   }
-  // Request the immersive session FIRST, straight off the click gesture — a
-  // fullscreen request (from startFlight) would otherwise consume the gesture
-  // and the page would just fullscreen its 2D window instead of entering VR.
+  // requestSession MUST be the first call off the click gesture (no await before
+  // it) or the browser drops the activation and refuses to go immersive.
+  let session;
   try {
-    const session = await navigator.xr.requestSession("immersive-vr", { optionalFeatures: ["local-floor"] });
+    session = await navigator.xr.requestSession("immersive-vr", {
+      optionalFeatures: ["local-floor", "bounded-floor", "hand-tracking", "layers"],
+    });
+  } catch (e) {
+    ui.showBanner("VR REQUEST FAILED", "requestSession → " + ((e && e.name) || "") + ": " + ((e && e.message) || e));
+    return;
+  }
+  try {
     renderer.xr.setReferenceSpaceType("local"); // seated: eye starts at the rig
     await renderer.xr.setSession(session);
-    startFlight(type, mode, start, true); // true = VR (skip fullscreen)
   } catch (e) {
-    ui.showBanner("VR FAILED", String((e && e.message) || e));
+    ui.showBanner("VR START FAILED", "setSession → " + ((e && e.message) || e));
+    return;
   }
+  ui.hideAll();                       // only leave the menu once we're truly in VR
+  startFlight(type, mode, start, true); // true = VR (skip fullscreen)
 }
 
 // --- Ring checkpoint detection ---

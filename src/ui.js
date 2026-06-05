@@ -156,7 +156,8 @@ export class UI {
     });
     const vrBtn = document.getElementById("btn-vr");
     if (vrBtn) vrBtn.addEventListener("click", () => {
-      this.hideAll();
+      // Don't hide the menu yet — enterVR hides it only once the session starts,
+      // so a rejected request leaves you on the menu with an error banner.
       if (this.cb.onVR) this.cb.onVR(this.selected, this.mode, this.startPos);
     });
     const selMode = document.getElementById("sel-mode");
