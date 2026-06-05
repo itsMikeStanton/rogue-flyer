@@ -373,7 +373,11 @@ export function buildWorld(scene) {
     new THREE.MeshStandardMaterial({ color: 0x21506e, roughness: 0.7, metalness: 0.0 })
   );
   farSea.rotation.x = -Math.PI / 2;
-  farSea.position.y = SEA_LEVEL - 10; // just below the wave troughs (no poke-through)
+  // Sit the backdrop well below the detailed ocean. The wave plane (within ~28km
+  // of the camera) is opaque and always drawn over it; a big vertical gap keeps
+  // the two from z-fighting at distance (the cause of the ocean shimmer). The
+  // far sea is only ever seen past the fog, so its exact depth is invisible.
+  farSea.position.y = SEA_LEVEL - 400;
   scene.add(farSea);
 
   // Detailed wave ocean (global): one plane that follows the camera each frame
@@ -419,30 +423,38 @@ function buildClouds(scene) {
   const rnd = mulberry32(0xc10da5);
   const m4 = new THREE.Matrix4(), noRot = new THREE.Quaternion(), tp = new THREE.Vector3(), ts = new THREE.Vector3();
   const MAX = 1100;
-  const clouds = new THREE.InstancedMesh(
-    new THREE.SphereGeometry(1, 8, 6),
-    new THREE.MeshStandardMaterial({ color: 0xffffff, flatShading: true, transparent: true, opacity: 0.95, roughness: 1, emissive: 0x6b7fa6, emissiveIntensity: 0.16 }),
-    MAX
-  );
+  // Per-instance opacity (varied haze) via a tiny shader injection on top of a
+  // standard material — InstancedMesh can't vary material.opacity otherwise.
+  const mat = new THREE.MeshStandardMaterial({ color: 0xffffff, flatShading: true, transparent: true, opacity: 1.0, roughness: 1, emissive: 0x6b7fa6, emissiveIntensity: 0.16 });
+  mat.onBeforeCompile = (sh) => {
+    sh.vertexShader = "attribute float aAlpha;\nvarying float vAlpha;\n" +
+      sh.vertexShader.replace("#include <begin_vertex>", "#include <begin_vertex>\n  vAlpha = aAlpha;");
+    sh.fragmentShader = "varying float vAlpha;\n" +
+      sh.fragmentShader.replace("#include <dithering_fragment>", "#include <dithering_fragment>\n  gl_FragColor.a *= vAlpha;");
+  };
+  const clouds = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 8, 6), mat, MAX);
+  const alphas = new Float32Array(MAX);
   clouds.castShadow = false;
   clouds.frustumCulled = false; // it's recentred on the camera every frame
-  const H = CLOUD_TILE / 2;
   let n = 0;
-  const clusters = 110;
+  const clusters = 130;
   for (let cc = 0; cc < clusters && n < MAX; cc++) {
     const cx = (rnd() - 0.5) * CLOUD_TILE;
     const cz = (rnd() - 0.5) * CLOUD_TILE;
-    const cy = 1700 + rnd() * 2600;
+    const cy = 3400 + rnd() * 13800;          // ~3.4km up to ~17km, layered
+    const big = 1 + Math.pow(rnd(), 1.7) * 5; // mostly modest, a few up to 6x
+    const a = 0.48 + rnd() * 0.47;            // per-cloud opacity: ~half..full
     const puffs = 5 + Math.floor(rnd() * 6);
-    const big = 0.7 + rnd() * 1.6; // some small fair-weather, some towering
     for (let p = 0; p < puffs && n < MAX; p++) {
-      tp.set(cx + (rnd() - 0.5) * 620, cy + (rnd() - 0.5) * 130, cz + (rnd() - 0.5) * 620);
+      tp.set(cx + (rnd() - 0.5) * 620 * big, cy + (rnd() - 0.5) * 130 * big, cz + (rnd() - 0.5) * 620 * big);
       ts.set((180 + rnd() * 260) * big, (90 + rnd() * 120) * big, (180 + rnd() * 260) * big);
       clouds.setMatrixAt(n, m4.compose(tp, noRot, ts));
+      alphas[n] = a;
       n++;
     }
   }
   clouds.count = n;
+  clouds.geometry.setAttribute("aAlpha", new THREE.InstancedBufferAttribute(alphas, 1));
   clouds.instanceMatrix.needsUpdate = true;
   clouds.userData.tile = CLOUD_TILE;
   scene.add(clouds);
