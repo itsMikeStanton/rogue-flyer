@@ -161,7 +161,7 @@ function updateRemotePlayers(dt) {
 }
 
 // World editor (top-down). Entered from the menu button or ?edit.
-const editor = new Editor(scene, renderer, hud);
+const editor = new Editor(scene, renderer, hud, world);
 editor.onExit = () => ui.showMenu();
 function showAllIslands() { if (world.islands) for (const isl of world.islands) isl.group.visible = true; }
 

@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { getWorldConfig, setWorldConfig, getActiveIsland, getActiveIslandIndex, setActiveIsland, newIsland, riverCenterX, getForestDensity, getForestTypes, FOREST_TYPES, getPaintGrid, PAINT_MATERIALS } from "./world.js";
+import { getWorldConfig, setWorldConfig, getActiveIsland, getActiveIslandIndex, setActiveIsland, newIsland, riverCenterX, getForestDensity, getForestTypes, FOREST_TYPES, getPaintGrid, PAINT_MATERIALS, getSculptGrid, resculptTerrain } from "./world.js";
 
 // In-browser world editor: a top-down map view with draggable markers for the
 // editable objects (settlements, carriers, bridges, mission bases, spawn,
@@ -15,10 +15,11 @@ const KIND_DEFAULTS = {
 };
 
 export class Editor {
-  constructor(scene, renderer, hud) {
+  constructor(scene, renderer, hud, world) {
     this.scene = scene;
     this.renderer = renderer;
     this.hud = hud;
+    this.world = world;     // for live terrain sculpting (per-island terrain meshes)
     this.active = false;
     this.onExit = null;
     this.cfg = getActiveIsland();
@@ -28,6 +29,7 @@ export class Editor {
     this.view = 16000;
     this.brush = 700;
     this.strength = 0.5;    // paint strength / softness for the tree brush
+    this.sculptMode = "raise"; // raise | lower | smooth
     this._painting = 0;
     this.densMesh = null;
     this.terrMesh = null;
@@ -298,6 +300,38 @@ export class Editor {
     }
     this._updateTerrainTex();
   }
+
+  // Real-time terrain sculpt: push the height-offset grid up/down (or smooth)
+  // under the brush, then live-update the actual terrain mesh — no reload.
+  sculptAt(p) {
+    const s = getSculptGrid(); // { gridN, extent, cells } for the active island
+    const g = s.gridN, e = s.extent, cells = s.cells;
+    const rad = this.brush, cell = (2 * e) / (g - 1);
+    const span = Math.ceil(rad / cell) + 1;
+    const ci = (p.x / (2 * e) + 0.5) * (g - 1);
+    const cj = (p.z / (2 * e) + 0.5) * (g - 1);
+    const sign = this.sculptMode === "lower" ? -1 : 1;
+    const amt = sign * this.strength * 55; // height units per brush step
+    for (let j = Math.max(1, Math.floor(cj - span)); j <= Math.min(g - 2, Math.ceil(cj + span)); j++) {
+      for (let i = Math.max(1, Math.floor(ci - span)); i <= Math.min(g - 2, Math.ceil(ci + span)); i++) {
+        const wx = (i / (g - 1) - 0.5) * 2 * e, wz = (j / (g - 1) - 0.5) * 2 * e;
+        const dist = Math.hypot(wx - p.x, wz - p.z);
+        if (dist > rad) continue;
+        const t = 1 - dist / rad, fall = t * t * (3 - 2 * t);
+        const k = j * g + i;
+        if (this.sculptMode === "smooth") {
+          const avg = (cells[k - 1] + cells[k + 1] + cells[k - g] + cells[k + g]) * 0.25;
+          cells[k] += (avg - cells[k]) * fall * this.strength;
+        } else {
+          cells[k] = THREE.MathUtils.clamp(cells[k] + amt * fall, -900, 1400);
+        }
+      }
+    }
+    // Live mesh update (only if the island's terrain mesh exists in the scene).
+    const isl = this.world && this.world.islands && this.world.islands[getActiveIslandIndex()];
+    if (isl && isl.terrain) resculptTerrain(this.cfg, isl.terrain, p.x, p.z, rad);
+  }
+
   paintAt(p) {
     const f = this.cfg.forest, g = f.gridN, e = f.extent, d = getForestDensity(), types = getForestTypes();
     const rad = this.brush, cell = (2 * e) / (g - 1);
@@ -335,15 +369,23 @@ export class Editor {
     if (!from.length) return;
     try { to.push(JSON.stringify(getWorldConfig())); } catch (_) {}
     const cfg = JSON.parse(from.pop());
-    this.cfg = cfg;
     setWorldConfig(cfg);
+    this.cfg = getActiveIsland();
+    this.origin = { x: this.cfg.center.x, z: this.cfg.center.z };
     this.select(null);
     this.rebuildGizmos();
     this._drawRiver();
     this._redrawRoadLines();
     this._updateDensTex();
     this._updateTerrainTex();
+    this._refreshTerrainMesh();
     this._refreshProps();
+  }
+
+  // Full live re-sample of the active island's terrain mesh (after undo/redo).
+  _refreshTerrainMesh() {
+    const isl = this.world && this.world.islands && this.world.islands[getActiveIslandIndex()];
+    if (isl && isl.terrain) resculptTerrain(this.cfg, isl.terrain, 0, 0, 1e9);
   }
 
   // ---- road drawing ----
@@ -458,6 +500,12 @@ export class Editor {
         if (L) this.paintTerrainAt(L);
         return;
       }
+      if (this.tool === "sculpt") {
+        this.pushUndo();
+        this._painting = 3; // sculpt mode
+        if (L) this.sculptAt(L);
+        return;
+      }
       if (this.tool === "road") {
         if (!this._road.length) this.pushUndo();
         if (L) { this._road.push([Math.round(L.x), Math.round(L.z)]); this._redrawRoadLines(); this._refreshProps(); }
@@ -475,7 +523,7 @@ export class Editor {
       const L = g && this._localOf(g);
       if (g && this._coordEl) this._coordEl.textContent = `X ${Math.round(g.x)}   Z ${Math.round(g.z)}`;
       if (this._painting) {
-        if (L) { if (this._painting === 2) this.paintTerrainAt(L); else this.paintAt(L); }
+        if (L) { if (this._painting === 3) this.sculptAt(L); else if (this._painting === 2) this.paintTerrainAt(L); else this.paintAt(L); }
       } else if (this._drag) {
         if (L) {
           this._setPos(this._drag.userData, L.x, L.z);
@@ -593,7 +641,7 @@ export class Editor {
       ["select", "Select"], ["settle:city", "+City"], ["settle:town", "+Town"],
       ["settle:village", "+Village"], ["carrier:ally", "+Ally CV"], ["carrier:enemy", "+Enemy CV"],
       ["bridge", "+Bridge"], ["base", "+Target"], ["road", "🛣 Road"],
-      ["river", "🌊 River"], ["trees", "🌲 Trees"], ["erase", "🪓 Thin"],
+      ["river", "🌊 River"], ["sculpt", "⛰ Land"], ["trees", "🌲 Trees"], ["erase", "🪓 Thin"],
       ["terrain", "🎨 Ground"],
     ];
     const tt = p.querySelector("#ed-tools");
@@ -676,6 +724,22 @@ export class Editor {
 
   _refreshProps() {
     const host = this.panel.querySelector("#ed-props");
+    if (this.tool === "sculpt") {
+      const modes = [["raise", "⬆ Raise"], ["lower", "⬇ Lower"], ["smooth", "〜 Smooth"]];
+      const btns = modes.map(([m, lbl]) =>
+        `<button class="mat-sw${m === this.sculptMode ? " on" : ""}" data-sm="${m}">${lbl}</button>`).join("");
+      host.innerHTML = `<div class="ed-sel">sculpt land</div>
+        <div class="mat-list">${btns}</div>
+        <label>size<input type="range" id="p_brush" min="200" max="3500" value="${this.brush}"></label>
+        <label>strength<input type="range" id="p_str" min="0.08" max="1" step="0.02" value="${this.strength}"></label>
+        <div class="ed-none">Drag the map to ${this.sculptMode} terrain — updates live, no reload. (Trees/buildings re-settle onto it on Apply &amp; Reload.)</div>`;
+      for (const b of host.querySelectorAll(".mat-sw")) {
+        b.addEventListener("click", () => { this.sculptMode = b.dataset.sm; this._refreshProps(); });
+      }
+      host.querySelector("#p_brush").addEventListener("input", (e) => { this.brush = +e.target.value; });
+      host.querySelector("#p_str").addEventListener("input", (e) => { this.strength = +e.target.value; });
+      return;
+    }
     if (this.tool === "trees" || this.tool === "erase") {
       const species = this.tool === "trees" ? FOREST_TYPES.map((s, i) =>
         `<button class="mat-sw${i === this.forestType ? " on" : ""}" data-sp="${i}" style="background:#${s.color.toString(16).padStart(6, "0")}">${s.name}</button>`).join("") : "";

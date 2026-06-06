@@ -214,6 +214,7 @@ function islandHeight(is, x, z) {
       h = THREE.MathUtils.lerp(rv.bed, h, t);
     }
   }
+  h += sculptHeightAt(is, x, z); // editor-sculpted height offset
   return h;
 }
 
@@ -429,7 +430,7 @@ export function buildWorld(scene) {
   for (const is of CFG.islands) {
     const built = buildIsland(scene, is, waveMats, colliders);
     if (!firstTerrain) firstTerrain = built.terrain;
-    islands.push({ group: built.group, center: is.center, name: is.name, faction: is.faction });
+    islands.push({ group: built.group, center: is.center, name: is.name, faction: is.faction, terrain: built.terrain });
   }
 
   // Clouds (global): a large tiled field of big, billowy cumulus that follows
@@ -612,6 +613,64 @@ function buildRadioTower() {
   return g;
 }
 
+// ---- Editable height-sculpt grid (added on top of the base terrain) ----
+const SAND = new THREE.Color(0xcdbd87), LOW = new THREE.Color(0x3f6b3a), MID = new THREE.Color(0x6f7d4a);
+const HIGH = new THREE.Color(0x9a9a8e), SNOW = new THREE.Color(0xeef2f5);
+function sculptCfg(is) {
+  if (!is.heightmap) is.heightmap = { gridN: 128, extent: 12000, cells: null };
+  return is.heightmap;
+}
+export function getSculptGrid() {
+  const s = sculptCfg(getActiveIsland());
+  if (!s.cells) s.cells = new Array(s.gridN * s.gridN).fill(0);
+  return s;
+}
+function sculptHeightAt(is, x, z) {
+  const s = is.heightmap;
+  if (!s || !s.cells) return 0;
+  const g = s.gridN, e = s.extent;
+  const fx = THREE.MathUtils.clamp((x / (2 * e) + 0.5) * (g - 1), 0, g - 1);
+  const fz = THREE.MathUtils.clamp((z / (2 * e) + 0.5) * (g - 1), 0, g - 1);
+  const i0 = Math.floor(fx), j0 = Math.floor(fz), i1 = Math.min(g - 1, i0 + 1), j1 = Math.min(g - 1, j0 + 1);
+  const tx = fx - i0, tz = fz - j0;
+  const a = s.cells[j0 * g + i0] || 0, b = s.cells[j0 * g + i1] || 0, cc = s.cells[j1 * g + i0] || 0, dd = s.cells[j1 * g + i1] || 0;
+  return THREE.MathUtils.lerp(THREE.MathUtils.lerp(a, b, tx), THREE.MathUtils.lerp(cc, dd, tx), tz);
+}
+// Terrain vertex colour (shared by the full build and the live sculpt update).
+function terrainColorAt(is, x, z, h, cx0, cz0, out) {
+  if (h < 45) { const s = THREE.MathUtils.clamp((h + 12) / 57, 0, 1); out.copy(SAND).lerp(LOW, s); }
+  else {
+    const t = THREE.MathUtils.clamp((h + 200) / 1400, 0, 1);
+    if (t < 0.45) out.copy(LOW).lerp(MID, t / 0.45);
+    else if (t < 0.8) out.copy(MID).lerp(HIGH, (t - 0.45) / 0.35);
+    else out.copy(HIGH).lerp(SNOW, (t - 0.8) / 0.2);
+  }
+  paintColorForLocal(is, x, z, out, _pcOut); out.copy(_pcOut);
+  const j = (hash2((x + cx0) * 0.05, (z + cz0) * 0.05) - 0.5) * 0.06;
+  out.setRGB(THREE.MathUtils.clamp(out.r + j, 0, 1), THREE.MathUtils.clamp(out.g + j, 0, 1), THREE.MathUtils.clamp(out.b + j, 0, 1));
+  return out;
+}
+const _scCol = new THREE.Color();
+// Live-update a terrain mesh's heights + colours within `radius` of a local
+// point — used by the editor's sculpt brush for real-time terrain editing.
+// (The material is flat-shaded, so normals come from derivatives — no recompute.)
+export function resculptTerrain(is, terrainMesh, lx, lz, radius) {
+  const geo = terrainMesh.geometry, pos = geo.attributes.position, col = geo.attributes.color;
+  const cx0 = is.center.x, cz0 = is.center.z;
+  const margin = (2 * 12000) / 127 + 30;
+  const r2 = (radius + margin) * (radius + margin);
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getX(i), z = pos.getZ(i);
+    const dx = x - lx, dz = z - lz;
+    if (dx * dx + dz * dz > r2) continue;
+    const h = islandHeight(is, x, z);
+    pos.setY(i, h);
+    terrainColorAt(is, x, z, h, cx0, cz0, _scCol);
+    col.setXYZ(i, _scCol.r, _scCol.g, _scCol.b);
+  }
+  pos.needsUpdate = true; col.needsUpdate = true;
+}
+
 function buildIsland(scene, is, waveMats, colliders) {
   const grp = new THREE.Group();
   grp.position.set(is.center.x, 0, is.center.z);
@@ -631,29 +690,13 @@ function buildIsland(scene, is, waveMats, colliders) {
   geo.rotateX(-Math.PI / 2);
   const pos = geo.attributes.position;
   const colors = [];
-  const sand = new THREE.Color(0xcdbd87), low = new THREE.Color(0x3f6b3a), mid = new THREE.Color(0x6f7d4a);
-  const high = new THREE.Color(0x9a9a8e), snow = new THREE.Color(0xeef2f5);
   const c = new THREE.Color();
   for (let i = 0; i < pos.count; i++) {
     const x = pos.getX(i), z = pos.getZ(i);
     const h = H(x, z);
     pos.setY(i, h);
-    if (h < 45) {
-      const s = THREE.MathUtils.clamp((h + 12) / 57, 0, 1);
-      c.copy(sand).lerp(low, s);
-    } else {
-      const t = THREE.MathUtils.clamp((h + 200) / 1400, 0, 1);
-      if (t < 0.45) c.copy(low).lerp(mid, t / 0.45);
-      else if (t < 0.8) c.copy(mid).lerp(high, (t - 0.45) / 0.35);
-      else c.copy(high).lerp(snow, (t - 0.8) / 0.2);
-    }
-    paintColorForLocal(is, x, z, c, _pcOut); c.copy(_pcOut);
-    const j = (hash2((x + cx0) * 0.05, (z + cz0) * 0.05) - 0.5) * 0.06;
-    colors.push(
-      THREE.MathUtils.clamp(c.r + j, 0, 1),
-      THREE.MathUtils.clamp(c.g + j, 0, 1),
-      THREE.MathUtils.clamp(c.b + j, 0, 1)
-    );
+    terrainColorAt(is, x, z, h, cx0, cz0, c);
+    colors.push(c.r, c.g, c.b);
   }
   geo.setAttribute("color", new THREE.Float32BufferAttribute(colors, 3));
   geo.computeVertexNormals();
