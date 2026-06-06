@@ -6,7 +6,8 @@ import { getWorldConfig, setWorldConfig, getActiveIsland, getActiveIslandIndex, 
 // cliff). Edits mutate the live world config; "Apply & Reload" saves it to
 // localStorage and reloads so the real geometry rebuilds from it.
 
-const GY = 540; // gizmo altitude — floats above the tallest buildings
+const GY = 60; // gizmo altitude — low (depthTest:false keeps them visible) so they
+               // stay aligned with the ground in the angled iso / 3d views too
 
 const KIND_DEFAULTS = {
   city: { radius: 3, spacing: 130, maxHeight: 230 },
@@ -41,10 +42,15 @@ export class Editor {
     this.roadGroup = null;  // line overlay for committed + in-progress roads
 
     this.gizmos = new THREE.Group();
-    this.cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, 80000);
-    this.cam.position.set(0, 30000, 0);
-    this.cam.up.set(0, 0, -1);
-    this.cam.lookAt(0, 0, 0);
+    this.viewMode = "top";        // top | iso | 3d
+    this.focus = { x: 0, z: 0 };  // ground point the camera looks at
+    this._camYaw = 0.85;          // azimuth for iso / 3d
+    this.orthoCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 1, 120000);
+    this.orthoCam.position.set(0, 30000, 0);
+    this.orthoCam.up.set(0, 0, -1);
+    this.orthoCam.lookAt(0, 0, 0);
+    this.perspCam = new THREE.PerspectiveCamera(48, window.innerWidth / window.innerHeight, 50, 200000);
+    this.cam = this.orthoCam;
 
     this._ray = new THREE.Raycaster();
     this._plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
@@ -86,11 +92,10 @@ export class Editor {
     this.gizmos.position.set(o.x, 0, o.z);
     if (this.roadGroup) this.roadGroup.position.set(o.x, 0, o.z);
     if (this.riverGroup) this.riverGroup.position.set(o.x, 0, o.z);
-    if (this.densMesh) this.densMesh.position.set(o.x, GY - 40, o.z);
-    if (this.terrMesh) this.terrMesh.position.set(o.x, GY - 35, o.z);
-    this.cam.position.set(o.x, 30000, o.z);
-    this.cam.lookAt(o.x, 0, o.z);
-    this.applyCamera();
+    if (this.densMesh) this.densMesh.position.set(o.x, 20, o.z);
+    if (this.terrMesh) this.terrMesh.position.set(o.x, 16, o.z);
+    this.focus = { x: o.x, z: o.z };
+    this._applyView();
   }
   _localOf(g) { return { x: g.x - this.origin.x, z: g.z - this.origin.z }; }
 
@@ -149,11 +154,47 @@ export class Editor {
   }
 
   applyCamera() {
-    const a = window.innerWidth / window.innerHeight, v = this.view;
-    this.cam.left = -v * a / 2; this.cam.right = v * a / 2;
-    this.cam.top = v / 2; this.cam.bottom = -v / 2;
+    const a = window.innerWidth / window.innerHeight;
+    if (this.cam.isOrthographicCamera) {
+      const v = this.view;
+      this.cam.left = -v * a / 2; this.cam.right = v * a / 2;
+      this.cam.top = v / 2; this.cam.bottom = -v / 2;
+    } else {
+      this.cam.aspect = a;
+    }
     this.cam.updateProjectionMatrix();
   }
+
+  // Position the active camera for the current view mode, looking at this.focus.
+  _applyView() {
+    const o = this.focus;
+    if (this.viewMode === "top") {
+      this.cam = this.orthoCam;
+      this.orthoCam.up.set(0, 0, -1);
+      this.orthoCam.position.set(o.x, 30000, o.z);
+      this.orthoCam.lookAt(o.x, 0, o.z);
+    } else {
+      const el = this.viewMode === "iso" ? 0.62 : 0.5; // elevation above ground
+      const yaw = this._camYaw;
+      const dx = Math.cos(el) * Math.cos(yaw), dy = Math.sin(el), dz = Math.cos(el) * Math.sin(yaw);
+      const fy = 150; // look slightly above sea level
+      if (this.viewMode === "iso") {
+        this.cam = this.orthoCam;
+        this.orthoCam.up.set(0, 1, 0);
+        const d = 30000;
+        this.orthoCam.position.set(o.x + dx * d, fy + dy * d, o.z + dz * d);
+        this.orthoCam.lookAt(o.x, fy, o.z);
+      } else {
+        this.cam = this.perspCam;
+        this.perspCam.up.set(0, 1, 0);
+        const d = this.view * 1.12;
+        this.perspCam.position.set(o.x + dx * d, fy + dy * d, o.z + dz * d);
+        this.perspCam.lookAt(o.x, fy, o.z);
+      }
+    }
+    this.applyCamera();
+  }
+  setView(mode) { this.viewMode = mode; this._applyView(); this._refreshViewBar(); }
 
   // ---------- gizmos ----------
   _disc(color, r) {
@@ -532,9 +573,19 @@ export class Editor {
           this._refreshProps();
         }
       } else if (this._pan) {
+        const dx = e.clientX - this._pan.x, dy = e.clientY - this._pan.y;
         const s = this.view / window.innerHeight;
-        this.cam.position.x -= (e.clientX - this._pan.x) * s;
-        this.cam.position.z -= (e.clientY - this._pan.y) * s;
+        if (this.viewMode === "top") {
+          this.focus.x -= dx * s; this.focus.z -= dy * s;
+        } else {
+          const right = new THREE.Vector3().setFromMatrixColumn(this.cam.matrixWorld, 0); right.y = 0;
+          if (right.lengthSq() > 1e-6) right.normalize();
+          const fwd = new THREE.Vector3(); this.cam.getWorldDirection(fwd); fwd.y = 0;
+          if (fwd.lengthSq() > 1e-6) fwd.normalize();
+          this.focus.x -= (right.x * dx - fwd.x * dy) * s;
+          this.focus.z -= (right.z * dx - fwd.z * dy) * s;
+        }
+        this._applyView();
         this._pan = { x: e.clientX, y: e.clientY };
       }
     });
@@ -542,7 +593,7 @@ export class Editor {
     window.addEventListener("wheel", (e) => {
       if (!this.active || (e.target.closest && e.target.closest("#editor-panel"))) return;
       this.view = THREE.MathUtils.clamp(this.view * (1 + Math.sign(e.deltaY) * 0.12), 2500, 42000);
-      this.applyCamera();
+      this._applyView();
     }, { passive: true });
     window.addEventListener("keydown", (e) => {
       if (!this.active) return;
@@ -609,6 +660,11 @@ export class Editor {
         </div>
       </div>
       <div class="ed-island" id="ed-island"></div>
+      <div class="ed-row" id="ed-view">
+        <button data-view="top">▢ Top</button>
+        <button data-view="iso">◈ Iso</button>
+        <button data-view="3d">⬡ 3D</button>
+      </div>
       <div class="ed-row" id="ed-tools"></div>
       <div id="ed-props"></div>
       <div class="ed-actions">
@@ -655,6 +711,10 @@ export class Editor {
       tt.appendChild(b);
     }
     this._highlightTools();
+    for (const b of p.querySelectorAll("#ed-view button")) {
+      b.addEventListener("click", () => this.setView(b.dataset.view));
+    }
+    this._refreshViewBar();
 
     const onAction = (e) => {
       const a = e.target.dataset.a;
@@ -676,6 +736,12 @@ export class Editor {
     });
   }
 
+  _refreshViewBar() {
+    if (!this.panel) return;
+    for (const b of this.panel.querySelectorAll("#ed-view button")) {
+      b.classList.toggle("on", b.dataset.view === this.viewMode);
+    }
+  }
   _highlightTools() {
     for (const b of this.panel.querySelectorAll("#ed-tools button")) {
       b.classList.toggle("on", b.dataset.tool === this.tool);
