@@ -83,6 +83,7 @@ const ARM_HI = 0.9, ARM_LO = 0.08;
 const CAMS = ["Chase", "Far Chase", "Cockpit"];
 let camIndex = 0;
 let ringsHit = 0;
+let lastPad = false; // tracks gamepad presence to toggle touch controls
 // Manual gear/flaps state + animated gear-deploy fraction (0 up .. 1 down).
 let gearDown = true, flapsDown = false, gearAnim = 1;
 let brakeActive = false, brakeAnim = 0; // airbrake/wheel brake state + speedbrake panel anim
@@ -311,7 +312,7 @@ function startFlight(type, mode, start, vr) {
   else if (net.status !== "offline") { net.disconnect(); clearRemotePlayers(); }
   flying = true;
   lastLocked = false;
-  touch.setVisible(true);
+  touch.setVisible(!input.hasGamepad()); // a gamepad (e.g. Steam Deck) hides touch
   sound.resume();
   sound.startEngine();
   // On touch devices, take over the full screen for an immersive cockpit — but
@@ -674,6 +675,12 @@ function frame(now) {
 
   // Live monitor for the settings panel
   ui.updateMonitors();
+
+  // Hide on-screen touch controls whenever a gamepad (Steam Deck / Xbox) is live.
+  if (flying) {
+    const pad = input.hasGamepad();
+    if (pad !== lastPad) { lastPad = pad; touch.setVisible(!pad); }
+  }
 
   // Throttle-arming gate: hold the sim until the player engages the throttle.
   if (flying && !state.crashed && armActive) updateArming(controls);

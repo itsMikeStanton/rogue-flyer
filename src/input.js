@@ -121,25 +121,47 @@ export class Input {
     let gearPressed = false, flapsPressed = false, brake = false;
 
     if (pad) {
-      roll = this.readAxis(pad, this.bindings.roll);
-      pitch = this.readAxis(pad, this.bindings.pitch);
-      yaw = expo(this.readAxis(pad, this.bindings.yaw), 0.55); // soft rudder near centre
-      // throttle axis -1..1  ->  0..1  (idle..full)
-      const t = this.bindings.throttle;
-      let raw = (pad.axes[t.axis] || 0);
-      if (t.invert) raw = -raw;
-      throttle = (raw + 1) / 2;
-
-      const b = this.bindings.buttons;
       const btn = (i) => pad.buttons[i] && pad.buttons[i].pressed;
-      fire = btn(b.fire);
-      missilePressed = this.pressed("pad-missile", btn(b.missile));
-      flarePressed = this.pressed("pad-flare", btn(b.flare));
-      viewPressed = this.pressed("pad-view", btn(b.view));
-      resetPressed = this.pressed("pad-reset", btn(b.reset));
-      gearPressed = this.pressed("pad-gear", btn(b.gear));
-      flapsPressed = this.pressed("pad-flaps", btn(b.flaps));
-      if (btn(b.brake)) brake = true; // airbrake / wheel brake (held)
+      if (pad.mapping === "standard") {
+        // Steam Deck / Xbox-style gamepad. Left stick flies, right stick rudder,
+        // triggers throttle, face/shoulder/d-pad for actions.
+        //   L-stick: roll (X) + pitch (Y, push fwd = nose down)
+        //   R-stick X: rudder      R2: throttle up   L2: throttle down
+        //   RB: guns   A: missile   B: flare   X: airbrake
+        //   Y: camera  LB: gear   D-pad up: flaps   Start: reset/respawn
+        roll = applyDeadzone(pad.axes[0] || 0, 0.12);
+        pitch = applyDeadzone(pad.axes[1] || 0, 0.12);
+        yaw = expo(applyDeadzone(pad.axes[2] || 0, 0.14), 0.5);
+        const val = (i) => (pad.buttons[i] ? pad.buttons[i].value : 0);
+        this.kbThrottle = Math.min(1, Math.max(0, this.kbThrottle + (val(7) - val(6)) * dt * 0.9));
+        throttle = this.kbThrottle;
+        fire = btn(5);                                    // RB
+        missilePressed = this.pressed("gp-msl", btn(0));  // A
+        flarePressed = this.pressed("gp-flr", btn(1));    // B
+        if (btn(2)) brake = true;                         // X
+        viewPressed = this.pressed("gp-view", btn(3));    // Y
+        gearPressed = this.pressed("gp-gear", btn(4));    // LB
+        flapsPressed = this.pressed("gp-flap", btn(12));  // D-pad up
+        resetPressed = this.pressed("gp-rst", btn(9));    // Start
+      } else {
+        // HOTAS flight stick (Logitech Extreme 3D Pro-style; remappable).
+        roll = this.readAxis(pad, this.bindings.roll);
+        pitch = this.readAxis(pad, this.bindings.pitch);
+        yaw = expo(this.readAxis(pad, this.bindings.yaw), 0.55); // soft rudder near centre
+        const t = this.bindings.throttle;
+        let raw = (pad.axes[t.axis] || 0);
+        if (t.invert) raw = -raw;
+        throttle = (raw + 1) / 2;
+        const b = this.bindings.buttons;
+        fire = btn(b.fire);
+        missilePressed = this.pressed("pad-missile", btn(b.missile));
+        flarePressed = this.pressed("pad-flare", btn(b.flare));
+        viewPressed = this.pressed("pad-view", btn(b.view));
+        resetPressed = this.pressed("pad-reset", btn(b.reset));
+        gearPressed = this.pressed("pad-gear", btn(b.gear));
+        flapsPressed = this.pressed("pad-flaps", btn(b.flaps));
+        if (btn(b.brake)) brake = true; // airbrake / wheel brake (held)
+      }
     }
 
     // Keyboard layer (additive; lets you fly without a stick).
