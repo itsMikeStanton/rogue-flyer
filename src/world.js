@@ -490,6 +490,128 @@ function buildClouds(scene) {
 // Build one island into a group positioned at its world centre. All internal
 // geometry is in island-LOCAL coordinates; H/RC sample this island's local
 // fields. Colliders are pushed in WORLD coordinates for flight collision.
+// A thin box strut between two points (for lattice towers).
+function strut(a, b, thick, mat) {
+  const dir = new THREE.Vector3().subVectors(b, a);
+  const len = dir.length() || 0.001;
+  const m = new THREE.Mesh(new THREE.BoxGeometry(thick, len, thick), mat);
+  m.position.copy(a).addScaledVector(dir, 0.5);
+  m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
+  m.castShadow = true;
+  return m;
+}
+
+// Red-and-white striped coastal lighthouse (see reference image). ~170 tall.
+function buildLighthouse() {
+  const g = new THREE.Group();
+  const white = new THREE.MeshStandardMaterial({ color: 0xf3f3f0, flatShading: true, roughness: 0.85 });
+  const red = new THREE.MeshStandardMaterial({ color: 0xd23b2e, flatShading: true, roughness: 0.85 });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x2a2e33, flatShading: true, roughness: 0.7 });
+  const glass = new THREE.MeshStandardMaterial({ color: 0x9fc4d4, emissive: 0x223038, metalness: 0.2, roughness: 0.25 });
+  const redLight = new THREE.MeshStandardMaterial({ color: 0xff4030, emissive: 0xff2a20, emissiveIntensity: 1.6, roughness: 0.5 });
+
+  const baseH = 26, baseR = 28;
+  const base = new THREE.Mesh(new THREE.CylinderGeometry(baseR * 0.92, baseR, baseH, 18), white);
+  base.position.y = baseH / 2; g.add(base);
+
+  // Tapered tower, alternating red/white bands.
+  const towerH = 92, segs = 7, botR = 21, topR = 14;
+  let y = baseH;
+  for (let i = 0; i < segs; i++) {
+    const r0 = THREE.MathUtils.lerp(botR, topR, i / segs);
+    const r1 = THREE.MathUtils.lerp(botR, topR, (i + 1) / segs);
+    const h = towerH / segs;
+    const seg = new THREE.Mesh(new THREE.CylinderGeometry(r1, r0, h + 0.4, 18), i % 2 ? white : red);
+    seg.position.y = y + h / 2; g.add(seg);
+    y += h;
+  }
+
+  // Gallery platform + railing.
+  const gallR = topR + 6;
+  const gall = new THREE.Mesh(new THREE.CylinderGeometry(gallR, gallR, 4, 18), white);
+  gall.position.y = y + 2; g.add(gall);
+  for (let i = 0; i < 16; i++) {
+    const a = (i / 16) * Math.PI * 2;
+    const post = new THREE.Mesh(new THREE.BoxGeometry(0.7, 6, 0.7), dark);
+    post.position.set(Math.cos(a) * (gallR - 1), y + 7, Math.sin(a) * (gallR - 1)); g.add(post);
+  }
+  const rail = new THREE.Mesh(new THREE.TorusGeometry(gallR - 1, 0.5, 6, 20), dark);
+  rail.rotation.x = Math.PI / 2; rail.position.y = y + 10; g.add(rail);
+
+  // Lantern room (glass) with vertical frame bars + black dome.
+  const lantR = topR - 1, lantH = 22, ly = y + 4;
+  const lant = new THREE.Mesh(new THREE.CylinderGeometry(lantR, lantR, lantH, 12), glass);
+  lant.position.y = ly + lantH / 2; g.add(lant);
+  for (let i = 0; i < 8; i++) {
+    const a = (i / 8) * Math.PI * 2;
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(0.6, lantH, 0.6), dark);
+    bar.position.set(Math.cos(a) * lantR, ly + lantH / 2, Math.sin(a) * lantR); g.add(bar);
+  }
+  const dome = new THREE.Mesh(new THREE.ConeGeometry(lantR + 2.5, 16, 12), dark);
+  dome.position.y = ly + lantH + 8; g.add(dome);
+  const tip = new THREE.Mesh(new THREE.SphereGeometry(2.2, 8, 6), redLight);
+  tip.position.y = ly + lantH + 18; g.add(tip);
+
+  g.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  return g;
+}
+
+// Steel lattice radio / watch tower with a glassed cab + antenna masts (see
+// reference image). ~150 lattice + ~50 masts.
+function buildRadioTower() {
+  const g = new THREE.Group();
+  const steel = new THREE.MeshStandardMaterial({ color: 0x8b8f93, flatShading: true, metalness: 0.5, roughness: 0.6 });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x3a3f45, flatShading: true });
+  const cabMat = new THREE.MeshStandardMaterial({ color: 0x70757a, flatShading: true, roughness: 0.7 });
+  const glass = new THREE.MeshStandardMaterial({ color: 0x1d2329, emissive: 0x0a141a, metalness: 0.3, roughness: 0.3 });
+  const redLight = new THREE.MeshStandardMaterial({ color: 0xff4030, emissive: 0xff2a20, emissiveIntensity: 1.8, roughness: 0.5 });
+
+  const H = 150, botHalf = 22, topHalf = 9, levels = 6, leg = 1.6;
+  const corner = (sx, sz, t) => {
+    const half = THREE.MathUtils.lerp(botHalf, topHalf, t);
+    return new THREE.Vector3(sx * half, t * H, sz * half);
+  };
+  const signs = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
+  // Legs.
+  for (const [sx, sz] of signs) g.add(strut(corner(sx, sz, 0), corner(sx, sz, 1), leg, steel));
+  // Horizontal rings + face X-braces.
+  for (let i = 0; i <= levels; i++) {
+    const t = i / levels;
+    for (let c = 0; c < 4; c++) {
+      const [sx, sz] = signs[c], [nx, nz] = signs[(c + 1) % 4];
+      g.add(strut(corner(sx, sz, t), corner(nx, nz, t), leg * 0.7, steel)); // ring beam
+      if (i < levels) {
+        const t2 = (i + 1) / levels;
+        g.add(strut(corner(sx, sz, t), corner(nx, nz, t2), 1.0, steel));    // X brace
+        g.add(strut(corner(nx, nz, t), corner(sx, sz, t2), 1.0, steel));
+      }
+    }
+  }
+  // Cab (control room) with windows + roof platform.
+  const cw = topHalf * 2 + 9;
+  const cab = new THREE.Mesh(new THREE.BoxGeometry(cw, 13, cw), cabMat);
+  cab.position.y = H + 6.5; g.add(cab);
+  const win = new THREE.Mesh(new THREE.BoxGeometry(cw + 0.4, 6, cw + 0.4), glass);
+  win.position.y = H + 8; g.add(win);
+  const roof = new THREE.Mesh(new THREE.BoxGeometry(cw + 5, 2, cw + 5), dark);
+  roof.position.y = H + 13.5; g.add(roof);
+  const railT = new THREE.Mesh(new THREE.TorusGeometry((cw + 5) * 0.5, 0.5, 6, 4), dark);
+  railT.rotation.x = Math.PI / 2; railT.rotation.z = Math.PI / 4; railT.position.y = H + 16; g.add(railT);
+  // Antenna masts + red beacons.
+  for (const mx of [-7, 7]) {
+    const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.7, 42, 6), steel);
+    mast.position.set(mx, H + 14 + 21, 2); g.add(mast);
+    const beacon = new THREE.Mesh(new THREE.SphereGeometry(2.4, 8, 6), redLight);
+    beacon.position.set(mx, H + 14 + 44, 2); g.add(beacon);
+  }
+  // A dish on the side.
+  const dish = new THREE.Mesh(new THREE.CylinderGeometry(6, 6, 1.4, 14), dark);
+  dish.rotation.z = Math.PI / 2; dish.rotation.y = 0.4; dish.position.set(cw * 0.5 + 2, H + 6, 0); g.add(dish);
+
+  g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+  return g;
+}
+
 function buildIsland(scene, is, waveMats, colliders) {
   const grp = new THREE.Group();
   grp.position.set(is.center.x, 0, is.center.z);
@@ -853,6 +975,20 @@ function buildIsland(scene, is, waveMats, colliders) {
         }
       }
     }
+  }
+
+  // ---- Landmarks: a lattice radio tower on the cliff, a lighthouse on the
+  //      far shore (opposite the cliff). Both big, low-poly. ----
+  {
+    const cf = is.cliff;
+    const rt = buildRadioTower();
+    rt.position.set(cf.x, H(cf.x, cf.z), cf.z);
+    grp.add(rt);
+    const cd = Math.hypot(cf.x, cf.z) || 1;
+    const lx = (-cf.x / cd) * 6900, lz = (-cf.z / cd) * 6900; // opposite side, near the coast
+    const lh = buildLighthouse();
+    lh.position.set(lx, Math.max(H(lx, lz), SEA_LEVEL + 2), lz);
+    grp.add(lh);
   }
 
   return { group: grp, terrain };
