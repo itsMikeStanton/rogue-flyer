@@ -142,49 +142,81 @@ export class Hud {
     // Nav markers pointing to the other islands.
     if (extra.islandMarkers) for (const m of extra.islandMarkers) this.islandMarker(m);
 
-    // Multiplayer: connection status (top centre) + name/health tags on jets.
+    // Multiplayer connection status (top centre).
     if (extra.netStatus) {
       ctx.textAlign = "center";
       ctx.fillStyle = extra.netStatus.startsWith("LAN") ? "#36ff9a" : "#ffd23f";
       ctx.font = "12px 'Consolas', monospace";
       ctx.fillText("◈ " + extra.netStatus, cx, 74);
     }
-    if (extra.netLabels) for (const m of extra.netLabels) this.netLabel(m);
+    // Air contacts: markers over/around every aircraft + a radar scope.
+    if (extra.contacts) for (const c of extra.contacts) this.contactMarker(c);
+    if (extra.radar) this.radarScope(extra.radar);
   }
 
-  netLabel(m) {
+  contactMarker(c) {
     const ctx = this.ctx;
     const cx = this.w / 2, cy = this.h / 2;
-    const col = m.color || "#ff7a7a";
-    const km = (m.dist / 1000).toFixed(1);
+    const col = c.color || "#ff5b5b";
+    const km = c.dist >= 1000 ? `${(c.dist / 1000).toFixed(1)}km` : `${Math.round(c.dist)}m`;
+    const label = c.name ? `${c.name}  ${km}` : km;
     ctx.save();
-    ctx.font = "11px 'Consolas', monospace";
-    if (m.onscreen && !m.behind) {
-      // On screen: name + health bar floating over the jet.
-      ctx.textAlign = "center";
-      ctx.fillStyle = col;
-      ctx.fillText(`${m.name}  ${km}km`, m.x, m.y - 10);
-      const w = 46, h = 4, x = m.x - w / 2, y = m.y - 6;
-      ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.fillRect(x, y, w, h);
-      const hp = Math.max(0, Math.min(100, m.health == null ? 100 : m.health)) / 100;
-      ctx.fillStyle = hp > 0.5 ? "#36ff9a" : hp > 0.25 ? "#ffd23f" : "#ff5b5b";
-      ctx.fillRect(x, y, w * hp, h);
+    ctx.strokeStyle = col; ctx.fillStyle = col; ctx.font = "10px 'Consolas', monospace";
+    if (c.onscreen && !c.behind) {
+      const s = 13;
+      ctx.lineWidth = 1.5; ctx.globalAlpha = 0.9;
+      ctx.strokeRect(c.x - s, c.y - s, s * 2, s * 2);
+      ctx.globalAlpha = 1; ctx.textAlign = "center";
+      ctx.fillText(label, c.x, c.y - s - 5);
+      if (c.health != null) {
+        const w = 40, h = 3, x = c.x - w / 2, y = c.y + s + 4;
+        ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.fillRect(x, y, w, h);
+        const hp = Math.max(0, Math.min(100, c.health)) / 100;
+        ctx.fillStyle = hp > 0.5 ? "#36ff9a" : hp > 0.25 ? "#ffd23f" : "#ff5b5b";
+        ctx.fillRect(x, y, w * hp, h);
+      }
     } else {
-      // Off screen / behind: arrow at the screen edge pointing toward the pilot.
-      let dx = m.ndcx, dy = m.ndcy;
-      if (m.behind) { dx = -dx; dy = -dy; }
+      let dx = c.ndcx, dy = c.ndcy;
+      if (c.behind) { dx = -dx; dy = -dy; }
       const ang = Math.atan2(-dy, dx);
-      const rx = this.w / 2 - 54, ry = this.h / 2 - 54;
+      const rx = this.w / 2 - 50, ry = this.h / 2 - 50;
       const x = cx + Math.cos(ang) * rx, y = cy + Math.sin(ang) * ry;
       ctx.save();
       ctx.translate(x, y); ctx.rotate(ang);
-      ctx.fillStyle = col; ctx.globalAlpha = 0.95;
-      ctx.beginPath(); ctx.moveTo(14, 0); ctx.lineTo(-8, -8); ctx.lineTo(-8, 8); ctx.closePath(); ctx.fill();
+      ctx.globalAlpha = 0.95;
+      ctx.beginPath(); ctx.moveTo(13, 0); ctx.lineTo(-7, -7); ctx.lineTo(-7, 7); ctx.closePath(); ctx.fill();
       ctx.restore();
-      ctx.globalAlpha = 1;
-      ctx.textAlign = "center"; ctx.fillStyle = col;
-      ctx.fillText(`${m.name}  ${km}km`, x, y - 13);
+      ctx.globalAlpha = 1; ctx.textAlign = "center";
+      ctx.fillText(label, x, y - 12);
     }
+    ctx.restore();
+  }
+
+  // Top-right radar: blips relative to you, your nose pointing up.
+  radarScope(radar) {
+    const ctx = this.ctx;
+    const R = 58, rx = this.w - R - 22, ry = R + 84;
+    ctx.save();
+    ctx.translate(rx, ry);
+    ctx.fillStyle = "rgba(6,16,12,0.5)";
+    ctx.beginPath(); ctx.arc(0, 0, R, 0, Math.PI * 2); ctx.fill();
+    ctx.strokeStyle = "rgba(54,255,154,0.55)"; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.arc(0, 0, R, 0, Math.PI * 2); ctx.stroke();
+    ctx.globalAlpha = 0.4;
+    ctx.beginPath(); ctx.arc(0, 0, R * 0.5, 0, Math.PI * 2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-R, 0); ctx.lineTo(R, 0); ctx.moveTo(0, -R); ctx.lineTo(0, R); ctx.stroke();
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = "#36ff9a";
+    ctx.beginPath(); ctx.moveTo(0, -6); ctx.lineTo(-4, 4); ctx.lineTo(4, 4); ctx.closePath(); ctx.fill();
+    for (const b of radar.blips) {
+      const x = b.nx * R, y = -b.ny * R;
+      ctx.fillStyle = b.color || "#ff5b5b";
+      ctx.globalAlpha = b.far ? 0.5 : 1;
+      ctx.beginPath(); ctx.arc(x, y, b.far ? 2.5 : 3.5, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = "rgba(54,255,154,0.8)"; ctx.font = "9px 'Consolas', monospace"; ctx.textAlign = "center";
+    ctx.fillText(`${(radar.range / 1000).toFixed(0)}km`, 0, R + 12);
     ctx.restore();
   }
 

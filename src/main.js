@@ -886,25 +886,40 @@ function frame(now) {
         });
       }
     }
-    // Multiplayer: connection status + name/health tags floating over each jet.
-    let netStatus = null, netLabels = null;
-    if (gameMode === "ffa") {
+    // Air contacts: mark every aircraft (enemy jets, drones, other players) on
+    // the HUD and a radar scope — easy to find/track/target, esp. in MP.
+    let netStatus = null;
+    const contacts = [];
+    const radar = { range: 6000, blips: [] };
+    _v.set(0, 0, -1).applyQuaternion(state.quaternion);
+    const _fl = Math.hypot(_v.x, _v.z) || 1;
+    const fwdX = _v.x / _fl, fwdZ = _v.z / _fl, rgtX = -fwdZ, rgtZ = fwdX; // heading basis (XZ)
+    const addContact = (pos, opts) => {
+      const dx = pos.x - state.position.x, dz = pos.z - state.position.z;
+      const dist = Math.hypot(dx, dz);
+      _v.copy(pos); _v.y += 12; _v.project(camera);
+      contacts.push({
+        color: opts.color, name: opts.name, health: opts.health, dist,
+        ndcx: _v.x, ndcy: _v.y, behind: _v.z > 1,
+        onscreen: _v.z < 1 && Math.abs(_v.x) <= 1 && Math.abs(_v.y) <= 1,
+        x: (_v.x * 0.5 + 0.5) * hud.w, y: (-_v.y * 0.5 + 0.5) * hud.h,
+      });
+      radar.blips.push({
+        nx: THREE.MathUtils.clamp((dx * rgtX + dz * rgtZ) / radar.range, -1, 1),
+        ny: THREE.MathUtils.clamp((dx * fwdX + dz * fwdZ) / radar.range, -1, 1),
+        far: dist > radar.range, color: opts.color,
+      });
+    };
+    if (gameMode === "dogfight" || gameMode === "practice") {
+      for (const t of enemies.targets) if (t.alive) addContact(t.position, { color: "#ff5b5b" });
+    } else if (gameMode === "ffa") {
       netStatus = net.status === "online" ? `LAN  ·  ${net.count() + 1} pilots` :
         net.status === "connecting" ? "Connecting…" :
         net.status === "error" ? "No server (run the LAN server)" : "Offline";
-      netLabels = [];
       for (const [id, m] of netMeshes) {
         const p = net.players.get(id);
         if (!p || p.alive === false) continue;
-        _v.copy(m.position); _v.y += 14; _v.project(camera);
-        netLabels.push({
-          name: p.name, health: p.health,
-          color: "#" + playerColor(id).toString(16).padStart(6, "0"),
-          dist: state.position.distanceTo(m.position),
-          ndcx: _v.x, ndcy: _v.y, behind: _v.z > 1,
-          onscreen: _v.z < 1 && Math.abs(_v.x) <= 1 && Math.abs(_v.y) <= 1,
-          x: (_v.x * 0.5 + 0.5) * hud.w, y: (-_v.y * 0.5 + 0.5) * hud.h,
-        });
+        addContact(m.position, { color: "#" + playerColor(id).toString(16).padStart(6, "0"), name: p.name, health: p.health });
       }
     }
     // Attitude for the HUD horizon ladder.
@@ -935,7 +950,8 @@ function frame(now) {
       objective,
       islandMarkers,
       netStatus,
-      netLabels,
+      contacts,
+      radar,
     });
   } else {
     hud.ctx.clearRect(0, 0, hud.w, hud.h);
