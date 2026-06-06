@@ -83,6 +83,8 @@ const ARM_HI = 0.9, ARM_LO = 0.08;
 const CAMS = ["Chase", "Far Chase", "Cockpit"];
 let camIndex = 0;
 let ringsHit = 0;
+// Manual gear/flaps state + animated gear-deploy fraction (0 up .. 1 down).
+let gearDown = true, flapsDown = false, gearAnim = 1;
 
 // The player as a combat target the enemy can damage.
 const player = {
@@ -281,6 +283,12 @@ function resetFlight() {
   ground.setActive(gameMode === "mission", world.carriers.enemy, getCarriers().find((c) => c.team === "enemy"));
   missionDone = false;
   player.health = 100;
+  // Gear down for ground/carrier starts, up for air starts; flaps up. Snap the
+  // animation so it doesn't visibly deploy on spawn.
+  gearDown = startPos !== "air";
+  flapsDown = false;
+  gearAnim = gearDown ? 1 : 0;
+  touch.setGearFlaps(gearDown, flapsDown);
   fx.reset();
   ui.hideBanner();
   // Require a deliberate throttle gesture before the sim runs: idle for a ground
@@ -670,10 +678,12 @@ function frame(now) {
     if (controls.viewPressed) camIndex = (camIndex + 1) % CAMS.length;
     if (controls.resetPressed) resetFlight();
 
-    // Gear + flaps auto-deploy at low speed / on the ground.
-    const sp = state.telemetry.speed;
-    controls.gear = state.onGround || sp < 110;
-    controls.flaps = sp < 130;
+    // Gear + flaps are manual now (G / V keys, or on-screen GEAR / FLAPS).
+    if (controls.gearPressed) gearDown = !gearDown;
+    if (controls.flapsPressed) flapsDown = !flapsDown;
+    if (controls.gearPressed || controls.flapsPressed) touch.setGearFlaps(gearDown, flapsDown);
+    controls.gear = gearDown;
+    controls.flaps = flapsDown;
 
     acc += dt;
     let steps = 0;
@@ -757,11 +767,14 @@ function frame(now) {
         fl.scale.setScalar((fl.userData.base || 1) * (0.6 + t * 0.8));
       }
     }
-    // Gear + flaps animation following the auto-deploy state.
-    const sp = state.telemetry.speed;
-    const gearDown = state.onGround || sp < 110;
-    const flapTarget = sp < 130 ? 0.5 : 0;
-    if (mesh.userData.gear) mesh.userData.gear.visible = gearDown;
+    // Gear extends/retracts smoothly (legs telescope out of the belly); flaps
+    // swing down. Both ease toward the manual gear/flaps state.
+    gearAnim += ((gearDown ? 1 : 0) - gearAnim) * Math.min(1, dt * 3.5);
+    if (mesh.userData.gear) {
+      mesh.userData.gear.visible = gearAnim > 0.02;
+      mesh.userData.gear.scale.y = Math.max(0.0001, gearAnim);
+    }
+    const flapTarget = flapsDown ? 0.6 : 0;
     if (mesh.userData.flaps) {
       for (const p of mesh.userData.flaps) p.rotation.x += (flapTarget - p.rotation.x) * Math.min(1, dt * 4);
     }
@@ -900,6 +913,8 @@ function frame(now) {
       total: isMissionHud ? ground.total : null,
       health: player.health,
       missiles: weapons.missileCount,
+      gear: gearDown,
+      flaps: flapsDown,
       lock,
       objective,
       islandMarkers,

@@ -72,6 +72,11 @@ export class TouchControls {
     if (s !== "drag") { this.state.roll = 0; this.state.pitch = 0; this._hideDragPad(); }
   }
   setInvertPitch(v) { this.invertPitch = !!v; try { localStorage.setItem(INVP_STORE, v ? "1" : "0"); } catch (_) {} }
+  // Reflect the current gear/flaps DOWN state on the buttons (lit = deployed).
+  setGearFlaps(gear, flaps) {
+    if (this.gearBtn) this.gearBtn.classList.toggle("active", !!gear);
+    if (this.flapBtn) this.flapBtn.classList.toggle("active", !!flaps);
+  }
 
   build() {
     const root = document.createElement("div");
@@ -91,6 +96,8 @@ export class TouchControls {
       </div>
       <div class="t-actions">
         <button class="t-btn" data-act="view">CAM</button>
+        <button class="t-btn" data-act="gear">GEAR</button>
+        <button class="t-btn" data-act="flaps">FLAPS</button>
         <button class="t-btn" data-act="reset">RESET</button>
         <button class="t-btn msl" data-act="missile">MSL</button>
         <button class="t-btn flare" data-act="flare">FLARE</button>
@@ -100,6 +107,8 @@ export class TouchControls {
     this.root = root;
     this.stick = root.querySelector("#t-stick");
     this.recenterBtn = root.querySelector("#t-recenter");
+    this.gearBtn = root.querySelector('[data-act="gear"]');
+    this.flapBtn = root.querySelector('[data-act="flaps"]');
 
     this.bindStick(this.stick);
     this.bindThrottle(root.querySelector("#t-throttle"));

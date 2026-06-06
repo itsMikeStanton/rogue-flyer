@@ -263,6 +263,7 @@ button.primary:hover { background: #4ff5b8; }
   min-width: 64px;
 }
 .t-btn.on { background: rgba(54, 255, 154, 0.55); color: #04140e; }
+.t-btn.active { border-color: #36ff9a; background: rgba(54, 255, 154, 0.28); color: #d8ffe9; } /* gear/flaps deployed */
 .t-btn.fire { border-color: #ff8a5b; color: #ffd2b8; }
 .t-btn.fire.on { background: rgba(255, 138, 91, 0.7); color: #2a0f04; }
 .t-btn.msl { border-color: #ffd23f; color: #ffe9a3; }

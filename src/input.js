@@ -48,6 +48,7 @@ export class Input {
       pitch: 0, roll: 0, yaw: 0,
       throttle: 0, throttleActive: false,
       view: false, reset: false, fire: false, missile: false, flare: false,
+      gear: false, flaps: false,
     };
 
     window.addEventListener("keydown", (e) => {
@@ -104,6 +105,7 @@ export class Input {
     const pad = this.getPad();
     let pitch = 0, roll = 0, yaw = 0, throttle = 0;
     let viewPressed = false, resetPressed = false, fire = false, missilePressed = false, flarePressed = false;
+    let gearPressed = false, flapsPressed = false;
 
     if (pad) {
       roll = this.readAxis(pad, this.bindings.roll);
@@ -149,6 +151,8 @@ export class Input {
     if (this.pressed("key-reset", k.has("KeyR"))) resetPressed = true;
     if (this.pressed("key-missile", k.has("KeyB"))) missilePressed = true;
     if (this.pressed("key-flare", k.has("KeyX"))) flarePressed = true;
+    if (this.pressed("key-gear", k.has("KeyG"))) gearPressed = true;   // G = gear toggle
+    if (this.pressed("key-flaps", k.has("KeyV"))) flapsPressed = true; // V = flaps toggle
     if (k.has("Space")) fire = true;
 
     // Touch layer (on-screen controls). Stick/rudder are additive; the
@@ -161,11 +165,14 @@ export class Input {
     if (this.pressed("touch-reset", ts.reset)) resetPressed = true;
     if (this.pressed("touch-missile", ts.missile)) missilePressed = true;
     if (this.pressed("touch-flare", ts.flare)) flarePressed = true;
+    if (this.pressed("touch-gear", ts.gear)) gearPressed = true;
+    if (this.pressed("touch-flaps", ts.flaps)) flapsPressed = true;
 
     return {
       pitch: clamp(pitch), roll: clamp(roll), yaw: clamp(yaw),
       throttle: Math.min(1, Math.max(0, throttle)),
       viewPressed, resetPressed, fire, missilePressed, flarePressed,
+      gearPressed, flapsPressed,
     };
   }
 }

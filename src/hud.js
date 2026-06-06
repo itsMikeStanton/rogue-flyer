@@ -115,6 +115,16 @@ export class Hud {
       ctx.fillText(`MSL x${extra.missiles}`, 20, 92);
     }
 
+    // Gear / flaps status (above the throttle bar, bottom-left).
+    if (extra.gear != null || extra.flaps != null) {
+      ctx.textAlign = "left";
+      ctx.font = "12px 'Consolas', monospace";
+      ctx.fillStyle = extra.gear ? "#36ff9a" : "#6b7785";
+      ctx.fillText(extra.gear ? "GEAR ▼ DOWN" : "GEAR ▲ UP", 40, h - 176);
+      ctx.fillStyle = extra.flaps ? "#36ff9a" : "#6b7785";
+      ctx.fillText(extra.flaps ? "FLAPS ▼" : "FLAPS ▲", 40, h - 192);
+    }
+
     // Missile lock box around the locked target
     if (extra.lock) this.lockBox(extra.lock);
 
