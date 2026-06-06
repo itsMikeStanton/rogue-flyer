@@ -136,17 +136,37 @@ export class Hud {
 
   netLabel(m) {
     const ctx = this.ctx;
+    const cx = this.w / 2, cy = this.h / 2;
+    const col = m.color || "#ff7a7a";
+    const km = (m.dist / 1000).toFixed(1);
     ctx.save();
-    ctx.textAlign = "center";
     ctx.font = "11px 'Consolas', monospace";
-    ctx.fillStyle = "#dbe6f0";
-    ctx.fillText(`${m.name}  ${(m.dist / 1000).toFixed(1)}km`, m.x, m.y - 10);
-    // small health bar
-    const w = 46, h = 4, x = m.x - w / 2, y = m.y - 6;
-    ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.fillRect(x, y, w, h);
-    const hp = Math.max(0, Math.min(100, m.health == null ? 100 : m.health)) / 100;
-    ctx.fillStyle = hp > 0.5 ? "#36ff9a" : hp > 0.25 ? "#ffd23f" : "#ff5b5b";
-    ctx.fillRect(x, y, w * hp, h);
+    if (m.onscreen && !m.behind) {
+      // On screen: name + health bar floating over the jet.
+      ctx.textAlign = "center";
+      ctx.fillStyle = col;
+      ctx.fillText(`${m.name}  ${km}km`, m.x, m.y - 10);
+      const w = 46, h = 4, x = m.x - w / 2, y = m.y - 6;
+      ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.fillRect(x, y, w, h);
+      const hp = Math.max(0, Math.min(100, m.health == null ? 100 : m.health)) / 100;
+      ctx.fillStyle = hp > 0.5 ? "#36ff9a" : hp > 0.25 ? "#ffd23f" : "#ff5b5b";
+      ctx.fillRect(x, y, w * hp, h);
+    } else {
+      // Off screen / behind: arrow at the screen edge pointing toward the pilot.
+      let dx = m.ndcx, dy = m.ndcy;
+      if (m.behind) { dx = -dx; dy = -dy; }
+      const ang = Math.atan2(-dy, dx);
+      const rx = this.w / 2 - 54, ry = this.h / 2 - 54;
+      const x = cx + Math.cos(ang) * rx, y = cy + Math.sin(ang) * ry;
+      ctx.save();
+      ctx.translate(x, y); ctx.rotate(ang);
+      ctx.fillStyle = col; ctx.globalAlpha = 0.95;
+      ctx.beginPath(); ctx.moveTo(14, 0); ctx.lineTo(-8, -8); ctx.lineTo(-8, 8); ctx.closePath(); ctx.fill();
+      ctx.restore();
+      ctx.globalAlpha = 1;
+      ctx.textAlign = "center"; ctx.fillStyle = col;
+      ctx.fillText(`${m.name}  ${km}km`, x, y - 13);
+    }
     ctx.restore();
   }
 

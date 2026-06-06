@@ -870,11 +870,13 @@ function frame(now) {
         const p = net.players.get(id);
         if (!p || p.alive === false) continue;
         _v.copy(m.position); _v.y += 14; _v.project(camera);
-        if (_v.z > 1 || Math.abs(_v.x) > 1 || Math.abs(_v.y) > 1) continue;
         netLabels.push({
           name: p.name, health: p.health,
-          x: (_v.x * 0.5 + 0.5) * hud.w, y: (-_v.y * 0.5 + 0.5) * hud.h,
+          color: "#" + playerColor(id).toString(16).padStart(6, "0"),
           dist: state.position.distanceTo(m.position),
+          ndcx: _v.x, ndcy: _v.y, behind: _v.z > 1,
+          onscreen: _v.z < 1 && Math.abs(_v.x) <= 1 && Math.abs(_v.y) <= 1,
+          x: (_v.x * 0.5 + 0.5) * hud.w, y: (-_v.y * 0.5 + 0.5) * hud.h,
         });
       }
     }
