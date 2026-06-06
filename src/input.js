@@ -14,16 +14,29 @@ const STORAGE_KEY = "rogueflyer.bindings.v1";
 const DEFAULTS = {
   roll: { axis: 0, invert: false, deadzone: 0.06 },
   pitch: { axis: 1, invert: false, deadzone: 0.06 },
-  yaw: { axis: 5, invert: true, deadzone: 0.08 },
+  // Rudder twist is sensitive near centre — bigger deadzone ignores the first
+  // several degrees, and an expo curve softens the low end (see getControls).
+  yaw: { axis: 5, invert: true, deadzone: 0.16 },
   throttle: { axis: 6, invert: true, deadzone: 0.0 },
   // button indices for actions (standard mapping-ish; remappable later)
-  buttons: { fire: 0, missile: 1, flare: 2, view: 3, reset: 9 },
+  buttons: { fire: 0, missile: 1, flare: 2, view: 3, reset: 9, gear: 4, flaps: 5 },
 };
+
+// Expo response curve: e in [0,1], higher = gentler near centre, full at edge.
+function expo(v, e = 0.5) {
+  const s = Math.sign(v), a = Math.min(1, Math.abs(v));
+  return s * (e * a * a * a + (1 - e) * a);
+}
 
 function loadBindings() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return { ...structuredClone(DEFAULTS), ...JSON.parse(raw) };
+    if (raw) {
+      const saved = JSON.parse(raw);
+      const merged = { ...structuredClone(DEFAULTS), ...saved };
+      merged.buttons = { ...DEFAULTS.buttons, ...(saved.buttons || {}) }; // keep new action defaults
+      return merged;
+    }
   } catch (_) { /* ignore */ }
   return structuredClone(DEFAULTS);
 }
@@ -110,7 +123,7 @@ export class Input {
     if (pad) {
       roll = this.readAxis(pad, this.bindings.roll);
       pitch = this.readAxis(pad, this.bindings.pitch);
-      yaw = this.readAxis(pad, this.bindings.yaw);
+      yaw = expo(this.readAxis(pad, this.bindings.yaw), 0.55); // soft rudder near centre
       // throttle axis -1..1  ->  0..1  (idle..full)
       const t = this.bindings.throttle;
       let raw = (pad.axes[t.axis] || 0);
@@ -124,6 +137,8 @@ export class Input {
       flarePressed = this.pressed("pad-flare", btn(b.flare));
       viewPressed = this.pressed("pad-view", btn(b.view));
       resetPressed = this.pressed("pad-reset", btn(b.reset));
+      gearPressed = this.pressed("pad-gear", btn(b.gear));
+      flapsPressed = this.pressed("pad-flaps", btn(b.flaps));
     }
 
     // Keyboard layer (additive; lets you fly without a stick).
