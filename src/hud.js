@@ -109,7 +109,7 @@ export class Hud {
     if ((extra.mode === "dogfight" || extra.mode === "mission" || extra.mode === "ffa") && extra.health != null) {
       this.healthBar(20, 58, extra.health);
     }
-    if (extra.mode !== "free" && extra.missiles != null) {
+    if (extra.missiles != null) {
       ctx.fillStyle = extra.missiles > 0 ? green : "#888";
       ctx.font = "13px 'Consolas', monospace";
       ctx.fillText(`MSL x${extra.missiles}`, 20, 92);
@@ -316,15 +316,36 @@ export class Hud {
 
   lockBox(lock) {
     const ctx = this.ctx;
-    const s = 26;
+    const locked = !!lock.locked;
+    const prog = lock.progress == null ? (locked ? 1 : 0) : lock.progress;
+    const col = locked ? "#36ff9a" : "#ffd23f"; // green when solid, amber while seeking
     ctx.save();
-    ctx.strokeStyle = "#ffd23f";
-    ctx.fillStyle = "#ffd23f";
-    ctx.lineWidth = 2;
-    ctx.strokeRect(lock.x - s, lock.y - s, s * 2, s * 2);
-    ctx.font = "11px 'Consolas', monospace";
-    ctx.textAlign = "center";
-    ctx.fillText(`LOCK ${Math.round(lock.dist)}m`, lock.x, lock.y + s + 14);
+    ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = 2;
+    if (locked) {
+      // Solid green corner brackets — a confirmed lock.
+      const s = 24, c = 12;
+      for (const sx of [-1, 1]) for (const sy of [-1, 1]) {
+        const x = lock.x + sx * s, y = lock.y + sy * s;
+        ctx.beginPath();
+        ctx.moveTo(x - sx * c, y); ctx.lineTo(x, y); ctx.lineTo(x, y - sy * c);
+        ctx.stroke();
+      }
+      ctx.font = "bold 12px 'Consolas', monospace"; ctx.textAlign = "center";
+      ctx.fillText(`◉ LOCK ${Math.round(lock.dist)}m`, lock.x, lock.y + s + 16);
+    } else {
+      // Seeking: a flashing dashed box + a ring that closes in as lock builds.
+      ctx.globalAlpha = 0.45 + 0.55 * (Math.floor(performance.now() / 120) % 2);
+      const s = 30;
+      ctx.setLineDash([5, 5]);
+      ctx.strokeRect(lock.x - s, lock.y - s, s * 2, s * 2);
+      ctx.setLineDash([]);
+      ctx.globalAlpha = 1;
+      // closing acquisition ring (full circle -> shrinks to the box as prog->1)
+      const r = 8 + (1 - prog) * 44;
+      ctx.beginPath(); ctx.arc(lock.x, lock.y, r, 0, Math.PI * 2); ctx.stroke();
+      ctx.font = "11px 'Consolas', monospace"; ctx.textAlign = "center";
+      ctx.fillText(`SEEKING ${Math.round(prog * 100)}%`, lock.x, lock.y + s + 16);
+    }
     ctx.restore();
   }
 

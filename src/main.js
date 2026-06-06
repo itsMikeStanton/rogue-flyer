@@ -45,7 +45,7 @@ const sound = new SoundEngine();
 fx.onAdd = (size, pos) => sound.explosion(size, pos); // positional booms
 enemies.onFire = (pos) => sound.enemyGun(pos);         // positional enemy guns
 ground.onFire = (pos) => sound.enemyGun(pos);          // carrier flak
-let lastLock = null;
+let lastLocked = false;
 const hud = new Hud(document.getElementById("hud"));
 
 // Post-processing (bloom + colour grade). Off in VR. Look chosen in settings.
@@ -107,7 +107,7 @@ const player = {
   },
 };
 
-function missilesForMode(mode) { return mode === "free" ? 0 : 6; }
+function missilesForMode(mode) { return 6; } // every mode is armed (dumb-fire works anywhere)
 
 const ui = new UI(input, {
   onFly: (type, mode, start) => startFlight(type, mode, start),
@@ -310,7 +310,7 @@ function startFlight(type, mode, start, vr) {
   if (gameMode === "ffa") net.connect(playerName, type);
   else if (net.status !== "offline") { net.disconnect(); clearRemotePlayers(); }
   flying = true;
-  lastLock = null;
+  lastLocked = false;
   touch.setVisible(true);
   sound.resume();
   sound.startEngine();
@@ -325,6 +325,7 @@ function togglePause() {
     flying = false;
     touch.setVisible(false);
     sound.stopEngine();
+    sound.stopSeek();
     if (net.status !== "offline") { net.disconnect(); clearRemotePlayers(); }
     ui.showMenu();
   } else if (ui.menu.classList.contains("hidden") === false) {
@@ -543,7 +544,8 @@ function drawVRHud() {
   c.fillStyle = "#16324a"; c.fillRect(28, 168, 456, 28);
   c.fillStyle = "#2ee6a6"; c.fillRect(28, 168, 456 * THREE.MathUtils.clamp(state.telemetry.throttle, 0, 1), 28);
   c.fillStyle = "#04140e"; c.font = "bold 16px Consolas, monospace"; c.textAlign = "left"; c.fillText("THR", 36, 183);
-  if (weapons.lock) { c.fillStyle = "#ff5a5a"; c.font = "bold 24px Consolas, monospace"; c.textAlign = "center"; c.fillText("◎ LOCK", 256, 136); }
+  if (weapons.locked) { c.fillStyle = "#36ff9a"; c.font = "bold 24px Consolas, monospace"; c.textAlign = "center"; c.fillText("◉ LOCK", 256, 136); }
+  else if (weapons.lock) { c.fillStyle = "#ffd23f"; c.font = "bold 22px Consolas, monospace"; c.textAlign = "center"; c.fillText("◎ SEEK", 256, 136); }
   vrHudTex.needsUpdate = true;
 }
 
@@ -732,9 +734,12 @@ function frame(now) {
       ui.showBanner("MISSION COMPLETE", "Press R / RESET to fly again");
     }
 
-    // Lock tone when a fresh target is acquired.
-    if (weapons.lock && weapons.lock !== lastLock) sound.lock();
-    lastLock = weapons.lock;
+    // Lock audio: a growl that ramps while a target sits in the box, then a
+    // confirmation chirp the moment it goes solid.
+    if (weapons.lock && !weapons.locked) { sound.startSeek(); sound.updateSeek(weapons.lockProgress); }
+    else sound.stopSeek();
+    if (weapons.locked && !lastLocked) sound.lock();
+    lastLocked = weapons.locked;
 
     if (state.crashed && player.health > 0) {
       fx.add(state.position, 2.6);
@@ -752,6 +757,7 @@ function frame(now) {
     }
   } else if (flying && state.crashed) {
     // keep effects animating on the wreckage screen
+    sound.stopSeek();
     fx.update(dt);
     if (controls.resetPressed) resetFlight();
   }
@@ -836,6 +842,8 @@ function frame(now) {
           x: (_v.x * 0.5 + 0.5) * hud.w,
           y: (-_v.y * 0.5 + 0.5) * hud.h,
           dist: state.position.distanceTo(weapons.lock.position),
+          progress: weapons.lockProgress,
+          locked: weapons.locked,
         };
       }
     }

@@ -245,6 +245,33 @@ export class SoundEngine {
     }
   }
 
+  // Seeker "growl": a pulsing square tone that rises in pitch and pulse rate as
+  // the lock builds (call updateSeek every frame, stopSeek when not seeking).
+  startSeek() {
+    if (!this.ctx || this._seek) return;
+    const ctx = this.ctx;
+    const o = ctx.createOscillator(); o.type = "square"; o.frequency.value = 480;
+    const lfo = ctx.createOscillator(); lfo.type = "square"; lfo.frequency.value = 6;
+    const lfoGain = ctx.createGain(); lfoGain.gain.value = 0.045;
+    const base = ctx.createConstantSource(); base.offset.value = 0.045;
+    const g = ctx.createGain(); g.gain.value = 0; // driven entirely by base + lfo
+    lfo.connect(lfoGain); lfoGain.connect(g.gain); base.connect(g.gain);
+    o.connect(g); g.connect(this.master);
+    o.start(); lfo.start(); base.start();
+    this._seek = { o, lfo, base };
+  }
+  updateSeek(progress) {
+    if (!this._seek) return;
+    const p = Math.max(0, Math.min(1, progress));
+    this._seek.o.frequency.value = 480 + p * 560;   // pitch climbs
+    this._seek.lfo.frequency.value = 5 + p * 20;     // pulses faster
+  }
+  stopSeek() {
+    if (!this._seek) return;
+    const s = this._seek; this._seek = null;
+    try { s.o.stop(); s.lfo.stop(); s.base.stop(); } catch (_) { /* ignore */ }
+  }
+
   hit() {
     if (!this.ctx) return;
     const ctx = this.ctx, t = ctx.currentTime;

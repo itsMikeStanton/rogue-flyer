@@ -25,8 +25,12 @@ const SMOKE_LIFE = 0.9;
 
 const LOCK_RANGE = 2900;                          // ~ missile reach (speed * life)
 const LOCK_COS = Math.cos((22 * Math.PI) / 180);  // must be loosely pointed at it
+const LOCK_TIME = 1.6;                             // seconds holding it in the box to lock
+const LOCK_DECAY = 0.6;                            // seconds to lose progress once it leaves
 
 const _fwd = new THREE.Vector3();
+const _up = new THREE.Vector3();
+const _right = new THREE.Vector3();
 const _nose = new THREE.Vector3();
 const _to = new THREE.Vector3();
 const _desired = new THREE.Vector3();
@@ -48,7 +52,11 @@ export class Weapons {
     this.smoke = [];
     this.cooldown = 0;
     this.missileCount = 0;
-    this.lock = null; // current lock target (entity) for the HUD
+    // Intent-based lock: hold a target in the box to earn a guided launch.
+    this.lock = null;          // target the HUD draws a box around (candidate or locked)
+    this.lockProgress = 0;     // 0..1 acquisition progress
+    this.locked = false;       // solid lock — missiles will guide
+    this._mslSide = -1;        // alternate which wing missiles launch from
 
     this.bulletGeo = new THREE.BoxGeometry(0.7, 0.7, 16);
     this.bulletMat = new THREE.MeshBasicMaterial({ color: 0xfff066 });
@@ -68,13 +76,18 @@ export class Weapons {
     this.cooldown = 0;
     this.missileCount = missileCount || 0;
     this.lock = null;
+    this.lockProgress = 0;
+    this.locked = false;
   }
 
   fire(position, quaternion) {
     if (this.cooldown > 0) return false;
     this.cooldown = FIRE_INTERVAL;
     _fwd.set(0, 0, -1).applyQuaternion(quaternion).normalize();
-    _nose.copy(position).addScaledVector(_fwd, 7);
+    _up.set(0, 1, 0).applyQuaternion(quaternion).normalize();
+    // Muzzle: ahead of and a touch below the jet, so rounds come from the gun
+    // area — not out of the camera/your face in cockpit & chase views.
+    _nose.copy(position).addScaledVector(_fwd, 6).addScaledVector(_up, -1.1);
     const m = new THREE.Mesh(this.bulletGeo, this.bulletMat);
     m.position.copy(_nose);
     m.quaternion.copy(quaternion);
@@ -83,13 +96,20 @@ export class Weapons {
     return true;
   }
 
-  // Returns true if a missile launched. Without a lock it fires straight ahead
-  // as an unguided rocket.
+  // Returns true if a missile launched. It guides only on a SOLID lock; with no
+  // lock (or only a partial one) it fires straight ahead as a dumb rocket.
   fireMissile(position, quaternion) {
     if (this.missileCount <= 0) return false;
     this.missileCount--;
     _fwd.set(0, 0, -1).applyQuaternion(quaternion).normalize();
-    _nose.copy(position).addScaledVector(_fwd, 6);
+    _up.set(0, 1, 0).applyQuaternion(quaternion).normalize();
+    _right.set(1, 0, 0).applyQuaternion(quaternion).normalize();
+    // Alternate left/right underwing pylon.
+    this._mslSide = -this._mslSide;
+    _nose.copy(position)
+      .addScaledVector(_right, this._mslSide * 2.8)
+      .addScaledVector(_up, -0.6)
+      .addScaledVector(_fwd, 1.0);
     const m = new THREE.Mesh(this.mslGeo, this.mslMat);
     m.position.copy(_nose);
     m.quaternion.copy(quaternion);
@@ -97,7 +117,7 @@ export class Weapons {
     this.missiles.push({
       mesh: m,
       dir: _fwd.clone(),
-      target: this.lock && this.lock.alive ? this.lock : null,
+      target: (this.locked && this.lock && this.lock.alive) ? this.lock : null,
       life: MSL_LIFE,
       smokeTimer: 0,
     });
@@ -114,7 +134,9 @@ export class Weapons {
     this.smoke.push({ mesh, life: SMOKE_LIFE });
   }
 
-  _acquireLock(position, quaternion, targets) {
+  // Pick the best target inside the lock box, then ramp/decay lock progress so
+  // you must keep it in the reticle to earn a solid (guiding) lock.
+  _acquireLock(dt, position, quaternion, targets) {
     _fwd.set(0, 0, -1).applyQuaternion(quaternion).normalize();
     let best = null;
     let bestDot = LOCK_COS;
@@ -127,12 +149,19 @@ export class Weapons {
       const dot = _fwd.dot(_to);
       if (dot > bestDot) { bestDot = dot; best = t; }
     }
-    this.lock = best;
+    if (best) {
+      if (best !== this.lock) { this.lock = best; this.lockProgress = 0; } // new candidate — start over
+      else this.lockProgress = Math.min(1, this.lockProgress + dt / LOCK_TIME);
+    } else {
+      this.lockProgress = Math.max(0, this.lockProgress - dt / LOCK_DECAY);
+      if (this.lockProgress <= 0) this.lock = null;
+    }
+    this.locked = !!this.lock && this.lock.alive && this.lockProgress >= 1;
   }
 
   update(dt, position, quaternion, targets) {
     if (this.cooldown > 0) this.cooldown -= dt;
-    this._acquireLock(position, quaternion, targets);
+    this._acquireLock(dt, position, quaternion, targets);
 
     // Cannon rounds.
     for (let i = this.bullets.length - 1; i >= 0; i--) {
@@ -185,11 +214,15 @@ export class Weapons {
         this.fx.add(mp, 2.4);
         detonate = true;
       }
-      if (!detonate && m.target && m.target.alive &&
-          mp.distanceTo(m.target.position) < MSL_PROX) {
-        m.target.hit(MSL_DAMAGE);
-        this.fx.add(mp, 3.0, 0xffd23f);
-        detonate = true;
+      // Proximity-detonate near ANY target, so unguided rockets also score hits.
+      if (!detonate) for (const t of targets) {
+        if (!t.alive) continue;
+        if (mp.distanceTo(t.position) < MSL_PROX) {
+          t.hit(MSL_DAMAGE);
+          this.fx.add(mp, 3.0, 0xffd23f);
+          detonate = true;
+          break;
+        }
       }
       if (detonate || m.life <= 0) {
         this.scene.remove(m.mesh);
