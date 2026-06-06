@@ -106,7 +106,7 @@ export class Hud {
     ctx.textAlign = "left";
 
     // Hull health (combat modes) + missiles
-    if ((extra.mode === "dogfight" || extra.mode === "mission") && extra.health != null) {
+    if ((extra.mode === "dogfight" || extra.mode === "mission" || extra.mode === "ffa") && extra.health != null) {
       this.healthBar(20, 58, extra.health);
     }
     if (extra.mode !== "free" && extra.missiles != null) {

@@ -115,6 +115,7 @@ const ui = new UI(input, {
 // --- Multiplayer (LAN free-for-all) ---
 const net = new Net();
 const netMeshes = new Map(); // remote player id -> jet mesh
+const netTargets = [];       // weapons.js-compatible {position,radius,alive,hit} for remote jets
 let playerName = "Pilot";
 try {
   playerName = localStorage.getItem("rf.name") || ("Pilot-" + Math.floor(Math.random() * 900 + 100));
@@ -123,11 +124,13 @@ try {
 function playerColor(id) { return new THREE.Color().setHSL(((id * 47) % 360) / 360, 0.62, 0.55).getHex(); }
 net.onEvent = (t, m) => {
   if (t === "leave") { const mesh = netMeshes.get(m.id); if (mesh) { scene.remove(mesh); netMeshes.delete(m.id); } }
+  else if (t === "hit") { if (flying && gameMode === "ffa") player.applyDamage(m.dmg); } // someone hit us
 };
-function clearRemotePlayers() { for (const mesh of netMeshes.values()) scene.remove(mesh); netMeshes.clear(); }
+function clearRemotePlayers() { for (const mesh of netMeshes.values()) scene.remove(mesh); netMeshes.clear(); netTargets.length = 0; }
 function updateRemotePlayers(dt) {
   net.interpolate(dt);
   for (const [id, mesh] of netMeshes) if (!net.players.has(id) || id === net.id) { scene.remove(mesh); netMeshes.delete(id); }
+  netTargets.length = 0;
   for (const p of net.players.values()) {
     if (p.id === net.id) continue;
     let mesh = netMeshes.get(p.id);
@@ -141,6 +144,16 @@ function updateRemotePlayers(dt) {
     mesh.position.copy(p.cur.p);
     mesh.quaternion.copy(p.cur.q);
     mesh.visible = p.alive !== false;
+    // Shooter-authoritative hit target (stable per player; we report damage).
+    if (!p._target) {
+      p._target = {
+        position: p.cur.p, radius: 11,
+        get alive() { return p.alive !== false && p.health > 0; },
+        hit(dmg) { net.sendHit(p.id, dmg); },
+      };
+    }
+    p._target.position = p.cur.p;
+    if (p._target.alive) netTargets.push(p._target);
   }
 }
 
@@ -684,7 +697,7 @@ function frame(now) {
     }
 
     const isMission = gameMode === "mission";
-    const activeTargets = isMission ? ground.targets : enemies.targets;
+    const activeTargets = gameMode === "ffa" ? netTargets : (isMission ? ground.targets : enemies.targets);
     if (controls.fire && weapons.fire(state.position, state.quaternion)) sound.gun();
     if (controls.missilePressed && weapons.fireMissile(state.position, state.quaternion)) sound.missile();
     weapons.update(dt, state.position, state.quaternion, activeTargets);
@@ -880,8 +893,8 @@ function frame(now) {
       onGround: state.onGround,
       checkpoints: world.rings.length,
       ringsHit,
-      kills: isMissionHud ? ground.destroyed : enemies.kills,
-      bandits: isMissionHud ? ground.remaining : enemies.alive(),
+      kills: gameMode === "ffa" ? null : (isMissionHud ? ground.destroyed : enemies.kills),
+      bandits: gameMode === "ffa" ? null : (isMissionHud ? ground.remaining : enemies.alive()),
       total: isMissionHud ? ground.total : null,
       health: player.health,
       missiles: weapons.missileCount,
