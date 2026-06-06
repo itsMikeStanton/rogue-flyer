@@ -181,6 +181,16 @@ button.primary:hover { background: #4ff5b8; }
   border: 2px solid rgba(54, 255, 154, 0.5);
   touch-action: none;
 }
+/* Floating "drag to fly" pad — spawned at the touch point, purely visual. */
+.t-dragpad {
+  position: fixed;
+  display: none;
+  border-radius: 50%;
+  background: rgba(20, 32, 44, 0.28);
+  border: 2px solid rgba(54, 255, 154, 0.45);
+  pointer-events: none;
+  z-index: 7;
+}
 .t-knob {
   position: absolute;
   left: 50%; top: 50%;

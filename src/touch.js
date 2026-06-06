@@ -9,6 +9,8 @@
 // (always), or "off" (never). The stick can be hidden when tilt-steering is on.
 
 const MODE_STORE = "rogueflyer.touchmode.v1";
+const FLY_STORE = "rogueflyer.flystyle.v1";   // "drag" (swipe the screen) | "stick" (fixed joystick)
+const INVP_STORE = "rogueflyer.touchinvp.v1"; // invert pitch in drag mode
 
 // Expo response curve: softens small deflections near center so the on-screen
 // stick isn't twitchy, while still reaching full authority at the edge.
@@ -23,6 +25,11 @@ export class TouchControls {
   constructor(state) {
     this.state = state; // mutated in place; read by Input.getControls
     this.mode = localStorage.getItem(MODE_STORE) || "auto";
+    // Default to "drag": touch anywhere on the main view and steer — the most
+    // natural phone scheme (drag up = climb). The fixed joystick is an option.
+    this.flyStyle = localStorage.getItem(FLY_STORE) || "drag";
+    this.invertPitch = localStorage.getItem(INVP_STORE) === "1";
+    this._stickWanted = true; // tilt code toggles this; gated by flyStyle
     this._wantVisible = false; // set true while flying
     this.root = null;
     this.build();
@@ -45,14 +52,26 @@ export class TouchControls {
     this.refresh();
   }
 
-  setVisible(v) { this._wantVisible = v; this.refresh(); }
+  setVisible(v) { this._wantVisible = v; this.refresh(); if (!v) this._hideDragPad(); }
 
   refresh() {
     if (this.root) this.root.style.display = (this.enabled && this._wantVisible) ? "block" : "none";
+    this._applyStick();
   }
 
-  showStick(v) { if (this.stick) this.stick.style.display = v ? "block" : "none"; }
+  // The fixed joystick is shown only when the tilt code wants it AND the player
+  // has chosen the "stick" fly style (drag mode hides it).
+  showStick(v) { this._stickWanted = v; this._applyStick(); }
+  _applyStick() { if (this.stick) this.stick.style.display = (this._stickWanted && this.flyStyle === "stick") ? "block" : "none"; }
   showRecenter(v) { if (this.recenterBtn) this.recenterBtn.style.display = v ? "block" : "none"; }
+
+  setFlyStyle(s) {
+    this.flyStyle = s;
+    try { localStorage.setItem(FLY_STORE, s); } catch (_) {}
+    this._applyStick();
+    if (s !== "drag") { this.state.roll = 0; this.state.pitch = 0; this._hideDragPad(); }
+  }
+  setInvertPitch(v) { this.invertPitch = !!v; try { localStorage.setItem(INVP_STORE, v ? "1" : "0"); } catch (_) {} }
 
   build() {
     const root = document.createElement("div");
@@ -86,7 +105,69 @@ export class TouchControls {
     this.bindThrottle(root.querySelector("#t-throttle"));
     this.bindYaw(root.querySelectorAll("[data-yaw]"));
     this.bindActions(root.querySelectorAll("[data-act]"));
+    this.bindDragFly();
   }
+
+  // "Drag to fly": touch anywhere on the main view (not on a control widget) and
+  // drag — a floating stick appears at the touch point and steers roll/pitch.
+  // Drag up = climb by default (the natural feel); invertible in settings.
+  bindDragFly() {
+    let id = null, ox = 0, oy = 0;
+    const radius = () => Math.min(window.innerWidth, window.innerHeight) * 0.17;
+    // Don't hijack touches that land on a button / throttle / menu / editor.
+    const blocked = (t) => t && t.closest && t.closest(
+      "button, .t-throttle, .t-pad, .overlay, #editor-panel, select, input, a");
+    const start = (e) => {
+      if (id !== null) return;
+      if (this.flyStyle !== "drag" || !this.enabled || !this._wantVisible) return;
+      if (blocked(e.target)) return;
+      id = e.pointerId; ox = e.clientX; oy = e.clientY;
+      this._showDragPad(ox, oy);
+      this._dragUpdate(e.clientX, e.clientY, ox, oy, radius());
+      e.preventDefault();
+    };
+    const move = (e) => { if (e.pointerId === id) this._dragUpdate(e.clientX, e.clientY, ox, oy, radius()); };
+    const end = (e) => {
+      if (e.pointerId !== id) return;
+      id = null; this.state.roll = 0; this.state.pitch = 0; this._hideDragPad();
+    };
+    window.addEventListener("pointerdown", start, { passive: false });
+    window.addEventListener("pointermove", move, { passive: false });
+    window.addEventListener("pointerup", end);
+    window.addEventListener("pointercancel", end);
+  }
+
+  _dragUpdate(x, y, ox, oy, max) {
+    let dx = x - ox, dy = y - oy;
+    const len = Math.hypot(dx, dy);
+    if (len > max) { dx = (dx / len) * max; dy = (dy / len) * max; }
+    if (len < 6) { dx = 0; dy = 0; }
+    this.state.roll = expo(dx / max);
+    // Drag up (dy<0) => nose up / climb. (The fixed stick uses the opposite,
+    // realistic, pull-back-to-climb mapping.)
+    const p = expo(dy / max);
+    this.state.pitch = this.invertPitch ? p : -p;
+    if (this._dragKnob) this._dragKnob.style.transform = `translate(${dx}px, ${dy}px)`;
+  }
+
+  _showDragPad(x, y) {
+    if (!this._dragPad) {
+      const pad = document.createElement("div");
+      pad.className = "t-dragpad";
+      const knob = document.createElement("div");
+      knob.className = "t-knob";
+      pad.appendChild(knob);
+      this.root.appendChild(pad);
+      this._dragPad = pad; this._dragKnob = knob;
+    }
+    const r = Math.min(window.innerWidth, window.innerHeight) * 0.17;
+    this._dragPad.style.width = this._dragPad.style.height = (r * 2) + "px";
+    this._dragPad.style.left = (x - r) + "px";
+    this._dragPad.style.top = (y - r) + "px";
+    this._dragPad.style.display = "block";
+    if (this._dragKnob) this._dragKnob.style.transform = "translate(0,0)";
+  }
+  _hideDragPad() { if (this._dragPad) this._dragPad.style.display = "none"; }
 
   bindStick(pad) {
     const knob = pad.querySelector(".t-knob");

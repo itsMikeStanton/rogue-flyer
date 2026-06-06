@@ -35,6 +35,11 @@ export class UI {
     mode.value = this.touch.mode;
     mode.addEventListener("change", () => this.touch.setMode(mode.value));
 
+    const fly = document.getElementById("fly-style");
+    if (fly) { fly.value = this.touch.flyStyle; fly.addEventListener("change", () => this.touch.setFlyStyle(fly.value)); }
+    const tinvP = document.getElementById("touch-inv-pitch");
+    if (tinvP) { tinvP.checked = this.touch.invertPitch; tinvP.addEventListener("change", () => this.touch.setInvertPitch(tinvP.checked)); }
+
     const enable = document.getElementById("tilt-enable");
     const invP = document.getElementById("tilt-inv-pitch");
     const invR = document.getElementById("tilt-inv-roll");
