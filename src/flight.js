@@ -113,6 +113,7 @@ export function step(state, def, controls, dt, groundHeight) {
     let cd = def.cd0 + def.k * cl * cl;
     if (controls.gear) cd += 0.022;
     if (controls.flaps) cd += 0.014;
+    if (controls.brake) cd += 0.10; // airbrake / speedbrake: big drag to bleed speed
     const dragMag = qDyn * def.wingArea * cd;
     _tmp.copy(vel).multiplyScalar(-dragMag / speed);
     _force.add(_tmp);
@@ -184,9 +185,12 @@ export function step(state, def, controls, dt, groundHeight) {
       else { vel.set(0, 0, 0); state.onGround = false; }
     } else {
     const sinkRate = -vel.y;
-    const levelish = _up.y > 0.6;
-    if ((sinkRate > 24 || !levelish) && speed > 35) {
-      state.crashed = true; // slammed in too hard or not wings-level
+    const levelish = _up.y > 0.7;     // wings/nose within ~45° of level
+    const gearUp = !controls.gear;    // wheels must be down to land
+    // A real landing now: wheels down, gentle sink, wings level. Otherwise — if
+    // we're moving with any speed — it's a crash (slam, belly-flop, or cartwheel).
+    if (speed > 30 && (sinkRate > 11 || !levelish || gearUp)) {
+      state.crashed = true; // slammed in too hard, not level, or no gear
     } else {
       vel.y = Math.max(0, vel.y);
       state.onGround = true;
@@ -196,7 +200,9 @@ export function step(state, def, controls, dt, groundHeight) {
       const hlen = Math.hypot(_fwd.x, _fwd.z) || 1;
       const hx = _fwd.x / hlen, hz = _fwd.z / hlen;
       let gs = Math.hypot(vel.x, vel.z);
-      gs = Math.max(0, gs - 1.5 * dt); // light rolling resistance (constant, small)
+      // Rolling resistance, plus strong wheel braking when the brake is held.
+      const decel = controls.brake ? 70 : 1.5;
+      gs = Math.max(0, gs - decel * dt);
       vel.x = hx * gs;
       vel.z = hz * gs;
 

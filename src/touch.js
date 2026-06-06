@@ -98,6 +98,7 @@ export class TouchControls {
         <button class="t-btn" data-act="view">CAM</button>
         <button class="t-btn" data-act="gear">GEAR</button>
         <button class="t-btn" data-act="flaps">FLAPS</button>
+        <button class="t-btn" data-act="brake">BRAKE</button>
         <button class="t-btn" data-act="reset">RESET</button>
         <button class="t-btn msl" data-act="missile">MSL</button>
         <button class="t-btn flare" data-act="flare">FLARE</button>

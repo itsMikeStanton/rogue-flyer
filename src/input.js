@@ -19,7 +19,7 @@ const DEFAULTS = {
   yaw: { axis: 5, invert: true, deadzone: 0.16 },
   throttle: { axis: 6, invert: true, deadzone: 0.0 },
   // button indices for actions (standard mapping-ish; remappable later)
-  buttons: { fire: 0, missile: 1, flare: 2, view: 3, reset: 9, gear: 4, flaps: 5 },
+  buttons: { fire: 0, missile: 1, flare: 2, view: 3, reset: 9, gear: 4, flaps: 5, brake: 6 },
 };
 
 // Expo response curve: e in [0,1], higher = gentler near centre, full at edge.
@@ -61,7 +61,7 @@ export class Input {
       pitch: 0, roll: 0, yaw: 0,
       throttle: 0, throttleActive: false,
       view: false, reset: false, fire: false, missile: false, flare: false,
-      gear: false, flaps: false,
+      gear: false, flaps: false, brake: false,
     };
 
     window.addEventListener("keydown", (e) => {
@@ -118,7 +118,7 @@ export class Input {
     const pad = this.getPad();
     let pitch = 0, roll = 0, yaw = 0, throttle = 0;
     let viewPressed = false, resetPressed = false, fire = false, missilePressed = false, flarePressed = false;
-    let gearPressed = false, flapsPressed = false;
+    let gearPressed = false, flapsPressed = false, brake = false;
 
     if (pad) {
       roll = this.readAxis(pad, this.bindings.roll);
@@ -139,6 +139,7 @@ export class Input {
       resetPressed = this.pressed("pad-reset", btn(b.reset));
       gearPressed = this.pressed("pad-gear", btn(b.gear));
       flapsPressed = this.pressed("pad-flaps", btn(b.flaps));
+      if (btn(b.brake)) brake = true; // airbrake / wheel brake (held)
     }
 
     // Keyboard layer (additive; lets you fly without a stick).
@@ -168,6 +169,7 @@ export class Input {
     if (this.pressed("key-flare", k.has("KeyX"))) flarePressed = true;
     if (this.pressed("key-gear", k.has("KeyG"))) gearPressed = true;   // G = gear toggle
     if (this.pressed("key-flaps", k.has("KeyV"))) flapsPressed = true; // V = flaps toggle
+    if (k.has("KeyZ")) brake = true;   // Z = airbrake / wheel brake (held)
     if (k.has("Space")) fire = true;
 
     // Touch layer (on-screen controls). Stick/rudder are additive; the
@@ -182,12 +184,13 @@ export class Input {
     if (this.pressed("touch-flare", ts.flare)) flarePressed = true;
     if (this.pressed("touch-gear", ts.gear)) gearPressed = true;
     if (this.pressed("touch-flaps", ts.flaps)) flapsPressed = true;
+    if (ts.brake) brake = true;
 
     return {
       pitch: clamp(pitch), roll: clamp(roll), yaw: clamp(yaw),
       throttle: Math.min(1, Math.max(0, throttle)),
       viewPressed, resetPressed, fire, missilePressed, flarePressed,
-      gearPressed, flapsPressed,
+      gearPressed, flapsPressed, brake,
     };
   }
 }

@@ -334,6 +334,16 @@ function addGearFlaps(g) {
     flaps.push(pivot);
   }
   g.userData.flaps = flaps;
+
+  // Dorsal speedbrake panel near the tail — hinges up when the airbrake is out.
+  const sbMat = new THREE.MeshStandardMaterial({ color: 0x9aa1a8, flatShading: true, metalness: 0.3, roughness: 0.6 });
+  const sb = new THREE.Group();
+  sb.position.set(0, 0.42, 2.4); // hinge at the front edge of the panel
+  const panel = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.1, 1.6), sbMat);
+  panel.position.set(0, 0, 0.8);  // extends aft of the hinge
+  sb.add(panel);
+  g.add(sb);
+  g.userData.speedbrake = sb;
 }
 
 // Build the distinct low-poly mesh for a given aircraft type.

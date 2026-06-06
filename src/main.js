@@ -85,6 +85,7 @@ let camIndex = 0;
 let ringsHit = 0;
 // Manual gear/flaps state + animated gear-deploy fraction (0 up .. 1 down).
 let gearDown = true, flapsDown = false, gearAnim = 1;
+let brakeActive = false, brakeAnim = 0; // airbrake/wheel brake state + speedbrake panel anim
 
 // The player as a combat target the enemy can damage.
 const player = {
@@ -288,6 +289,7 @@ function resetFlight() {
   gearDown = startPos !== "air";
   flapsDown = false;
   gearAnim = gearDown ? 1 : 0;
+  brakeActive = false; brakeAnim = 0;
   touch.setGearFlaps(gearDown, flapsDown);
   fx.reset();
   ui.hideBanner();
@@ -684,6 +686,7 @@ function frame(now) {
     if (controls.gearPressed || controls.flapsPressed) touch.setGearFlaps(gearDown, flapsDown);
     controls.gear = gearDown;
     controls.flaps = flapsDown;
+    brakeActive = !!controls.brake; // airbrake (air) / wheel brake (ground)
 
     acc += dt;
     let steps = 0;
@@ -778,6 +781,9 @@ function frame(now) {
     if (mesh.userData.flaps) {
       for (const p of mesh.userData.flaps) p.rotation.x += (flapTarget - p.rotation.x) * Math.min(1, dt * 4);
     }
+    // Speedbrake panel pops up when the airbrake is held.
+    brakeAnim += ((brakeActive ? 1 : 0) - brakeAnim) * Math.min(1, dt * 6);
+    if (mesh.userData.speedbrake) mesh.userData.speedbrake.rotation.x = -brakeAnim * 1.05; // hinge up ~60°
   }
 
   // Multiplayer: broadcast our state + sync remote jets (runs even while dead).
@@ -915,6 +921,8 @@ function frame(now) {
       missiles: weapons.missileCount,
       gear: gearDown,
       flaps: flapsDown,
+      brake: brakeActive,
+      gearWarn: !gearDown && !state.onGround && state.telemetry.altitude < 350 && state.telemetry.speed < 140 && state.telemetry.vspeed < 0,
       lock,
       objective,
       islandMarkers,

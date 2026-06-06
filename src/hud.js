@@ -115,7 +115,7 @@ export class Hud {
       ctx.fillText(`MSL x${extra.missiles}`, 20, 92);
     }
 
-    // Gear / flaps status (above the throttle bar, bottom-left).
+    // Gear / flaps / brake status (above the throttle bar, bottom-left).
     if (extra.gear != null || extra.flaps != null) {
       ctx.textAlign = "left";
       ctx.font = "12px 'Consolas', monospace";
@@ -123,6 +123,14 @@ export class Hud {
       ctx.fillText(extra.gear ? "GEAR ▼ DOWN" : "GEAR ▲ UP", 40, h - 176);
       ctx.fillStyle = extra.flaps ? "#36ff9a" : "#6b7785";
       ctx.fillText(extra.flaps ? "FLAPS ▼" : "FLAPS ▲", 40, h - 192);
+      if (extra.brake) { ctx.fillStyle = "#ffd23f"; ctx.fillText("◧ AIRBRAKE", 40, h - 208); }
+    }
+    // Approaching the ground with the gear up — flash a warning.
+    if (extra.gearWarn && Math.floor(performance.now() / 400) % 2 === 0) {
+      ctx.textAlign = "center";
+      ctx.fillStyle = "#ff5b5b";
+      ctx.font = "bold 18px 'Consolas', monospace";
+      ctx.fillText("▲ LOWER GEAR ▲", cx, cy + 120);
     }
 
     // Missile lock box around the locked target
