@@ -982,11 +982,13 @@ function buildIsland(scene, is, waveMats, colliders) {
   {
     const cf = is.cliff;
     const rt = buildRadioTower();
+    rt.scale.y = 2; // twice as tall
     rt.position.set(cf.x, H(cf.x, cf.z), cf.z);
     grp.add(rt);
     const cd = Math.hypot(cf.x, cf.z) || 1;
     const lx = (-cf.x / cd) * 6900, lz = (-cf.z / cd) * 6900; // opposite side, near the coast
     const lh = buildLighthouse();
+    lh.scale.setScalar(3); // three times as large all around
     lh.position.set(lx, Math.max(H(lx, lz), SEA_LEVEL + 2), lz);
     grp.add(lh);
   }
