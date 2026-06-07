@@ -106,8 +106,9 @@ function igniteTreesNear(pos, size) {
         if (Math.random() < 0.55) {
           tr.burning = true;
           const life = 6 + Math.random() * 3;
+          const fs = 2.0 + Math.random() * 1.4; // bigger flames, varied per tree
           // Fire sprouts from the greenery (canopy height), not the trunk.
-          wrecks.spawnFire(new THREE.Vector3(tr.x, tr.cy, tr.z), { scale: 1.6, life, color: 0x2a261c, scorch: false });
+          wrecks.spawnFire(new THREE.Vector3(tr.x, tr.cy, tr.z), { scale: fs, life, color: 0x2a261c, scorch: false });
           burningTrees.push({ tr, timer: life * 0.7 }); // burns down, then the tree vanishes
           lit++;
         }

@@ -814,8 +814,8 @@ function buildIsland(scene, is, waveMats, colliders, smokeSources, trees) {
           if (sp === 0) { cy = h + 13.5 * s; tp.set(x, cy, z); ts.set(s, s, s); ci = pc; pine.setMatrixAt(pc++, m4.compose(tp, noRot, ts)); cm = pine; }
           else if (sp === 1) { cy = h + 9 * s; tp.set(x, cy, z); ts.set(s * 1.1, s * 0.95, s * 1.1); ci = oc; oak.setMatrixAt(oc++, m4.compose(tp, noRot, ts)); cm = oak; }
           else { cy = h + 8 * s; tp.set(x, cy, z); ts.set(s * 0.85, s * 1.15, s * 0.85); ci = bc; birch.setMatrixAt(bc++, m4.compose(tp, noRot, ts)); cm = birch; }
-          // 1-in-4 subsample with instance handles, so blasts can ignite + remove trees.
-          if (trees && (n & 3) === 0) trees.push({ x: cx0 + x, y: h, z: cz0 + z, cy, tm: trunks, ti: n, cm, ci });
+          // Every tree gets an instance handle, so blasts can ignite + remove it.
+          if (trees) trees.push({ x: cx0 + x, y: h, z: cz0 + z, cy, tm: trunks, ti: n, cm, ci });
           n++;
         }
       }
