@@ -426,9 +426,10 @@ export function buildWorld(scene) {
   // Build each island into its own group at its world offset.
   const colliders = [];
   const islands = [];
+  const smokeSources = [];
   let firstTerrain = null;
   for (const is of CFG.islands) {
-    const built = buildIsland(scene, is, waveMats, colliders);
+    const built = buildIsland(scene, is, waveMats, colliders, smokeSources);
     if (!firstTerrain) firstTerrain = built.terrain;
     islands.push({ group: built.group, center: is.center, name: is.name, faction: is.faction, terrain: built.terrain });
   }
@@ -440,7 +441,7 @@ export function buildWorld(scene) {
   const clouds = buildClouds(scene);
 
   const rings = [];
-  return { terrain: firstTerrain, rings, sun, hemi, clouds, ocean, carriers, colliders, waveMats, islands };
+  return { terrain: firstTerrain, rings, sun, hemi, clouds, ocean, carriers, colliders, waveMats, islands, smokeSources };
 }
 
 // One big tiled cumulus field. Returned mesh carries userData.tile so main can
@@ -671,7 +672,38 @@ export function resculptTerrain(is, terrainMesh, lx, lz, radius) {
   pos.needsUpdate = true; col.needsUpdate = true;
 }
 
-function buildIsland(scene, is, waveMats, colliders) {
+// A low-poly power plant: turbine hall, annex, a waisted cooling tower and two
+// banded smokestacks. Returns the group plus the local positions/params of its
+// smoke sources (cooling-tower vapour + dark stack exhaust) for the smoke system.
+export function buildPowerPlant() {
+  const g = new THREE.Group();
+  const wall = new THREE.MeshStandardMaterial({ color: 0x868d94, flatShading: true, roughness: 0.92 });
+  const roof = new THREE.MeshStandardMaterial({ color: 0x4f555c, flatShading: true, roughness: 0.92 });
+  const band = new THREE.MeshStandardMaterial({ color: 0xb1452f, flatShading: true, roughness: 0.85 });
+  const stacks = [];
+
+  const hall = new THREE.Mesh(new THREE.BoxGeometry(44, 26, 66), wall); hall.position.set(0, 13, 0); g.add(hall);
+  const hroof = new THREE.Mesh(new THREE.BoxGeometry(46, 3, 68), roof); hroof.position.set(0, 27, 0); g.add(hroof);
+  const annex = new THREE.Mesh(new THREE.BoxGeometry(28, 14, 30), wall); annex.position.set(34, 7, -8); g.add(annex);
+
+  // Waisted cooling tower (two flared cylinders) — big white vapour plume.
+  const ctLo = new THREE.Mesh(new THREE.CylinderGeometry(14, 21, 22, 20), wall); ctLo.position.set(-40, 11, 14); g.add(ctLo);
+  const ctHi = new THREE.Mesh(new THREE.CylinderGeometry(18, 14, 18, 20), wall); ctHi.position.set(-40, 31, 14); g.add(ctHi);
+  stacks.push({ lx: -40, ly: 41, lz: 14, size: 9, rate: 7, color: 0xe8eef4, rise: 13, drift: 3, life: 5.2, grow: 3.6, wind: 3 });
+
+  // Two banded smokestacks — dark exhaust.
+  for (const sx of [-6, 12]) {
+    const h = 60;
+    const st = new THREE.Mesh(new THREE.CylinderGeometry(3.0, 4.0, h, 14), wall); st.position.set(sx, h / 2, 24); g.add(st);
+    for (let b = 0; b < 2; b++) { const r = new THREE.Mesh(new THREE.CylinderGeometry(3.2, 3.2, 5, 14), band); r.position.set(sx, h - 7 - b * 14, 24); g.add(r); }
+    stacks.push({ lx: sx, ly: h + 1, lz: 24, size: 4.5, rate: 6, color: 0x3c3c3c, rise: 22, drift: 5, life: 4.2, grow: 4, wind: 4 });
+  }
+
+  g.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  return { group: g, stacks };
+}
+
+function buildIsland(scene, is, waveMats, colliders, smokeSources) {
   const grp = new THREE.Group();
   grp.position.set(is.center.x, 0, is.center.z);
   scene.add(grp);
@@ -1034,6 +1066,21 @@ function buildIsland(scene, is, waveMats, colliders) {
     lh.scale.setScalar(3); // three times as large all around
     lh.position.set(lx, Math.max(H(lx, lz), SEA_LEVEL + 2), lz);
     grp.add(lh);
+  }
+
+  // ---- Power plant near the city: big smoke plumes (and a strike target). ----
+  {
+    const px = 4400, pz = 4600, gy = H(px, pz);
+    if (gy > SEA_LEVEL + 2) {
+      const pp = buildPowerPlant();
+      pp.group.position.set(px, gy, pz);
+      grp.add(pp.group);
+      colliders.push({ x: cx0 + px, z: cz0 + pz, hx: 24, hz: 36, top: gy + 30 }); // turbine hall
+      if (smokeSources) for (const s of pp.stacks) smokeSources.push({
+        x: cx0 + px + s.lx, y: gy + s.ly, z: cz0 + pz + s.lz,
+        size: s.size, rate: s.rate, color: s.color, rise: s.rise, drift: s.drift, life: s.life, grow: s.grow, wind: s.wind,
+      });
+    }
   }
 
   return { group: grp, terrain };

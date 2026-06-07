@@ -47,6 +47,70 @@ function steer(dir, desired, maxRad) {
   if (ang > 1e-3) dir.lerp(d, Math.min(1, maxRad / ang)).normalize();
 }
 
+// A smoke ribbon that traces the missile's path and widens + fades with age, so
+// the trail looks like a dynamic, dissipating stream rather than a hard line.
+const _UP = new THREE.Vector3(0, 1, 0);
+class Ribbon {
+  constructor(scene, { color = 0xccd1d6, maxPts = 46, maxAge = 0.8, baseW = 0.5, expand = 11, alpha = 0.5 } = {}) {
+    this.scene = scene; this.maxPts = maxPts; this.maxAge = maxAge; this.baseW = baseW; this.expand = expand; this.alpha = alpha;
+    this.pts = [];
+    const pos = new Float32Array(maxPts * 2 * 3);
+    const al = new Float32Array(maxPts * 2);
+    const idx = new Uint16Array((maxPts - 1) * 6);
+    for (let i = 0; i < maxPts - 1; i++) {
+      const a = i * 2, o = i * 6;
+      idx[o] = a; idx[o + 1] = a + 1; idx[o + 2] = a + 2;
+      idx[o + 3] = a + 1; idx[o + 4] = a + 3; idx[o + 5] = a + 2;
+    }
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+    g.setAttribute("aAlpha", new THREE.BufferAttribute(al, 1));
+    g.setIndex(new THREE.BufferAttribute(idx, 1));
+    g.setDrawRange(0, 0);
+    this.geo = g;
+    const mat = new THREE.ShaderMaterial({
+      uniforms: { uColor: { value: new THREE.Color(color) } },
+      vertexShader: "attribute float aAlpha; varying float vA; void main(){ vA=aAlpha; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0); }",
+      fragmentShader: "uniform vec3 uColor; varying float vA; void main(){ gl_FragColor=vec4(uColor, vA); }",
+      transparent: true, depthWrite: false, side: THREE.DoubleSide,
+    });
+    this.mesh = new THREE.Mesh(g, mat);
+    this.mesh.frustumCulled = false;
+    scene.add(this.mesh);
+    this._perp = new THREE.Vector3();
+  }
+  push(p, vel) {
+    this._perp.crossVectors(vel, _UP);
+    if (this._perp.lengthSq() < 1e-4) this._perp.set(1, 0, 0);
+    this._perp.normalize();
+    this.pts.push({ p: p.clone(), perp: this._perp.clone(), age: 0 });
+    if (this.pts.length > this.maxPts) this.pts.shift();
+  }
+  // Returns false once the ribbon has fully dissipated (no points left).
+  update(dt) {
+    for (const s of this.pts) s.age += dt;
+    while (this.pts.length && this.pts[0].age > this.maxAge) this.pts.shift();
+    const n = this.pts.length;
+    if (n < 2) { this.geo.setDrawRange(0, 0); return n > 0; }
+    const pos = this.geo.attributes.position.array;
+    const al = this.geo.attributes.aAlpha.array;
+    for (let i = 0; i < n; i++) {
+      const s = this.pts[i];
+      const hw = this.baseW + s.age * this.expand;     // older segments fan out
+      const a = Math.max(0, 1 - s.age / this.maxAge) * this.alpha;
+      const v = i * 6;
+      pos[v] = s.p.x + s.perp.x * hw; pos[v + 1] = s.p.y + s.perp.y * hw; pos[v + 2] = s.p.z + s.perp.z * hw;
+      pos[v + 3] = s.p.x - s.perp.x * hw; pos[v + 4] = s.p.y - s.perp.y * hw; pos[v + 5] = s.p.z - s.perp.z * hw;
+      al[i * 2] = a; al[i * 2 + 1] = a;
+    }
+    this.geo.attributes.position.needsUpdate = true;
+    this.geo.attributes.aAlpha.needsUpdate = true;
+    this.geo.setDrawRange(0, (n - 1) * 6);
+    return true;
+  }
+  dispose() { this.scene.remove(this.mesh); this.geo.dispose(); this.mesh.material.dispose(); }
+}
+
 export class Weapons {
   constructor(scene, fx) {
     this.scene = scene;
@@ -54,6 +118,7 @@ export class Weapons {
     this.bullets = [];
     this.missiles = [];
     this.smoke = [];
+    this.deadTrails = []; // orphaned ribbons finishing their fade after detonation
     this.cooldown = 0;
     this.missileCount = 0;
     // Intent-based lock: hold a target in the box to earn a guided launch.
@@ -68,14 +133,19 @@ export class Weapons {
     this.mslGeo.rotateX(Math.PI / 2); // align length with -Z when using lookAt
     this.mslMat = new THREE.MeshStandardMaterial({ color: 0xe8e8e8, emissive: 0x331100, flatShading: true });
     this.smokeGeo = new THREE.SphereGeometry(1.6, 6, 6);
+    // Little rocket-motor flame trailing the missile (lit after ignition).
+    this.mslFlameGeo = new THREE.ConeGeometry(0.24, 1.5, 8);
+    this.mslFlameMat = new THREE.MeshBasicMaterial({ color: 0xffd27d, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending });
   }
 
   reset(missileCount) {
     for (const b of this.bullets) this.scene.remove(b.mesh);
-    for (const m of this.missiles) this.scene.remove(m.mesh);
+    for (const m of this.missiles) { this.scene.remove(m.mesh); if (m.trail) m.trail.dispose(); }
+    for (const t of this.deadTrails) t.dispose();
     for (const s of this.smoke) this.scene.remove(s.mesh);
     this.bullets.length = 0;
     this.missiles.length = 0;
+    this.deadTrails.length = 0;
     this.smoke.length = 0;
     this.cooldown = 0;
     this.missileCount = missileCount || 0;
@@ -117,6 +187,10 @@ export class Weapons {
     const m = new THREE.Mesh(this.mslGeo, this.mslMat);
     m.position.copy(_nose);
     m.quaternion.copy(quaternion);
+    // Rocket flame child, trailing aft (+Z local); hidden until the motor lights.
+    const flame = new THREE.Mesh(this.mslFlameGeo, this.mslFlameMat.clone());
+    flame.rotation.x = Math.PI / 2; flame.position.z = 1.7; flame.visible = false;
+    m.add(flame);
     this.scene.add(m);
     // Launch with the jet's velocity (so it hangs alongside) plus a downward
     // eject off the rail; the motor lights after MSL_DROP and it boosts away.
@@ -124,7 +198,8 @@ export class Weapons {
     if (jetVel) vel.copy(jetVel).multiplyScalar(1.6); // match the jet's ground speed
     vel.addScaledVector(_up, -16);                    // ejected down off the pylon
     this.missiles.push({
-      mesh: m, vel,
+      mesh: m, vel, flame,
+      trail: new Ribbon(this.scene),
       target: (this.locked && this.lock && this.lock.alive) ? this.lock : null,
       age: 0, lit: false, life: MSL_LIFE, smokeTimer: 0,
     });
@@ -132,13 +207,19 @@ export class Weapons {
   }
 
   _emitSmoke(pos) {
+    const s0 = 0.55 + Math.random() * 1.25;       // much wider size variation per puff
+    const op0 = 0.35 + Math.random() * 0.3;
     const mesh = new THREE.Mesh(
       this.smokeGeo,
-      new THREE.MeshBasicMaterial({ color: 0xcccccc, transparent: true, opacity: 0.55 })
+      new THREE.MeshBasicMaterial({ color: 0xc8ccd2, transparent: true, opacity: op0, depthWrite: false })
     );
     mesh.position.copy(pos);
+    mesh.position.x += (Math.random() - 0.5) * 1.4;
+    mesh.position.y += (Math.random() - 0.5) * 1.4;
+    mesh.position.z += (Math.random() - 0.5) * 1.4;
+    mesh.scale.setScalar(s0);
     this.scene.add(mesh);
-    this.smoke.push({ mesh, life: SMOKE_LIFE });
+    this.smoke.push({ mesh, life: SMOKE_LIFE * (0.8 + Math.random() * 0.5), max: SMOKE_LIFE, s0, op0 });
   }
 
   // Pick the best target inside the lock box, then ramp/decay lock progress so
@@ -219,14 +300,17 @@ export class Weapons {
       m.mesh.lookAt(_look.copy(m.mesh.position).add(m.vel));
       m.life -= dt;
 
-      // Smoke trail only once the motor is burning.
+      // Motor visuals once burning: flickering flame, smoke puffs + path ribbon.
       if (m.lit) {
+        m.flame.visible = true;
+        const fl = 0.7 + Math.random() * 0.6;
+        m.flame.scale.set(fl, fl, 0.9 + Math.random() * 0.6);
+        m.flame.material.opacity = 0.55 + Math.random() * 0.35;
+        m.trail.push(m.mesh.position, m.vel);
         m.smokeTimer -= dt;
-        if (m.smokeTimer <= 0) {
-          m.smokeTimer = SMOKE_INTERVAL;
-          this._emitSmoke(m.mesh.position);
-        }
+        if (m.smokeTimer <= 0) { m.smokeTimer = SMOKE_INTERVAL; this._emitSmoke(m.mesh.position); }
       }
+      m.trail.update(dt);
 
       let detonate = false;
       const mp = m.mesh.position;
@@ -247,17 +331,23 @@ export class Weapons {
       }
       if (detonate || m.life <= 0) {
         this.scene.remove(m.mesh);
+        if (m.trail) { this.deadTrails.push(m.trail); m.trail = null; } // let the ribbon linger & fade out
         this.missiles.splice(i, 1);
       }
     }
 
-    // Age the smoke trail: fade and gently expand.
+    // Orphaned ribbons keep aging until they've fully dissipated.
+    for (let i = this.deadTrails.length - 1; i >= 0; i--) {
+      if (!this.deadTrails[i].update(dt)) { this.deadTrails[i].dispose(); this.deadTrails.splice(i, 1); }
+    }
+
+    // Age the smoke puffs: fade and gently expand (each its own size/opacity).
     for (let i = this.smoke.length - 1; i >= 0; i--) {
       const s = this.smoke[i];
       s.life -= dt;
-      const k = 1 - s.life / SMOKE_LIFE;
-      s.mesh.scale.setScalar(1 + k * 3);
-      s.mesh.material.opacity = Math.max(0, 0.55 * (1 - k));
+      const k = 1 - s.life / s.max;
+      s.mesh.scale.setScalar(s.s0 * (1 + k * 3));
+      s.mesh.material.opacity = Math.max(0, s.op0 * (1 - k));
       if (s.life <= 0) {
         this.scene.remove(s.mesh);
         this.smoke.splice(i, 1);

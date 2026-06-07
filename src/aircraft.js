@@ -258,14 +258,15 @@ function addAfterburner(g, x, y, z, base, flames) {
     new THREE.ConeGeometry(0.34, 2.9, 10),
     new THREE.MeshBasicMaterial({ color: 0x8fd6ff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false })
   );
-  outer.rotation.x = -Math.PI / 2; outer.position.set(x, y, z + 1.45);
+  // Cones taper to a point AFT (+Z): wide at the nozzle, trailing behind the jet.
+  outer.rotation.x = Math.PI / 2; outer.position.set(x, y, z + 1.45);
   outer.scale.setScalar(base); outer.userData.base = base;
   g.add(outer); flames.push(outer);
   const inner = new THREE.Mesh(
     new THREE.ConeGeometry(0.2, 1.7, 8),
     new THREE.MeshBasicMaterial({ color: 0xffe7a6, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false })
   );
-  inner.rotation.x = -Math.PI / 2; inner.position.set(x, y, z + 1.0);
+  inner.rotation.x = Math.PI / 2; inner.position.set(x, y, z + 1.0);
   inner.scale.setScalar(base); inner.userData.base = base * 0.7;
   g.add(inner); flames.push(inner);
 }

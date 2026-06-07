@@ -15,6 +15,7 @@ import { SoundEngine } from "./audio.js";
 import { Editor } from "./editor.js";
 import { PostFX } from "./postfx.js";
 import { Weather } from "./weather.js";
+import { Smokestacks } from "./smoke.js";
 import { Net } from "./net.js";
 
 // --- Renderer / scene / camera ---
@@ -64,6 +65,10 @@ if (fxSel) {
     try { localStorage.setItem("rf.fx", fxLook); } catch (_) { /* ignore */ }
   });
 }
+
+// Chimney / power-plant smoke plumes (world scenery + live strike targets).
+const smoke = new Smokestacks(scene);
+smoke.addSources(world.smokeSources);
 
 // Weather / time of day (sky, fog, lights, stars, rain).
 const weather = new Weather(scene, world);
@@ -997,6 +1002,10 @@ function frame(now) {
   else { menuCinematic(dt); sound.setListener(camera); }
   updateSky(camera, true); // ocean + clouds follow the active camera
   weather.update(dt, _skyPos); // stars/rain follow the camera; storm lightning
+  // Smoke plumes: scenery sources + any still-alive power-plant strike targets.
+  const dyn = smoke.dynamic; dyn.length = 0;
+  for (const t of ground.targets) if (t.alive && t.smokeStacks) for (const s of t.smokeStacks) dyn.push(s);
+  smoke.update(dt, _skyPos);
   // Post FX on flat screen; VR renders direct (composer + WebXR don't mix).
   // Any composer failure falls back to a plain render so FX can't break the game.
   if (!inXR && post.enabled) {

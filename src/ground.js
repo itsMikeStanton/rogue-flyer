@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { terrainHeight, riverCenterX, getMissionBases } from "./world.js";
+import { terrainHeight, riverCenterX, getMissionBases, buildPowerPlant } from "./world.js";
 
 // Strike-mission ground targets: stationary structures sitting on the terrain
 // that you destroy with guns/missiles. Same { position, radius, alive, hit }
@@ -54,6 +54,11 @@ class GTarget {
       const roof = new THREE.Mesh(new THREE.BoxGeometry(34, 3, 26), gmat(0x555a44));
       roof.position.y = 13; g.add(roof);
       this.maxHealth = 70; this.radius = 34;
+    } else if (type === "powerplant") {
+      const pp = buildPowerPlant();
+      g.add(pp.group);
+      this.maxHealth = 240; this.radius = 54;
+      this._stacks = pp.stacks; // local smoke sources, lifted to world below
     } else { // sam
       const b = new THREE.Mesh(new THREE.BoxGeometry(12, 5, 16), gmat(0x4f5b3a));
       b.position.y = 2.5; g.add(b);
@@ -65,10 +70,16 @@ class GTarget {
     }
 
     this.health = this.maxHealth;
-    g.position.set(x, terrainHeight(x, z), z);
+    const gy = terrainHeight(x, z);
+    g.position.set(x, gy, z);
     g.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
     scene.add(g);
     this.group = g;
+    // World-space smoke sources for the plumes (consumed by main.js while alive).
+    if (this._stacks) this.smokeStacks = this._stacks.map((s) => ({
+      x: x + s.lx, y: gy + s.ly, z: z + s.lz,
+      size: s.size, rate: s.rate, color: s.color, rise: s.rise, drift: s.drift, life: s.life, grow: s.grow, wind: s.wind,
+    }));
   }
 
   get position() { return this.group.position; }
@@ -82,7 +93,17 @@ class GTarget {
   destroy() {
     this.alive = false;
     this.group.visible = false;
-    this.fx.add(_v.copy(this.group.position).setY(this.group.position.y + 12), 3.4);
+    if (this.type === "powerplant") {
+      // A big plant goes up in a string of blasts (and the smoke stops).
+      const c = this.group.position;
+      for (let i = 0; i < 8; i++) {
+        _v.set(c.x + (Math.random() - 0.5) * 64, c.y + 10 + Math.random() * 34, c.z + (Math.random() - 0.5) * 64);
+        this.fx.add(_v, 2.4 + Math.random() * 1.8);
+      }
+      this.fx.burst(c, 0x70757a, 30);
+    } else {
+      this.fx.add(_v.copy(this.group.position).setY(this.group.position.y + 12), 3.4);
+    }
   }
 
   update(dt) {
@@ -210,6 +231,13 @@ export class GroundTargets {
         const type = types[Math.floor(Math.random() * types.length)];
         this.list.push(new GTarget(this.scene, this.fx, type, x, z));
       }
+    }
+    // A power plant at the first base — a big, smoking, high-value target.
+    if (bases.length) {
+      const [bx, bz] = bases[0];
+      let px = bx + 620, pz = bz + 120;
+      if (terrainHeight(px, pz) < -20) { px = bx - 620; pz = bz - 120; }
+      this.list.push(new GTarget(this.scene, this.fx, "powerplant", px, pz));
     }
     if (enemyMesh && enemyInfo) {
       this.list.push(new CarrierTarget(this.fx, enemyMesh, enemyInfo));
