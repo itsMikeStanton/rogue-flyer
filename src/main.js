@@ -778,6 +778,7 @@ function updateArming(controls) {
 // --- Seated VR: cockpit interior, in-headset HUD, comfort options ---
 let vrCockpit = null, vrHudCanvas = null, vrHudCtx = null, vrHudTex = null, vrVignette = null;
 const _prevQ = new THREE.Quaternion();
+const _h1 = new THREE.Vector3(), _h2 = new THREE.Vector3(), _h3 = new THREE.Vector3();
 
 function buildVignetteTexture() {
   const cv = document.createElement("canvas"); cv.width = cv.height = 256;
@@ -799,44 +800,90 @@ function buildCockpit() {
     const con = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.42, 1.3), frame);
     con.position.set(s * 0.78, -0.55, -0.15); grp.add(con);
   }
-  const bow = new THREE.Mesh(new THREE.TorusGeometry(0.72, 0.045, 8, 24, Math.PI), frame);
-  bow.position.set(0, 0.18, -0.35); bow.rotation.x = Math.PI / 2; grp.add(bow);
-  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.62, 0.04, 8, 28), frame);
-  ring.position.set(0, -0.12, -1.0); grp.add(ring);
-  // HUD screen on the dashboard
+  // A canopy bow up high so it frames the top without blocking the forward view.
+  const bow = new THREE.Mesh(new THREE.TorusGeometry(0.85, 0.04, 8, 24, Math.PI), frame);
+  bow.position.set(0, 0.42, -0.5); bow.rotation.x = Math.PI / 2; grp.add(bow);
+
+  // Heads-up display: a see-through panel straight ahead at eye level. depthTest
+  // off so it always reads over the world (a real HUD), transparent background.
   vrHudCanvas = document.createElement("canvas"); vrHudCanvas.width = 512; vrHudCanvas.height = 256;
   vrHudCtx = vrHudCanvas.getContext("2d");
   vrHudTex = new THREE.CanvasTexture(vrHudCanvas);
-  const screen = new THREE.Mesh(new THREE.PlaneGeometry(0.82, 0.41),
-    new THREE.MeshBasicMaterial({ map: vrHudTex, transparent: true }));
-  screen.position.set(0, -0.5, -0.9); screen.rotation.x = -0.5; grp.add(screen);
+  const screen = new THREE.Mesh(new THREE.PlaneGeometry(1.2, 0.6),
+    new THREE.MeshBasicMaterial({ map: vrHudTex, transparent: true, depthTest: false, depthWrite: false }));
+  screen.position.set(0, 0.0, -1.15); screen.rotation.x = -0.08; screen.renderOrder = 998;
+  grp.add(screen);
   return grp;
 }
 
 function drawVRHud() {
   const c = vrHudCtx; if (!c) return;
-  c.clearRect(0, 0, 512, 256);
-  c.fillStyle = "rgba(6,20,14,0.6)"; c.fillRect(0, 0, 512, 256);
-  c.strokeStyle = "#2ee6a6"; c.lineWidth = 4; c.strokeRect(6, 6, 500, 244);
+  c.clearRect(0, 0, 512, 256); // transparent — only the glowing symbology shows
   c.textBaseline = "middle";
+  const cx = 256, cy = 128, green = "#36ff9a";
+
   if (armActive) {
-    c.fillStyle = "#ffd27d"; c.font = "bold 34px Consolas, monospace"; c.textAlign = "center";
-    c.fillText("READY?", 256, 80);
-    c.fillStyle = "#36ff9a"; c.font = "22px Consolas, monospace";
-    c.fillText(armHint || "Move throttle", 256, 150);
+    c.fillStyle = "#ffd27d"; c.font = "bold 44px Consolas, monospace"; c.textAlign = "center";
+    c.fillText("READY?", cx, 96);
+    c.fillStyle = green; c.font = "26px Consolas, monospace";
+    c.fillText(armHint || "Move throttle", cx, 152);
     vrHudTex.needsUpdate = true; return;
   }
-  c.fillStyle = "#36ff9a"; c.textAlign = "left"; c.font = "bold 44px Consolas, monospace";
-  c.fillText(String(Math.round(state.telemetry.speed)), 28, 64);
-  c.fillStyle = "#9fb3c4"; c.font = "16px Consolas, monospace"; c.fillText("KTS", 30, 104);
-  c.fillStyle = "#36ff9a"; c.textAlign = "right"; c.font = "bold 44px Consolas, monospace";
-  c.fillText(String(Math.round(state.position.y)), 484, 64);
-  c.fillStyle = "#9fb3c4"; c.font = "16px Consolas, monospace"; c.fillText("ALT", 484, 104);
-  c.fillStyle = "#16324a"; c.fillRect(28, 168, 456, 28);
-  c.fillStyle = "#2ee6a6"; c.fillRect(28, 168, 456 * THREE.MathUtils.clamp(state.telemetry.throttle, 0, 1), 28);
-  c.fillStyle = "#04140e"; c.font = "bold 16px Consolas, monospace"; c.textAlign = "left"; c.fillText("THR", 36, 183);
-  if (weapons.locked) { c.fillStyle = "#36ff9a"; c.font = "bold 24px Consolas, monospace"; c.textAlign = "center"; c.fillText("◉ LOCK", 256, 136); }
-  else if (weapons.lock) { c.fillStyle = "#ffd23f"; c.font = "bold 22px Consolas, monospace"; c.textAlign = "center"; c.fillText("◎ SEEK", 256, 136); }
+
+  // Attitude (pitch/roll) for the horizon ladder.
+  _h1.set(0, 0, -1).applyQuaternion(state.quaternion);
+  const pitch = Math.asin(THREE.MathUtils.clamp(_h1.y, -1, 1));
+  _h2.set(1, 0, 0).applyQuaternion(state.quaternion);
+  _h3.set(0, 1, 0).applyQuaternion(state.quaternion);
+  const roll = Math.atan2(_h2.y, _h3.y);
+
+  // Horizon line + pitch ladder, clipped to a central window.
+  c.save();
+  c.beginPath(); c.rect(96, 34, 320, 188); c.clip();
+  c.translate(cx, cy); c.rotate(-roll); c.translate(0, pitch * 340);
+  c.strokeStyle = green; c.lineWidth = 2;
+  c.beginPath(); c.moveTo(-150, 0); c.lineTo(-46, 0); c.moveTo(46, 0); c.lineTo(150, 0); c.stroke();
+  for (const deg of [-20, -10, 10, 20]) {
+    const yy = -deg * Math.PI / 180 * 340;
+    c.beginPath(); c.moveTo(-70, yy); c.lineTo(-34, yy); c.moveTo(34, yy); c.lineTo(70, yy); c.stroke();
+  }
+  c.restore();
+
+  // Boresight.
+  c.strokeStyle = green; c.lineWidth = 3;
+  c.beginPath();
+  c.moveTo(cx - 34, cy); c.lineTo(cx - 12, cy); c.moveTo(cx + 12, cy); c.lineTo(cx + 34, cy);
+  c.moveTo(cx, cy - 10); c.lineTo(cx, cy - 3); c.stroke();
+
+  // Speed (left) + altitude (right).
+  const kts = Math.round(state.telemetry.speed * 1.94384);
+  const ft = Math.round(state.telemetry.altitude * 3.281);
+  c.fillStyle = green; c.textAlign = "left"; c.font = "bold 40px Consolas, monospace";
+  c.fillText(String(kts), 18, 110);
+  c.fillStyle = "#9fb3c4"; c.font = "15px Consolas, monospace"; c.fillText("KTS", 20, 142);
+  c.fillStyle = green; c.textAlign = "right"; c.font = "bold 40px Consolas, monospace";
+  c.fillText(String(ft), 494, 110);
+  c.fillStyle = "#9fb3c4"; c.font = "15px Consolas, monospace"; c.fillText("ALT FT", 494, 142);
+
+  // Heading (top).
+  c.fillStyle = "#9fb3c4"; c.textAlign = "center"; c.font = "20px Consolas, monospace";
+  c.fillText("HDG " + String(Math.round(state.telemetry.heading)).padStart(3, "0"), cx, 22);
+
+  // Throttle bar (bottom).
+  c.fillStyle = "rgba(22,50,74,0.8)"; c.fillRect(40, 232, 432, 16);
+  c.fillStyle = "#2ee6a6"; c.fillRect(40, 232, 432 * THREE.MathUtils.clamp(state.telemetry.throttle, 0, 1), 16);
+
+  // Hull + missiles.
+  c.textAlign = "left"; c.font = "bold 17px Consolas, monospace";
+  c.fillStyle = player.health > 50 ? green : player.health > 25 ? "#ffd23f" : "#ff5a5a";
+  c.fillText("HULL " + Math.max(0, Math.round(player.health)), 18, 210);
+  c.textAlign = "right"; c.fillStyle = weapons.missileCount > 0 ? green : "#888";
+  c.fillText("MSL x" + weapons.missileCount, 494, 210);
+
+  // Lock status.
+  if (weapons.locked) { c.fillStyle = "#ff5a5a"; c.font = "bold 24px Consolas, monospace"; c.textAlign = "center"; c.fillText("◉ LOCK", cx, cy + 46); }
+  else if (weapons.lock) { c.fillStyle = "#ffd23f"; c.font = "20px Consolas, monospace"; c.textAlign = "center"; c.fillText("SEEK " + Math.round(weapons.lockProgress * 100) + "%", cx, cy + 46); }
+
   vrHudTex.needsUpdate = true;
 }
 
