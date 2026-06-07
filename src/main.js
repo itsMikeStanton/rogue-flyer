@@ -88,21 +88,22 @@ for (let i = 0; i < TREES.length; i++) {
 const _ZEROMAT = new THREE.Matrix4().makeScale(0.0001, 0.0001, 0.0001);
 const burningTrees = []; // { tr, timer } — vanish the tree when its timer runs out
 function igniteTreesNear(pos, size) {
-  if (wrecks.fireCount > 70 || TREES.length === 0) return; // throttle runaway fires
-  const R = 40 + size * 16, R2 = R * R;
+  if (wrecks.fireCount > 150 || TREES.length === 0) return; // throttle runaway fires
+  const R = 130 + size * 45, R2 = R * R, MAX = 16; // way bigger blast radius
+  const cells = Math.ceil(R / TREE_CELL);
   const cx = (pos.x / TREE_CELL) | 0, cz = (pos.z / TREE_CELL) | 0;
   let lit = 0;
-  for (let gx = cx - 1; gx <= cx + 1 && lit < 5; gx++) {
-    for (let gz = cz - 1; gz <= cz + 1 && lit < 5; gz++) {
+  for (let gx = cx - cells; gx <= cx + cells && lit < MAX; gx++) {
+    for (let gz = cz - cells; gz <= cz + cells && lit < MAX; gz++) {
       const arr = treeGrid.get(gx + "," + gz); if (!arr) continue;
       for (const idx of arr) {
-        if (lit >= 5) break;
+        if (lit >= MAX) break;
         const tr = TREES[idx];
         if (tr.burning) continue;
         const dx = tr.x - pos.x, dz = tr.z - pos.z;
         if (dx * dx + dz * dz > R2) continue;
-        if (pos.y - tr.y > 70 || tr.y - pos.y > 40) continue; // blast must be near the trees
-        if (Math.random() < 0.5) {
+        if (pos.y - tr.y > 90 || tr.y - pos.y > 50) continue; // blast must be near the trees
+        if (Math.random() < 0.55) {
           tr.burning = true;
           const life = 6 + Math.random() * 3;
           // Fire sprouts from the greenery (canopy height), not the trunk.

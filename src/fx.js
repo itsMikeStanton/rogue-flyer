@@ -123,8 +123,9 @@ export class Explosions {
       this.scene.add(ring);
       this.rings.push({ mesh: ring, life: 0.34, max: 0.34, size });
 
-      // Sparks/embers flung outward.
-      const n = Math.min(22, 7 + Math.round(size * 4));
+      // Sparks/embers flung outward — wide, fast, mostly lateral so they really
+      // spray off the ground / a ship deck.
+      const n = Math.min(34, 10 + Math.round(size * 6));
       for (let i = 0; i < n; i++) {
         const s = new THREE.Mesh(this.sparkGeo, new THREE.MeshBasicMaterial({
           color: i % 3 === 0 ? 0xfff2b0 : 0xff9c3c, transparent: true, opacity: 1, depthWrite: false, blending: THREE.AdditiveBlending,
@@ -134,10 +135,10 @@ export class Explosions {
         this.scene.add(s);
         this.sparks.push({
           mesh: s,
-          vel: new THREE.Vector3((Math.random() - 0.5) * 2, (Math.random() - 0.2) * 1.6, (Math.random() - 0.5) * 2)
-            .normalize().multiplyScalar((26 + Math.random() * 60) * Math.max(1, size * 0.7)),
-          life: 0.45 + Math.random() * 0.5,
-          max: 0.95,
+          vel: new THREE.Vector3((Math.random() - 0.5) * 3.0, (Math.random() - 0.05) * 1.2, (Math.random() - 0.5) * 3.0)
+            .normalize().multiplyScalar((50 + Math.random() * 110) * Math.max(1, size * 0.8)),
+          life: 0.5 + Math.random() * 0.7,
+          max: 1.2,
         });
       }
 
