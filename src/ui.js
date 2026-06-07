@@ -17,9 +17,12 @@ export class UI {
     this.banner = document.getElementById("banner");
     this.pickerMode = document.getElementById("picker-mode");
     this.pickerJet = document.getElementById("picker-jet");
+    this.hangar = document.getElementById("hangar");
+    this.hangarPick = "f16"; // current highlight inside the in-game vehicle bay
 
     this.buildModeList();
     this.buildJetList();
+    this.buildHangarList();
     this.bindButtons();
     this.buildBindingControls();
     this.wireMobile();
@@ -138,6 +141,41 @@ export class UI {
     }
   }
 
+  // The in-game vehicle bay: same cards, but selecting one just highlights it;
+  // the SPAWN button commits (so you can browse without launching by accident).
+  buildHangarList() {
+    const list = document.getElementById("hangar-list");
+    if (!list) return;
+    list.innerHTML = "";
+    for (const [key, def] of Object.entries(AIRCRAFT)) {
+      const card = document.createElement("div");
+      card.className = "jet-card";
+      card.dataset.key = key;
+      const bar = (label, v) => `<div class="stat"><span>${label}</span></div><div class="bar"><i style="width:${Math.round(v * 100)}%"></i></div>`;
+      card.innerHTML = `
+        <div class="name">${def.name}</div>
+        <div class="role">${def.role}</div>
+        ${bar("Speed", def.stats.speed)}
+        ${bar("Agility", def.stats.agility)}
+        ${bar("Toughness", def.stats.toughness)}`;
+      card.addEventListener("click", () => {
+        this.hangarPick = key;
+        [...list.children].forEach((c) => c.classList.toggle("selected", c.dataset.key === key));
+      });
+      list.appendChild(card);
+    }
+  }
+
+  showHangar(current, canStay) {
+    this.hangarPick = current || this.hangarPick;
+    const list = document.getElementById("hangar-list");
+    if (list) [...list.children].forEach((c) => c.classList.toggle("selected", c.dataset.key === this.hangarPick));
+    const stay = document.getElementById("hangar-stay");
+    if (stay) stay.classList.toggle("hidden", !canStay);
+    this.hangar.classList.remove("hidden");
+  }
+  hideHangar() { if (this.hangar) this.hangar.classList.add("hidden"); }
+
   updateSummaries() {
     const m = (this.modesData || []).find((x) => x.key === this.mode);
     if (m) {
@@ -180,6 +218,10 @@ export class UI {
     if (pmDone) pmDone.addEventListener("click", () => this.pickerMode.classList.add("hidden"));
     const pjDone = document.getElementById("pick-jet-done");
     if (pjDone) pjDone.addEventListener("click", () => this.pickerJet.classList.add("hidden"));
+    const hSpawn = document.getElementById("hangar-spawn");
+    if (hSpawn) hSpawn.addEventListener("click", () => { if (this.cb.onPickVehicle) this.cb.onPickVehicle(this.hangarPick); });
+    const hStay = document.getElementById("hangar-stay");
+    if (hStay) hStay.addEventListener("click", () => { if (this.cb.onHangarStay) this.cb.onHangarStay(); });
     document.getElementById("btn-settings").addEventListener("click", () => this.showSettings());
     document.getElementById("btn-settings-back").addEventListener("click", () => {
       this.settings.classList.add("hidden");

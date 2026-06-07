@@ -516,6 +516,18 @@ button.vr:hover { background: rgba(46,230,166,0.26); }
 /* Picker modals sit above the menu */
 .overlay.picker { z-index: 20; }
 
+/* Floating in-flight "change vehicle" button (above the HUD) */
+.hangar-fab {
+  position: fixed; left: 50%; bottom: 12px; transform: translateX(-50%); z-index: 12;
+  pointer-events: auto;
+  padding: 9px 14px; border-radius: 10px;
+  background: rgba(8,16,22,0.72); color: #cfeef6;
+  border: 1px solid rgba(46,230,166,0.5); font-weight: 700; letter-spacing: 0.02em;
+  backdrop-filter: blur(4px);
+}
+.hangar-fab:hover { background: rgba(46,230,166,0.18); border-color: var(--accent); }
+.hangar-fab.hidden { display: none; }
+
 /* Editor: ground-material swatches */
 .mat-list { display: flex; flex-wrap: wrap; gap: 6px; }
 .mat-sw {

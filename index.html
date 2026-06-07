@@ -193,6 +193,22 @@
     </div>
   </div>
 
+  <!-- In-game vehicle bay: pick / change your vehicle at the spawn point -->
+  <div id="hangar" class="overlay picker hidden">
+    <div class="panel wide">
+      <h2>Vehicle Bay</h2>
+      <p class="tag">Spawning at base — choose your ride.</p>
+      <div id="hangar-list" class="jet-list"></div>
+      <div class="menu-buttons">
+        <button id="hangar-spawn" class="primary">SPAWN ▸</button>
+        <button id="hangar-stay" class="hidden">Stay in current</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- In-flight: reopen the vehicle bay -->
+  <button id="btn-hangar" class="hangar-fab hidden" title="Change vehicle (H)">✈ Vehicles</button>
+
   <!-- Crash / pause banner -->
   <div id="banner" class="banner hidden"></div>
 

@@ -612,7 +612,7 @@ export class Editor {
       const kind = this.tool.split(":")[1];
       c.settlements.push({ kind, x: Math.round(g.x), z: Math.round(g.z), ...KIND_DEFAULTS[kind] });
     } else if (this.tool.startsWith("carrier:")) {
-      c.carriers.push({ team: this.tool.split(":")[1], x: Math.round(g.x), z: Math.round(g.z), halfL: 170, halfW: 36 });
+      c.carriers.push({ team: this.tool.split(":")[1], x: Math.round(g.x), z: Math.round(g.z), halfL: 330, halfW: 40 });
     } else if (this.tool === "bridge") {
       c.bridges.push(Math.round(g.z));
     } else if (this.tool === "base") {

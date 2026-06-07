@@ -91,6 +91,8 @@ let flying = false;
 let gameMode = "dogfight";
 let missionDone = false;
 let startPos = "air"; // "air" | "runway" | "carrier"
+// In-game vehicle bay: sim paused, camera orbits the parked vehicle at the spawn.
+let hangarMode = false, hangarAngle = 0;
 
 // Throttle "arming" gesture before a flight begins (see updateArming).
 let armActive = false, armUp = false, armOpposite = false, armInit = false, armHint = "";
@@ -130,6 +132,8 @@ const ui = new UI(input, {
   onFly: (type, mode, start) => startFlight(type, mode, start),
   onVR: (type, mode, start) => enterVR(type, mode, start),
   onSelectJet: (type) => { if (!flying) setAircraft(type); }, // live hero swap on the menu
+  onPickVehicle: (type) => pickVehicle(type),   // in-game vehicle bay: spawn this ride
+  onHangarStay: () => exitHangar(),             // keep the current vehicle, close the bay
 }, touch, tilt);
 
 // --- Multiplayer (LAN free-for-all) ---
@@ -230,7 +234,12 @@ window.addEventListener("keydown", (e) => {
   if (e.code === "Escape") togglePause();
   if (e.code === "KeyF") toggleFullscreen();
   if (e.code === "KeyM") updateSoundButton(sound.toggleMute());
+  if (e.code === "KeyH" && flying && !inXR) { hangarMode ? exitHangar() : enterHangar(true); }
 });
+
+// Floating in-flight button to reopen the vehicle bay.
+const hangarFab = document.getElementById("btn-hangar");
+if (hangarFab) hangarFab.addEventListener("click", () => { if (flying && !hangarMode) enterHangar(true); });
 
 // Resume audio on the first user interaction (browser autoplay policy).
 function unlockAudio() {
@@ -274,6 +283,80 @@ function setAircraft(type) {
   if (mesh) scene.remove(mesh);
   mesh = buildAircraftMesh(type);
   scene.add(mesh);
+}
+
+// Decorative airbase beside the runway + a few aircraft parked on the deck, so
+// the spawn point reads as a real base while you choose a vehicle in the bay.
+function park(type, x, y, z, ry) {
+  const v = buildAircraftMesh(type);
+  v.position.set(x, y, z);
+  v.rotation.y = ry;
+  v.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+  scene.add(v);
+}
+function populateBases() {
+  const tarmac = new THREE.MeshStandardMaterial({ color: 0x33373d, roughness: 0.96 });
+  const concrete = new THREE.MeshStandardMaterial({ color: 0x9aa0a6, flatShading: true, roughness: 0.9 });
+  const metal = new THREE.MeshStandardMaterial({ color: 0x6b7178, flatShading: true, metalness: 0.5, roughness: 0.5 });
+  const towerGlass = new THREE.MeshStandardMaterial({ color: 0x14313c, flatShading: true, metalness: 0.2, roughness: 0.3, emissive: 0x0a1a22 });
+  const base = new THREE.Group();
+
+  // Apron east of the runway, with a taxiway stub linking it to the strip.
+  const bx = 150, bz = 300, gy = terrainHeight(bx, bz);
+  const apron = new THREE.Mesh(new THREE.PlaneGeometry(170, 340), tarmac);
+  apron.rotation.x = -Math.PI / 2; apron.position.set(bx, gy + 0.4, bz); apron.receiveShadow = true; base.add(apron);
+  const taxi = new THREE.Mesh(new THREE.PlaneGeometry(110, 26), tarmac);
+  taxi.rotation.x = -Math.PI / 2; taxi.position.set(bx - 100, gy + 0.38, bz); taxi.receiveShadow = true; base.add(taxi);
+
+  // Control tower.
+  const tower = new THREE.Group();
+  const shaft = new THREE.Mesh(new THREE.BoxGeometry(8, 26, 8), concrete); shaft.position.y = 13; tower.add(shaft);
+  const cab = new THREE.Mesh(new THREE.BoxGeometry(13, 4.5, 13), concrete); cab.position.y = 28; tower.add(cab);
+  const glass = new THREE.Mesh(new THREE.BoxGeometry(13.6, 3, 13.6), towerGlass); glass.position.y = 27.6; tower.add(glass);
+  const roof = new THREE.Mesh(new THREE.BoxGeometry(14.5, 1, 14.5), concrete); roof.position.y = 30.6; tower.add(roof);
+  const beacon = new THREE.Mesh(new THREE.SphereGeometry(0.7, 8, 6), new THREE.MeshStandardMaterial({ color: 0xff3b30, emissive: 0xff2a20, emissiveIntensity: 2 }));
+  beacon.position.y = 32; tower.add(beacon);
+  tower.position.set(bx + 60, gy, bz - 150); base.add(tower);
+
+  // Two hangar sheds (box + dark door opening).
+  for (let i = 0; i < 2; i++) {
+    const shed = new THREE.Group();
+    const body = new THREE.Mesh(new THREE.BoxGeometry(36, 13, 28), concrete); body.position.y = 6.5; shed.add(body);
+    const ridge = new THREE.Mesh(new THREE.BoxGeometry(38, 2.5, 30), metal); ridge.position.y = 13.5; shed.add(ridge);
+    const door = new THREE.Mesh(new THREE.BoxGeometry(28, 10, 0.6), new THREE.MeshStandardMaterial({ color: 0x1b1f24, flatShading: true }));
+    door.position.set(0, 5, -14.2); shed.add(door);
+    shed.position.set(bx + 64, gy, bz + 30 + i * 46); base.add(shed);
+  }
+
+  // Two fuel bowsers for flavour.
+  for (const tz of [bz - 30, bz + 90]) {
+    const truck = new THREE.Group();
+    const cabin = new THREE.Mesh(new THREE.BoxGeometry(3, 3, 3.4), new THREE.MeshStandardMaterial({ color: 0x3a5a44, flatShading: true })); cabin.position.set(0, 2.2, -3); truck.add(cabin);
+    const tank = new THREE.Mesh(new THREE.CylinderGeometry(1.7, 1.7, 6.5, 12), metal); tank.rotation.x = Math.PI / 2; tank.position.set(0, 2.4, 1.5); truck.add(tank);
+    for (const wx of [-1.4, 1.4]) for (const wz of [-3.2, 0.5, 3]) {
+      const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.7, 0.5, 10), new THREE.MeshStandardMaterial({ color: 0x16181c }));
+      wheel.rotation.z = Math.PI / 2; wheel.position.set(wx, 0.7, wz); truck.add(wheel);
+    }
+    truck.position.set(bx - 60, gy, tz); base.add(truck);
+  }
+
+  base.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  scene.add(base);
+
+  // Parked aircraft on the apron — a static line-up of the fleet.
+  const lineup = ["a10", "f15", "apache", "blackhawk", "littlebird"];
+  lineup.forEach((t, i) => park(t, bx - 56 + i * 30, gy + 1.6, bz - 70, -Math.PI / 2 + (i % 2 ? 0.12 : -0.12)));
+  park("chinook", bx + 20, gy + 1.8, bz + 120, -Math.PI / 2);
+
+  // Parked aircraft on the ally carrier deck (visible from the catapult spawn).
+  const carrier = getCarriers().find((c) => c.team === "ally");
+  if (carrier) {
+    const deckTop = SEA_LEVEL + 25;
+    // Spotted along the port edge, clear of the centreline launch lane.
+    park("fa18", carrier.x - 28, deckTop + 1.4, carrier.z + carrier.halfL * 0.30, Math.PI * 0.82);
+    park("f14", carrier.x - 28, deckTop + 1.4, carrier.z + carrier.halfL * 0.55, Math.PI * 0.78);
+    park("blackhawk", carrier.x - 28, deckTop + 1.5, carrier.z + carrier.halfL * 0.05, Math.PI * 0.9);
+  }
 }
 
 function resetFlight() {
@@ -335,12 +418,43 @@ function startFlight(type, mode, start, vr) {
   // On touch devices, take over the full screen for an immersive cockpit — but
   // never in VR (that would fight the immersive XR session for the gesture).
   if (!vr && touch.enabled && fullscreenSupported() && !isFullscreen()) enterFullscreen();
+  // Drop into the vehicle bay at the spawn point first (VR skips it).
+  if (!vr) enterHangar(false);
+}
+
+// --- In-game vehicle bay -------------------------------------------------
+// Park at the spawn point with the sim held, orbit the camera, and let the
+// player pick (or swap) a vehicle. This is also how you "change vehicles in
+// game": reopening it returns you to base in whatever you choose.
+function enterHangar(canStay) {
+  hangarMode = true;
+  hangarAngle = 0;
+  resetFlight();                 // set the chosen vehicle down at the base/carrier
+  armActive = false;             // no throttle-gate prompt while choosing
+  const fab = document.getElementById("btn-hangar");
+  if (fab) fab.classList.add("hidden");
+  touch.setVisible(false);
+  ui.showHangar(jetType, !!canStay);
+}
+function exitHangar() {
+  hangarMode = false;
+  ui.hideHangar();
+  resetFlight();                 // re-arm at the spawn so the throttle gate runs
+  touch.setVisible(!input.hasGamepad());
+  const fab = document.getElementById("btn-hangar");
+  if (fab && !inXR) fab.classList.remove("hidden");
+}
+function pickVehicle(type) {
+  setAircraft(type);             // rebuild the hero mesh for the new ride
+  exitHangar();
 }
 
 function togglePause() {
   if (!mesh) return;
   if (flying) {
     flying = false;
+    hangarMode = false; ui.hideHangar();
+    const fab = document.getElementById("btn-hangar"); if (fab) fab.classList.add("hidden");
     touch.setVisible(false);
     sound.stopEngine();
     sound.stopSeek();
@@ -363,6 +477,20 @@ function updateCamera(dt) {
   const mode = CAMS[camIndex];
   const pos = state.position;
   const q = state.quaternion;
+
+  // Vehicle bay: slow orbit of the parked vehicle at the spawn point so the base
+  // / carrier tower drifts through frame while you choose.
+  if (hangarMode) {
+    hangarAngle += dt * 0.22;
+    const r = 26, h = 9;
+    const a = hangarAngle + 0.7;
+    camera.position.set(pos.x + Math.cos(a) * r, pos.y + h, pos.z + Math.sin(a) * r);
+    camera.up.set(0, 1, 0);
+    camera.lookAt(pos.x, pos.y + 2.2, pos.z);
+    camera.fov += (60 - camera.fov) * Math.min(1, dt * 3);
+    camera.updateProjectionMatrix();
+    return;
+  }
 
   // Speed-driven FOV kick for a sense of velocity.
   const targetFov = 70 + THREE.MathUtils.clamp((state.velocity.length() - 140) * 0.06, 0, 18);
@@ -701,9 +829,9 @@ function frame(now) {
   }
 
   // Throttle-arming gate: hold the sim until the player engages the throttle.
-  if (flying && !state.crashed && armActive) updateArming(controls);
+  if (flying && !hangarMode && !state.crashed && armActive) updateArming(controls);
 
-  if (flying && !state.crashed && !armActive) {
+  if (flying && !hangarMode && !state.crashed && !armActive) {
     if (controls.viewPressed) camIndex = (camIndex + 1) % CAMS.length;
     if (controls.resetPressed) resetFlight();
 
@@ -864,7 +992,7 @@ function frame(now) {
   }
 
   // HUD
-  if (flying) {
+  if (flying && !hangarMode) {
     // Project the locked target to screen space for the lock box.
     let lock = null;
     if (weapons.lock && weapons.lock.alive) {
@@ -1008,6 +1136,9 @@ if (versionEl) {
 
 // Jump straight into the editor with ?edit in the URL.
 if (location.search.includes("edit")) { ui.hideAll(); showAllIslands(); editor.enter(); }
+
+// Decorative airbase + parked aircraft at the spawn points.
+populateBases();
 
 // Preview aircraft on the menu so the scene isn't empty.
 setAircraft("f16");

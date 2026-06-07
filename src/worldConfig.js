@@ -50,12 +50,12 @@ export function defaultWorldConfig() {
       // Home — your base, with the ally carrier offshore.
       island({
         name: "Vanguard", faction: "ally", seed: 0x1f2e3d, center: { x: 0, z: 0 },
-        carriers: [{ team: "ally", x: -1200, z: 11200, halfL: 170, halfW: 36 }],
+        carriers: [{ team: "ally", x: -1200, z: 11200, halfL: 330, halfW: 40 }],
       }),
       // Enemy island — strike targets + the enemy carrier, a flight east.
       island({
         name: "Ironhold", faction: "enemy", seed: 0x7c41a9, center: { x: 36000, z: 4000 },
-        carriers: [{ team: "enemy", x: 1200, z: -12800, halfL: 170, halfW: 36 }],
+        carriers: [{ team: "enemy", x: 1200, z: -12800, halfL: 330, halfW: 40 }],
         missionBases: [[0, -3800], [2600, -6500], [-2800, -5200]],
       }),
     ],
