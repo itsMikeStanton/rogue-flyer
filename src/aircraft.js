@@ -107,6 +107,54 @@ export const AIRCRAFT = {
     pitchRate: 0.5, rollRate: 0.9, yawRate: 0.4,
     stats: { speed: 0.5, agility: 0.25, toughness: 1.0 },
   },
+
+  // --- Rotorcraft ---------------------------------------------------------
+  // Helicopters fly on a completely different model (flight.js stepHeli):
+  //   rotor    flag that routes to the hover/collective/cyclic dynamics
+  //   twr      thrust-to-weight at full collective (>1 = can climb vertically)
+  //   bodyDrag lumped Cd*A — sets how fast it'll go before drag balances tilt
+  //   pitch/roll/yawRate  cyclic + tail-rotor (pedal) authority (rad/s)
+  //   levelRate self-leveling rate — bleeds cyclic tilt back toward hover
+  apache: {
+    name: "AH-64 Apache",
+    role: "Attack helicopter",
+    color: 0x444b3c,
+    rotor: true,
+    mass: 8000, maxThrust: 0, wingArea: 0,
+    twr: 1.55, bodyDrag: 6.0, levelRate: 2.1,
+    pitchRate: 0.95, rollRate: 1.8, yawRate: 1.5,
+    stats: { speed: 0.5, agility: 0.7, toughness: 0.8 },
+  },
+  blackhawk: {
+    name: "UH-60 Black Hawk",
+    role: "Utility helicopter",
+    color: 0x363b42,
+    rotor: true,
+    mass: 9000, maxThrust: 0, wingArea: 0,
+    twr: 1.5, bodyDrag: 7.5, levelRate: 2.0,
+    pitchRate: 0.85, rollRate: 1.5, yawRate: 1.3,
+    stats: { speed: 0.45, agility: 0.55, toughness: 0.7 },
+  },
+  littlebird: {
+    name: "MH-6 Little Bird",
+    role: "Light scout / special ops",
+    color: 0x202327,
+    rotor: true,
+    mass: 1400, maxThrust: 0, wingArea: 0,
+    twr: 1.75, bodyDrag: 2.2, levelRate: 2.5,
+    pitchRate: 1.35, rollRate: 2.5, yawRate: 1.9,
+    stats: { speed: 0.6, agility: 0.95, toughness: 0.3 },
+  },
+  chinook: {
+    name: "CH-47 Chinook",
+    role: "Tandem-rotor heavy lift",
+    color: 0x47503d,
+    rotor: true, tandem: true,
+    mass: 16000, maxThrust: 0, wingArea: 0,
+    twr: 1.45, bodyDrag: 12.0, levelRate: 1.8,
+    pitchRate: 0.7, rollRate: 1.15, yawRate: 0.95,
+    stats: { speed: 0.4, agility: 0.3, toughness: 1.0 },
+  },
 };
 
 function makeMaterials(def) {
@@ -475,6 +523,181 @@ function buildStrato(def) {
   return g;
 }
 
+// ======================= Helicopters ====================================
+
+// A spinning rotor: hub + thin blades on a group we hand back to main.js to
+// rotate every frame. `blades` evenly spaced; `radius` is the full blade length.
+function makeRotor(m, radius, blades, chord) {
+  const grp = new THREE.Group();
+  const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.26, 0.3, 8), m.metal);
+  grp.add(hub);
+  for (let i = 0; i < blades; i++) {
+    const arm = new THREE.Group();
+    const blade = new THREE.Mesh(new THREE.BoxGeometry(radius, 0.06, chord), m.accent);
+    blade.position.x = radius / 2;
+    // faint blade tip cap so the disc reads even at speed
+    arm.add(blade);
+    arm.rotation.y = (i / blades) * Math.PI * 2;
+    grp.add(arm);
+  }
+  return grp;
+}
+
+// Twin landing skids (tube + two struts each), replacing wheeled gear.
+function skids(m, span, len, drop) {
+  const grp = new THREE.Group();
+  const tubeMat = m.metal;
+  for (const s of [-1, 1]) {
+    const tube = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, len, 7), tubeMat);
+    tube.rotation.x = Math.PI / 2;
+    tube.position.set(s * span, drop, 0.2);
+    grp.add(tube);
+    for (const z of [-len * 0.32, len * 0.32]) {
+      const strut = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, Math.abs(drop) + 0.2, 6), tubeMat);
+      strut.position.set(s * span * 0.78, drop / 2 + 0.1, z + 0.2);
+      strut.rotation.x = s * 0.05;
+      grp.add(strut);
+    }
+  }
+  return grp;
+}
+
+// Boom-mounted tail rotor (vertical disc) on the port side of the tail.
+function tailRotor(m, radius, x, z) {
+  const tr = makeRotor(m, radius, 4, 0.14);
+  tr.rotation.z = Math.PI / 2; // disc stands vertical
+  tr.position.set(x, 0.25, z);
+  return tr;
+}
+
+// ---- AH-64 Apache: tandem stepped cockpit, stub wings + rocket pods, chin gun
+function buildApache(def) {
+  const g = new THREE.Group(); const m = makeMaterials(def);
+  g.userData.flames = []; g.userData.rotors = [];
+
+  const fuse = new THREE.Mesh(new THREE.BoxGeometry(1.0, 1.0, 6.6), m.body); g.add(fuse);
+  // stepped tandem canopies (gunner low/front, pilot raised/aft)
+  const c1 = new THREE.Mesh(new THREE.BoxGeometry(0.85, 0.7, 1.5), m.glass); c1.position.set(0, 0.55, -2.2); g.add(c1);
+  const c2 = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.8, 1.5), m.glass); c2.position.set(0, 0.78, -0.7); g.add(c2);
+  // pointed nose with sensor turret + chin gun
+  const nose = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.6, 1.2), m.body); nose.position.set(0, -0.1, -3.4); g.add(nose);
+  const sensor = new THREE.Mesh(new THREE.SphereGeometry(0.32, 8, 6), m.accent); sensor.position.set(0, -0.35, -3.9); g.add(sensor);
+  const gun = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 1.0, 6), m.metal); gun.rotation.x = Math.PI / 2; gun.position.set(0, -0.7, -2.4); g.add(gun);
+
+  // stub wings carrying rocket pods + missiles
+  const w = wing(m.body, 2.7, 0.9, 0.6, 0.1, 0.16); w.position.set(0, 0.1, 0.6); g.add(w);
+  for (const s of [-1, 1]) {
+    const pod = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 1.4, 10), m.ord); pod.rotation.x = Math.PI / 2; pod.position.set(s * 1.6, -0.25, 0.6); g.add(pod);
+    const o = ordnance(m); o.position.set(s * 2.4, -0.05, 0.6); o.scale.setScalar(0.8); g.add(o);
+  }
+
+  // tapering tailboom + swept tail fin + stabilizer
+  const boom = new THREE.Mesh(new THREE.CylinderGeometry(0.3, 0.16, 4.4, 10), m.body); boom.rotation.x = Math.PI / 2; boom.position.set(0, 0.25, 4.6); g.add(boom);
+  const tfin = fin(m.body, 1.3, 1.0, 0.5, 0.4, 0.12); tfin.position.set(0, 0.4, 6.4); g.add(tfin);
+  const stab = wing(m.body, 1.2, 0.7, 0.4, 0.2, 0.1); stab.position.set(0, 0.3, 6.0); g.add(stab);
+
+  // engines either side of the rotor mast
+  for (const s of [-1, 1]) { const eng = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.6, 1.8), m.panel); eng.position.set(s * 0.55, 0.95, 1.6); g.add(eng); }
+
+  // main rotor on a mast, tail rotor on the fin
+  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 0.7, 8), m.metal); mast.position.set(0, 1.35, 0.8); g.add(mast);
+  const rotor = makeRotor(m, 7.4, 4, 0.3); rotor.position.set(0, 1.7, 0.8); g.add(rotor);
+  g.userData.rotors.push({ m: rotor, axis: "y", spd: 1 });
+  const tr = tailRotor(m, 1.3, 0.32, 6.4); g.add(tr);
+  g.userData.rotors.push({ m: tr, axis: "x", spd: 1.5 });
+
+  const rl = navLight(m.red); rl.position.set(-2.7, 0.1, 0.6); g.add(rl);
+  const gl = navLight(m.green); gl.position.set(2.7, 0.1, 0.6); g.add(gl);
+  g.add(skids(m, 1.05, 3.2, -1.0));
+  return g;
+}
+
+// ---- UH-60 Black Hawk: boxy cabin, sloped nose, canted tail rotor ----
+function buildBlackHawk(def) {
+  const g = new THREE.Group(); const m = makeMaterials(def);
+  g.userData.flames = []; g.userData.rotors = [];
+
+  const cabin = new THREE.Mesh(new THREE.BoxGeometry(1.7, 1.4, 5.0), m.body); cabin.position.z = -0.4; g.add(cabin);
+  // sloped lower nose + windscreen
+  const nose = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.9, 1.4), m.body); nose.position.set(0, -0.25, -3.2); g.add(nose);
+  const glass = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.7, 1.1), m.glass); glass.position.set(0, 0.45, -2.4); g.add(glass);
+  for (const s of [-1, 1]) { const win = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.5, 2.2), m.glass); win.position.set(s * 0.86, 0.2, -0.4); g.add(win); }
+
+  // engine deck + main rotor mast
+  const deck = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.6, 2.4), m.panel); deck.position.set(0, 0.95, 0.0); g.add(deck);
+  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.7, 8), m.metal); mast.position.set(0, 1.4, 0.0); g.add(mast);
+  const rotor = makeRotor(m, 8.2, 4, 0.34); rotor.position.set(0, 1.75, 0.0); g.add(rotor);
+  g.userData.rotors.push({ m: rotor, axis: "y", spd: 1 });
+
+  // down-sloped tailboom, swept fin, canted tail rotor
+  const boom = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.2, 4.6, 10), m.body); boom.rotation.x = Math.PI / 2; boom.position.set(0, 0.25, 4.0); g.add(boom);
+  const tfin = fin(m.body, 1.5, 1.1, 0.6, 0.5, 0.13); tfin.position.set(0, 0.3, 6.0); g.add(tfin);
+  const stab = wing(m.body, 1.5, 0.7, 0.5, 0.2, 0.1); stab.position.set(0, 0.3, 5.6); g.add(stab);
+  const tr = tailRotor(m, 1.55, -0.3, 6.3); tr.rotation.x = 0.35; g.add(tr); // 20° cant like the real -60
+  g.userData.rotors.push({ m: tr, axis: "x", spd: 1.4 });
+
+  const rl = navLight(m.red); rl.position.set(-2.0, 0.0, -0.4); g.add(rl);
+  const gl = navLight(m.green); gl.position.set(2.0, 0.0, -0.4); g.add(gl);
+  g.add(skids(m, 1.15, 3.4, -1.2));
+  return g;
+}
+
+// ---- MH-6 Little Bird: egg cabin, exposed boom, fast & nimble scout ----
+function buildLittleBird(def) {
+  const g = new THREE.Group(); const m = makeMaterials(def);
+  g.userData.flames = []; g.userData.rotors = [];
+
+  const pod = new THREE.Mesh(new THREE.SphereGeometry(1.05, 12, 10), m.body); pod.scale.set(1.0, 0.95, 1.25); pod.position.z = -0.4; g.add(pod);
+  const glass = new THREE.Mesh(new THREE.SphereGeometry(1.0, 12, 8, 0, Math.PI * 2, 0, Math.PI * 0.55), m.glass);
+  glass.scale.set(0.95, 0.85, 1.15); glass.position.set(0, 0.15, -0.7); glass.rotation.x = -0.5; g.add(glass);
+  // bench seats (the SOAR "people on the skids" look)
+  for (const s of [-1, 1]) { const bench = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.12, 1.3), m.panel); bench.position.set(s * 1.05, -0.5, -0.4); g.add(bench); }
+
+  // thin exposed tailboom + small fin + tail rotor
+  const boom = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.08, 3.8, 8), m.body); boom.rotation.x = Math.PI / 2; boom.position.set(0, 0.2, 2.6); g.add(boom);
+  const tfin = fin(m.body, 0.9, 0.7, 0.4, 0.3, 0.1); tfin.position.set(0, 0.35, 4.2); g.add(tfin);
+  const tr = tailRotor(m, 0.9, 0.22, 4.2); g.add(tr);
+  g.userData.rotors.push({ m: tr, axis: "x", spd: 1.6 });
+
+  const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.1, 0.6, 8), m.metal); mast.position.set(0, 1.05, -0.3); g.add(mast);
+  const rotor = makeRotor(m, 6.2, 5, 0.24); rotor.position.set(0, 1.35, -0.3); g.add(rotor);
+  g.userData.rotors.push({ m: rotor, axis: "y", spd: 1 });
+
+  const rl = navLight(m.red); rl.position.set(-1.1, 0.0, -0.4); g.add(rl);
+  const gl = navLight(m.green); gl.position.set(1.1, 0.0, -0.4); g.add(gl);
+  g.add(skids(m, 0.95, 2.6, -0.95));
+  return g;
+}
+
+// ---- CH-47 Chinook: long fuselage, two contra-rotating tandem rotors ----
+function buildChinook(def) {
+  const g = new THREE.Group(); const m = makeMaterials(def);
+  g.userData.flames = []; g.userData.rotors = [];
+
+  const fuse = new THREE.Mesh(new THREE.BoxGeometry(2.0, 2.0, 10.0), m.body); g.add(fuse);
+  const glass = new THREE.Mesh(new THREE.BoxGeometry(1.8, 1.0, 1.2), m.glass); glass.position.set(0, 0.4, -4.8); g.add(glass);
+  const nose = new THREE.Mesh(new THREE.BoxGeometry(1.9, 1.2, 1.0), m.body); nose.position.set(0, -0.3, -5.0); g.add(nose);
+  // aft loading ramp + raised rear rotor pylon
+  const ramp = new THREE.Mesh(new THREE.BoxGeometry(1.9, 1.4, 1.2), m.body); ramp.position.set(0, -0.2, 5.0); g.add(ramp);
+  const pylon = new THREE.Mesh(new THREE.BoxGeometry(1.6, 1.6, 1.8), m.panel); pylon.position.set(0, 1.5, 4.2); g.add(pylon);
+  const fdeck = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.7, 1.6), m.panel); fdeck.position.set(0, 1.15, -3.6); g.add(fdeck);
+  // side sponsons (fuel + wheels)
+  for (const s of [-1, 1]) {
+    const sp = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.7, 4.0), m.panel); sp.position.set(s * 1.2, -0.7, 0.5); g.add(sp);
+    for (const z of [-2.4, 2.6]) { const wh = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 0.3, 10), m.accent); wh.rotation.z = Math.PI / 2; wh.position.set(s * 1.35, -1.3, z); g.add(wh); }
+  }
+
+  // two big tandem rotors, counter-rotating (opposite spd sign)
+  const front = makeRotor(m, 8.8, 3, 0.4); front.position.set(0, 1.85, -3.6); g.add(front);
+  g.userData.rotors.push({ m: front, axis: "y", spd: 1 });
+  const rear = makeRotor(m, 8.8, 3, 0.4); rear.position.set(0, 2.25, 4.2); g.add(rear);
+  g.userData.rotors.push({ m: rear, axis: "y", spd: -1 });
+
+  const rl = navLight(m.red); rl.position.set(-1.1, 0.6, -4.0); g.add(rl);
+  const gl = navLight(m.green); gl.position.set(1.1, 0.6, -4.0); g.add(gl);
+  return g;
+}
+
 // Retractable landing gear + droopable flaps (animated from main.js).
 function addGearFlaps(g) {
   const dark = new THREE.MeshStandardMaterial({ color: 0x20242a, flatShading: true });
@@ -531,8 +754,13 @@ export function buildAircraftMesh(type, colorOverride) {
   else if (type === "mig29") g = buildFulcrum(def);
   else if (type === "b2") g = buildSpirit(def);
   else if (type === "b52") g = buildStrato(def);
+  else if (type === "apache") g = buildApache(def);
+  else if (type === "blackhawk") g = buildBlackHawk(def);
+  else if (type === "littlebird") g = buildLittleBird(def);
+  else if (type === "chinook") g = buildChinook(def);
   else g = buildF16(def);
-  addGearFlaps(g);
+  if (!base.rotor) addGearFlaps(g); // helis carry skids/wheels in their own builders
+  if (!g.userData.rotors) g.userData.rotors = [];
   g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
   return g;
 }

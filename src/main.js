@@ -164,6 +164,7 @@ function updateRemotePlayers(dt) {
     mesh.position.copy(p.cur.p);
     mesh.quaternion.copy(p.cur.q);
     mesh.visible = p.alive !== false;
+    if (mesh.userData.rotors) for (const r of mesh.userData.rotors) r.m.rotation[r.axis] += r.spd * 22 * dt;
     // Shooter-authoritative hit target (stable per player; we report damage).
     if (!p._target) {
       p._target = {
@@ -813,6 +814,12 @@ function frame(now) {
     // Speedbrake panel pops up when the airbrake is held.
     brakeAnim += ((brakeActive ? 1 : 0) - brakeAnim) * Math.min(1, dt * 6);
     if (mesh.userData.speedbrake) mesh.userData.speedbrake.rotation.x = -brakeAnim * 1.05; // hinge up ~60°
+    // Spin helicopter rotors — always turning while running, faster on collective.
+    const rotors = mesh.userData.rotors;
+    if (rotors && rotors.length) {
+      const rs = 16 + state.telemetry.throttle * 12;
+      for (const r of rotors) r.m.rotation[r.axis] += r.spd * rs * dt;
+    }
   }
 
   // Multiplayer: broadcast our state + sync remote jets (runs even while dead).
