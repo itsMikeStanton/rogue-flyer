@@ -137,12 +137,14 @@ const player = {
 function handleCrash(title) {
   if (crashHandled) return;
   crashHandled = true;
-  fx.add(state.position, 2.8);
-  fx.burst(state.position, def.color, 18);
-  // Wreckage sits on the surface below the impact point.
+  fx.add(state.position, 3.4);
+  fx.shards(state.position, mesh, state.quaternion, 16); // fling actual pieces of the jet
+  // Wreckage sits on the surface below the impact point — but only on land;
+  // a crash into the sea just sinks (no burning wreck on the water).
   const gx = state.position.x, gz = state.position.z;
-  const gy = Math.max(groundHeightAt(gx, gz), SEA_LEVEL);
-  wrecks.spawn(new THREE.Vector3(gx, gy + 0.5, gz), def.color);
+  const solid = groundHeightAt(gx, gz);
+  if (solid >= SEA_LEVEL) wrecks.spawn(new THREE.Vector3(gx, solid + 0.5, gz), def.color);
+  else fx.add(new THREE.Vector3(gx, SEA_LEVEL, gz), 2.2, 0x9fb4c4); // splash on the water
   // Kamikaze into the enemy carrier still counts.
   for (const t of ground.targets) {
     if (t.info && t.alive &&
@@ -549,6 +551,27 @@ function updateCamera(dt) {
     camera.lookAt(pos.x, pos.y + 2.2, pos.z);
     camera.fov += (60 - camera.fov) * Math.min(1, dt * 3);
     camera.updateProjectionMatrix();
+    return;
+  }
+
+  // Crash: pull right out (whatever the selected view) so the blast and the
+  // wreckage are framed — first-person sees nothing once the jet is gone.
+  if (state.crashed) {
+    // Horizontal "behind" from the heading so it never dips underground.
+    _v2.set(0, 0, 1).applyQuaternion(q); _v2.y = 0;
+    if (_v2.lengthSq() < 0.01) _v2.set(0, 0, 1);
+    _v2.normalize();
+    const gy0 = Math.max(groundHeightAt(pos.x, pos.z), SEA_LEVEL);
+    const behind = _v.copy(pos).addScaledVector(_v2, 130);
+    behind.y = Math.max(pos.y, gy0) + 48;
+    const lerp = 1 - Math.pow(0.02, dt);
+    camPos.lerp(behind, lerp);
+    if (camPos.lengthSq() === 0) camPos.copy(behind);
+    camera.position.copy(camPos);
+    camera.up.set(0, 1, 0);
+    camera.fov += (64 - camera.fov) * Math.min(1, dt * 3);
+    camera.updateProjectionMatrix();
+    camera.lookAt(pos.x, (pos.y + gy0) * 0.5 + 6, pos.z);
     return;
   }
 

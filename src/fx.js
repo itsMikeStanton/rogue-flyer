@@ -33,6 +33,29 @@ export class Explosions {
     }
   }
 
+  // Scatter actual pieces of a model (clones of its mesh parts) — used so a
+  // crashing jet throws recognisable bits of itself, not just generic cubes.
+  shards(pos, sourceMesh, quaternion, count = 12) {
+    const parts = [];
+    sourceMesh.traverse((o) => { if (o.isMesh && o.geometry) parts.push(o); });
+    if (!parts.length) { this.burst(pos, 0xb8c4cf, count); return; }
+    for (let i = 0; i < count; i++) {
+      const src = parts[(Math.random() * parts.length) | 0];
+      const m = new THREE.Mesh(src.geometry, src.material); // share geo/mat (read-only)
+      m.position.copy(pos);
+      if (quaternion) m.quaternion.copy(quaternion);
+      m.scale.copy(src.scale).multiplyScalar(0.8 + Math.random() * 0.6);
+      m.castShadow = true;
+      this.scene.add(m);
+      this.debris.push({
+        mesh: m,
+        vel: new THREE.Vector3((Math.random() - 0.5) * 2, Math.random() * 1.0 + 0.35, (Math.random() - 0.5) * 2).multiplyScalar(55 + Math.random() * 85),
+        spin: new THREE.Vector3(Math.random() * 8 - 4, Math.random() * 8 - 4, Math.random() * 8 - 4),
+        life: 2.4 + Math.random() * 1.4,
+      });
+    }
+  }
+
   // Eject a countermeasure flare.
   flare(pos, away) {
     const m = new THREE.Mesh(this.flareGeo, new THREE.MeshBasicMaterial({ color: 0xfff0b0 }));
