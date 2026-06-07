@@ -27,6 +27,12 @@ export class UI {
     this.updateSummaries();
 
     this.input.onConnect = () => this.updateGamepadStatus();
+
+    const ctype = document.getElementById("controller-type");
+    if (ctype) {
+      ctype.value = this.input.controllerType;
+      ctype.addEventListener("change", () => this.input.setControllerType(ctype.value));
+    }
   }
 
   wireMobile() {

@@ -98,6 +98,15 @@
       <h2>Controls &amp; Joystick Setup</h2>
       <p class="tag" id="settings-device">No gamepad connected.</p>
 
+      <label class="row" style="margin:6px 0 2px">Controller type
+        <select id="controller-type">
+          <option value="auto">Auto-detect</option>
+          <option value="gamepad">Gamepad (Steam Deck / Xbox)</option>
+          <option value="hotas">Flight stick (HOTAS)</option>
+        </select>
+      </label>
+      <span class="hint">Pick "Gamepad" if a Steam Deck / Xbox pad isn't recognised (e.g. in Firefox).</span>
+
       <div id="axis-bindings" class="bindings"></div>
 
       <h3>Mobile &amp; touch</h3>

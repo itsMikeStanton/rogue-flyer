@@ -7,6 +7,7 @@
 // whether the input came from a stick or the keyboard.
 
 const STORAGE_KEY = "rogueflyer.bindings.v1";
+const CTRL_KEY = "rogueflyer.controllertype.v1"; // "auto" | "gamepad" | "hotas"
 
 // Default axis bindings, tuned for a Logitech Extreme 3D Pro (a very common
 // HOTAS). axis = index into gamepad.axes; invert flips sign. Throttles often
@@ -50,6 +51,7 @@ function applyDeadzone(v, dz) {
 export class Input {
   constructor() {
     this.bindings = loadBindings();
+    this.controllerType = localStorage.getItem(CTRL_KEY) || "auto";
     this.keys = new Set();
     this.gamepadIndex = null;
     this.kbThrottle = 0; // keyboard throttle is integrated over time
@@ -91,6 +93,19 @@ export class Input {
 
   hasGamepad() { return !!this.getPad(); }
 
+  setControllerType(t) {
+    this.controllerType = t;
+    try { localStorage.setItem(CTRL_KEY, t); } catch (_) {}
+  }
+  // Whether to use the dual-stick gamepad scheme (vs the HOTAS axis map).
+  // Auto: anything that reports the W3C "standard" mapping OR just looks like a
+  // gamepad (Firefox/Linux often leaves mapping blank for the Steam Deck).
+  _useGamepadScheme(pad) {
+    if (this.controllerType === "gamepad") return true;
+    if (this.controllerType === "hotas") return false;
+    return pad.mapping === "standard" || (pad.axes.length >= 4 && pad.buttons.length >= 16);
+  }
+
   saveBindings() {
     try { localStorage.setItem(STORAGE_KEY, JSON.stringify(this.bindings)); } catch (_) {}
   }
@@ -122,7 +137,7 @@ export class Input {
 
     if (pad) {
       const btn = (i) => pad.buttons[i] && pad.buttons[i].pressed;
-      if (pad.mapping === "standard") {
+      if (this._useGamepadScheme(pad)) {
         // Steam Deck / Xbox-style gamepad. Left stick flies, right stick rudder,
         // triggers throttle, face/shoulder/d-pad for actions.
         //   L-stick: roll (X) + pitch (Y, push fwd = nose down)
