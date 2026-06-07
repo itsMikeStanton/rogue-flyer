@@ -25,7 +25,7 @@ export class Smokestacks {
     mesh.position.set(s.x + (Math.random() - 0.5) * size, s.y, s.z + (Math.random() - 0.5) * size);
     mesh.scale.setScalar(size);
     this.scene.add(mesh);
-    const rise = s.rise || 18, drift = s.drift || 4, wind = s.wind != null ? s.wind : 3;
+    const rise = (s.rise || 18) * 2, drift = s.drift || 4, wind = s.wind != null ? s.wind : 3; // 2x upward speed
     this.puffs.push({
       mesh, size, life: s.life || 4.0, max: s.life || 4.0, grow: s.grow || 4,
       vel: new THREE.Vector3((Math.random() - 0.5) * drift + wind, rise * (0.8 + Math.random() * 0.4), (Math.random() - 0.5) * drift),

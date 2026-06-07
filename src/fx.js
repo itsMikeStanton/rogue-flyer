@@ -9,6 +9,7 @@ export class Explosions {
     this.flares = [];
     this.sparks = [];
     this.rings = [];
+    this.pending = []; // scheduled secondary blasts: { t, pos, size, color }
     this.geo = new THREE.SphereGeometry(6, 8, 8);
     this.debrisGeo = new THREE.BoxGeometry(1, 0.4, 1);
     this.flareGeo = new THREE.SphereGeometry(1, 6, 6);
@@ -69,7 +70,7 @@ export class Explosions {
     });
   }
 
-  // One expanding/fading billboard puff. opt: { life, grow, rise, additive, op }.
+  // One expanding/fading billboard puff. opt: { life, grow, rise, additive, op, delay }.
   _puff(pos, size, color, opt) {
     const mat = new THREE.MeshBasicMaterial({
       color, transparent: true, opacity: opt.op,
@@ -78,13 +79,25 @@ export class Explosions {
     const mesh = new THREE.Mesh(this.geo, mat);
     mesh.position.copy(pos);
     mesh.scale.setScalar(size);
+    if (opt.delay) mesh.visible = false; // off-time pop: hold until its delay elapses
     this.scene.add(mesh);
-    this.list.push({ mesh, life: opt.life, max: opt.life, size, grow: opt.grow, rise: opt.rise || 0, op: opt.op });
+    this.list.push({ mesh, life: opt.life, max: opt.life, size, grow: opt.grow, rise: opt.rise || 0, op: opt.op, delay: opt.delay || 0 });
   }
 
   add(pos, size = 1, color = 0xffa233, silent = false) {
     if (this.onAdd && !silent) this.onAdd(size, pos);
+    this._blast(pos, size, color);
+    // Sometimes one or two more equal-size balls go off right afterward.
+    if (size >= 0.8 && Math.random() < 0.5) {
+      const n = 1 + (Math.random() < 0.4 ? 1 : 0);
+      for (let i = 0; i < n; i++) {
+        const p = pos.clone().add(new THREE.Vector3((Math.random() - 0.5) * size * 9, (Math.random() - 0.2) * size * 7, (Math.random() - 0.5) * size * 9));
+        this.pending.push({ t: 0.10 + i * 0.14 + Math.random() * 0.10, pos: p, size, color });
+      }
+    }
+  }
 
+  _blast(pos, size, color) {
     // Core fireball: orange, expands and fades fast.
     this._puff(pos, size, color, { life: 0.5, grow: 7, rise: 0, additive: false, op: 1 });
 
@@ -125,12 +138,30 @@ export class Explosions {
           max: 0.95,
         });
       }
+
+      // 10-15 small fast pops scattered through the ball, slightly off-time —
+      // a central blast riddled with secondary combustion popping off.
+      const pops = 10 + (Math.random() * 6 | 0);
+      for (let i = 0; i < pops; i++) {
+        const off = new THREE.Vector3(Math.random() - 0.5, (Math.random() - 0.3) * 0.8, Math.random() - 0.5).multiplyScalar(size * 7);
+        this._puff(pos.clone().add(off), size * (0.22 + Math.random() * 0.32), Math.random() < 0.5 ? 0xffd27a : 0xff8a2c,
+          { life: 0.12 + Math.random() * 0.13, grow: 5.5, additive: true, op: 1, delay: Math.random() * 0.3 });
+      }
     }
   }
 
   update(dt) {
+    // Fire any scheduled secondary blasts whose delay has elapsed.
+    for (let i = this.pending.length - 1; i >= 0; i--) {
+      const p = this.pending[i];
+      p.t -= dt;
+      if (p.t <= 0) { this._blast(p.pos, p.size, p.color); this.pending.splice(i, 1); }
+    }
+
     for (let i = this.list.length - 1; i >= 0; i--) {
       const e = this.list[i];
+      if (e.delay > 0) { e.delay -= dt; continue; } // off-time pop still waiting
+      if (!e.mesh.visible) e.mesh.visible = true;
       e.life -= dt;
       const k = 1 - e.life / e.max;
       e.mesh.scale.setScalar(e.size * (1 + k * e.grow));
@@ -199,5 +230,6 @@ export class Explosions {
     this.flares.length = 0;
     this.sparks.length = 0;
     this.rings.length = 0;
+    this.pending.length = 0;
   }
 }
