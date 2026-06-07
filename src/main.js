@@ -53,6 +53,7 @@ const hud = new Hud(document.getElementById("hud"));
 const post = new PostFX(renderer, scene, camera);
 let fxLook = "cinematic";
 try { fxLook = localStorage.getItem("rf.fx") || "cinematic"; } catch (_) { /* ignore */ }
+if (fxLook === "golden") fxLook = "vivid"; // retired look -> nearest replacement
 post.setLook(fxLook);
 const fxSel = document.getElementById("fx-look");
 if (fxSel) {
@@ -1116,11 +1117,11 @@ function frame(now) {
       total: isMissionHud ? ground.total : null,
       health: player.health,
       missiles: weapons.missileCount,
-      gear: gearDown,
-      flaps: flapsDown,
+      gear: def.rotor ? null : gearDown, // helis have skids — no gear/flaps readouts
+      flaps: def.rotor ? null : flapsDown,
       brake: brakeActive,
       vtol: def.vtol ? vtolMode : null,
-      gearWarn: !gearDown && !state.onGround && state.telemetry.altitude < 350 && state.telemetry.speed < 140 && state.telemetry.vspeed < 0,
+      gearWarn: !def.rotor && !gearDown && !state.onGround && state.telemetry.altitude < 350 && state.telemetry.speed < 140 && state.telemetry.vspeed < 0,
       lock,
       objective,
       islandMarkers,

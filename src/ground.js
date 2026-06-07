@@ -11,7 +11,11 @@ const _dir = new THREE.Vector3();
 
 // Carrier flak guns
 const AA_RANGE = 2600;
-const AA_INTERVAL = 0.22;  // seconds per gun
+// Flak fires in bursts, not a continuous stream.
+const AA_SHOT = 0.16;      // seconds between rounds within a burst
+const AA_BURST = 5;        // base rounds per burst (+0..3)
+const AA_BURST_VAR = 4;
+const AA_GAP = 1.4;        // base pause between bursts
 const AA_BULLET_SPEED = 1000;
 const AA_BULLET_LIFE = 3.0;
 const AA_DAMAGE = 6;
@@ -100,8 +104,9 @@ class CarrierTarget {
     // Flak guns at the bow and stern.
     this.forePos = new THREE.Vector3(info.x, info.deckY + 7, info.z - info.halfL * 0.85);
     this.aftPos = new THREE.Vector3(info.x, info.deckY + 7, info.z + info.halfL * 0.85);
-    this.foreCd = Math.random() * AA_INTERVAL;
-    this.aftCd = AA_INTERVAL * 0.5 + Math.random() * AA_INTERVAL;
+    this.foreCd = Math.random() * AA_GAP;
+    this.aftCd = AA_GAP * 0.5 + Math.random() * AA_GAP; // stagger the two guns
+    this.foreBurst = 0; this.aftBurst = 0;
   }
   get position() { return this._pos; }
   hit(dmg) {
@@ -137,8 +142,17 @@ class CarrierTarget {
     if (this._pos.distanceTo(player.position) > AA_RANGE) return;
     this.foreCd -= dt;
     this.aftCd -= dt;
-    if (this.foreCd <= 0) { this.foreCd = AA_INTERVAL; this._fireFrom(this.forePos, player, mgr); }
-    if (this.aftCd <= 0) { this.aftCd = AA_INTERVAL; this._fireFrom(this.aftPos, player, mgr); }
+    if (this.foreCd <= 0) this.foreCd = this._burstShot("fore", this.forePos, player, mgr);
+    if (this.aftCd <= 0) this.aftCd = this._burstShot("aft", this.aftPos, player, mgr);
+  }
+  // Fire one round of a burst; return the delay until the next round (short
+  // inside a burst, a longer randomised gap once the burst is spent).
+  _burstShot(which, gp, player, mgr) {
+    const key = which + "Burst";
+    if (this[key] <= 0) this[key] = AA_BURST + (Math.random() * AA_BURST_VAR | 0);
+    this._fireFrom(gp, player, mgr);
+    this[key]--;
+    return this[key] > 0 ? AA_SHOT : AA_GAP * (0.75 + Math.random() * 0.5);
   }
 }
 

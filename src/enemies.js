@@ -11,7 +11,12 @@ import { buildAircraftMesh } from "./aircraft.js";
 const EB_SPEED = 1100;   // enemy bullet speed (m/s)
 const EB_LIFE = 2.2;
 const EB_DAMAGE = 9;
-const FIGHTER_FIRE_INTERVAL = 0.12;
+// Fire in bursts, not a continuous stream: a handful of rounds close together,
+// then a longer (slightly random) pause before the next burst.
+const FIGHTER_SHOT = 0.09;        // seconds between rounds within a burst
+const FIGHTER_BURST = 6;          // base rounds per burst (+0..3)
+const FIGHTER_BURST_VAR = 4;
+const FIGHTER_GAP = 1.1;          // base pause between bursts
 
 const _to = new THREE.Vector3();
 const _desired = new THREE.Vector3();
@@ -39,6 +44,7 @@ class Entity {
     this.dir = new THREE.Vector3(0, 0, -1);
     this.speed = 180;
     this.fireCd = Math.random();
+    this.burstLeft = 0; // rounds remaining in the current burst
 
     if (kind === "fighter") {
       this.radius = 30;
@@ -136,12 +142,15 @@ class Entity {
     this.mesh.position.copy(this.position);
     this.mesh.lookAt(_look.copy(this.position).add(this.dir));
 
-    // Fire only when nose is on the player and in range (and not extending).
+    // Fire only when nose is on the player and in range (and not extending) —
+    // and in bursts: ~6-9 rounds, then a ~1s pause before the next volley.
     this.fireCd -= dt;
     if (dist > 200 && dist < 1700 && aim > 0.985 && this.fireCd <= 0) {
-      this.fireCd = FIGHTER_FIRE_INTERVAL;
+      if (this.burstLeft <= 0) this.burstLeft = FIGHTER_BURST + (Math.random() * FIGHTER_BURST_VAR | 0);
       _desired.copy(player.position).sub(this.position).normalize();
       this.manager.spawnBullet(this.position, _desired);
+      this.burstLeft--;
+      this.fireCd = this.burstLeft > 0 ? FIGHTER_SHOT : FIGHTER_GAP * (0.7 + Math.random() * 0.6);
     }
   }
 }

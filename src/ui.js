@@ -118,6 +118,7 @@ export class UI {
 
   buildJetList() {
     const list = document.getElementById("jet-list");
+    if (!list) return; // aircraft is now chosen in the in-game Vehicle Bay
     list.innerHTML = "";
     for (const [key, def] of Object.entries(AIRCRAFT)) {
       const card = document.createElement("div");
@@ -190,8 +191,8 @@ export class UI {
   }
 
   closePickers() {
-    this.pickerMode.classList.add("hidden");
-    this.pickerJet.classList.add("hidden");
+    if (this.pickerMode) this.pickerMode.classList.add("hidden");
+    if (this.pickerJet) this.pickerJet.classList.add("hidden");
   }
 
   bindButtons() {
