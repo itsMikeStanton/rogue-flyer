@@ -20,7 +20,7 @@ const DEFAULTS = {
   yaw: { axis: 5, invert: true, deadzone: 0.16 },
   throttle: { axis: 6, invert: true, deadzone: 0.0 },
   // button indices for actions (standard mapping-ish; remappable later)
-  buttons: { fire: 0, missile: 1, flare: 2, view: 3, reset: 9, gear: 4, flaps: 5, brake: 6 },
+  buttons: { fire: 0, missile: 1, flare: 2, view: 3, reset: 9, gear: 4, flaps: 5, brake: 6, vtol: 7, hangar: 8 },
 };
 
 // Expo response curve: e in [0,1], higher = gentler near centre, full at edge.
@@ -133,7 +133,7 @@ export class Input {
     const pad = this.getPad();
     let pitch = 0, roll = 0, yaw = 0, throttle = 0;
     let viewPressed = false, resetPressed = false, fire = false, missilePressed = false, flarePressed = false;
-    let gearPressed = false, flapsPressed = false, brake = false, vtolPressed = false;
+    let gearPressed = false, flapsPressed = false, brake = false, vtolPressed = false, hangarPressed = false;
 
     if (pad) {
       const btn = (i) => pad.buttons[i] && pad.buttons[i].pressed;
@@ -158,6 +158,7 @@ export class Input {
         gearPressed = this.pressed("gp-gear", btn(4));    // LB
         flapsPressed = this.pressed("gp-flap", btn(12));  // D-pad up
         vtolPressed = this.pressed("gp-vtol", btn(13));   // D-pad down (Harrier nozzles)
+        hangarPressed = this.pressed("gp-bay", btn(8));   // Back/Select (vehicle bay)
         resetPressed = this.pressed("gp-rst", btn(9));    // Start
       } else {
         // HOTAS flight stick (Logitech Extreme 3D Pro-style; remappable).
@@ -176,6 +177,8 @@ export class Input {
         resetPressed = this.pressed("pad-reset", btn(b.reset));
         gearPressed = this.pressed("pad-gear", btn(b.gear));
         flapsPressed = this.pressed("pad-flaps", btn(b.flaps));
+        vtolPressed = this.pressed("pad-vtol", btn(b.vtol));
+        hangarPressed = this.pressed("pad-bay", btn(b.hangar));
         if (btn(b.brake)) brake = true; // airbrake / wheel brake (held)
       }
     }
@@ -230,7 +233,7 @@ export class Input {
       pitch: clamp(pitch), roll: clamp(roll), yaw: clamp(yaw),
       throttle: Math.min(1, Math.max(0, throttle)),
       viewPressed, resetPressed, fire, missilePressed, flarePressed,
-      gearPressed, flapsPressed, brake, vtolPressed,
+      gearPressed, flapsPressed, brake, vtolPressed, hangarPressed,
     };
   }
 }

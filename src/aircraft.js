@@ -45,6 +45,7 @@ export const AIRCRAFT = {
     cl0: 0.14, clAlpha: 4.8, clMax: 1.75, stallAngle: 0.44,
     cd0: 0.028, k: 0.12,
     pitchRate: 0.85, rollRate: 1.7, yawRate: 0.5,
+    landing: { track: 2.2, mainZ: 0.5, noseZ: -2.8, legLen: 1.6, wheel: 0.5, bellyY: -0.45, flapX: 3.6, flapZ: 1.2, flapW: 3.0, flapC: 1.0, sbZ: 3.4 },
     stats: { speed: 0.4, agility: 0.5, toughness: 1.0 },
   },
   f15: {
@@ -55,6 +56,7 @@ export const AIRCRAFT = {
     cl0: 0.10, clAlpha: 5.0, clMax: 1.6, stallAngle: 0.40,
     cd0: 0.021, k: 0.10,
     pitchRate: 1.15, rollRate: 2.4, yawRate: 0.55,
+    landing: { track: 1.8, mainZ: 1.0, noseZ: -3.2, legLen: 1.5, wheel: 0.5, bellyY: -0.4, flapX: 3.4, flapZ: 1.4, flapW: 3.0, sbZ: 2.8 },
     stats: { speed: 0.9, agility: 0.85, toughness: 0.6 },
   },
   f14: {
@@ -65,6 +67,7 @@ export const AIRCRAFT = {
     cl0: 0.10, clAlpha: 4.8, clMax: 1.6, stallAngle: 0.40,
     cd0: 0.024, k: 0.11,
     pitchRate: 1.0, rollRate: 2.1, yawRate: 0.55,
+    landing: { track: 1.5, mainZ: 0.6, noseZ: -2.8, legLen: 1.4, wheel: 0.5, bellyY: -0.35, flapX: 2.4, flapZ: 1.6, flapW: 2.4 },
     stats: { speed: 0.85, agility: 0.7, toughness: 0.65 },
   },
   f22: {
@@ -75,6 +78,7 @@ export const AIRCRAFT = {
     cl0: 0.12, clAlpha: 5.4, clMax: 1.7, stallAngle: 0.46,
     cd0: 0.018, k: 0.09,
     pitchRate: 1.4, rollRate: 2.9, yawRate: 0.6,
+    landing: { track: 1.7, mainZ: 1.0, noseZ: -3.0, legLen: 1.5, wheel: 0.5, bellyY: -0.4, flapX: 3.0, flapZ: 1.6, flapW: 2.6 },
     stats: { speed: 0.95, agility: 1.0, toughness: 0.6 },
   },
   mig29: {
@@ -85,6 +89,7 @@ export const AIRCRAFT = {
     cl0: 0.10, clAlpha: 5.1, clMax: 1.65, stallAngle: 0.42,
     cd0: 0.022, k: 0.10,
     pitchRate: 1.2, rollRate: 2.6, yawRate: 0.55,
+    landing: { track: 1.6, mainZ: 0.9, noseZ: -2.8, legLen: 1.4, wheel: 0.45, bellyY: -0.35, flapX: 2.8, flapZ: 1.5, flapW: 2.2 },
     stats: { speed: 0.8, agility: 0.9, toughness: 0.5 },
   },
   b2: {
@@ -95,6 +100,7 @@ export const AIRCRAFT = {
     cl0: 0.18, clAlpha: 4.6, clMax: 1.5, stallAngle: 0.34,
     cd0: 0.017, k: 0.06,
     pitchRate: 0.62, rollRate: 1.15, yawRate: 0.4,
+    landing: { track: 2.2, mainZ: -1.0, noseZ: -4.6, legLen: 1.4, wheel: 0.6, bellyY: 0.1, flapX: 5.2, flapZ: 2.6, flapW: 3.6, flapC: 0.7, sbY: 0.85, sbZ: -1.0, sbW: 1.6, sbL: 2.0 },
     stats: { speed: 0.55, agility: 0.4, toughness: 0.85 },
   },
   b52: {
@@ -105,6 +111,7 @@ export const AIRCRAFT = {
     cl0: 0.16, clAlpha: 4.6, clMax: 1.55, stallAngle: 0.36,
     cd0: 0.024, k: 0.07,
     pitchRate: 0.5, rollRate: 0.9, yawRate: 0.4,
+    landing: { track: 1.2, mainZ: 2.2, noseZ: -5.0, legLen: 2.2, wheel: 0.7, bellyY: -0.8, flapX: 7.0, flapZ: 1.6, flapW: 5.0, flapC: 1.4, sbY: 0.9, sbZ: 5.0, sbW: 1.6, sbL: 2.6 },
     stats: { speed: 0.5, agility: 0.25, toughness: 1.0 },
   },
 
@@ -122,6 +129,7 @@ export const AIRCRAFT = {
     cl0: 0.12, clAlpha: 5.0, clMax: 1.6, stallAngle: 0.40,
     cd0: 0.024, k: 0.12,
     pitchRate: 1.15, rollRate: 2.5, yawRate: 0.9,
+    landing: { track: 1.0, mainZ: 1.5, noseZ: -2.9, legLen: 1.45, wheel: 0.4, bellyY: -0.55, flapX: 2.7, flapZ: 1.7, flapW: 2.2 },
     // hover (nozzles down): can rise vertically, gentle forward pull, firm grip
     twr: 1.4, pull: 12, drag: 0.0013, grip: 1.5,
     maxPitch: 0.32, maxRoll: 0.5, atti: 5.2, bankTurn: 0.5,
@@ -758,31 +766,43 @@ function buildChinook(def) {
   return g;
 }
 
-// Retractable landing gear + droopable flaps (animated from main.js).
-function addGearFlaps(g) {
+// Retractable tricycle gear + droopable flaps + speedbrake (animated from
+// main.js). Geometry is sized per-airframe from an optional `def.landing` spec
+// so the gear/flaps sit right on every jet; the defaults fit an F-16.
+//   track/mainZ/noseZ  wheel positions   legLen/wheel  strut + tyre size
+//   bellyY             where the legs hang from (the underside)
+//   flapX/Z/W/C        inboard flap pivot + panel span/chord
+//   sbY/Z/W/L          dorsal speedbrake hinge + panel size
+function addGearFlaps(g, def) {
+  const L = (def && def.landing) || {};
+  const track = L.track ?? 1.7, mainZ = L.mainZ ?? 1.2, noseZ = L.noseZ ?? -2.6;
+  const legLen = L.legLen ?? 1.4, wheelR = L.wheel ?? 0.45, bellyY = L.bellyY ?? -0.2, strutR = L.strut ?? 0.12;
+  const flapX = L.flapX ?? 2.6, flapZ = L.flapZ ?? 1.7, flapW = L.flapW ?? 2.2, flapC = L.flapC ?? 0.9;
+  const sbY = L.sbY ?? 0.42, sbZ = L.sbZ ?? 2.4, sbW = L.sbW ?? 1.0, sbL = L.sbL ?? 1.6;
+
   const dark = new THREE.MeshStandardMaterial({ color: 0x20242a, flatShading: true });
   const strutMat = new THREE.MeshStandardMaterial({ color: 0x4a4f55, flatShading: true });
   const flapMat = new THREE.MeshStandardMaterial({ color: 0x868d95, flatShading: true });
   const leg = (x, z) => {
     const lg = new THREE.Group();
-    const strut = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 1.4, 6), strutMat);
-    strut.position.y = -0.7; lg.add(strut);
-    const wheel = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.45, 0.3, 10), dark);
-    wheel.rotation.z = Math.PI / 2; wheel.position.y = -1.4; lg.add(wheel);
-    lg.position.set(x, -0.2, z);
+    const strut = new THREE.Mesh(new THREE.CylinderGeometry(strutR, strutR, legLen, 6), strutMat);
+    strut.position.y = -legLen / 2; lg.add(strut);
+    const wheel = new THREE.Mesh(new THREE.CylinderGeometry(wheelR, wheelR, wheelR * 0.66, 10), dark);
+    wheel.rotation.z = Math.PI / 2; wheel.position.y = -legLen; lg.add(wheel);
+    lg.position.set(x, bellyY, z);
     return lg;
   };
   const gear = new THREE.Group();
-  gear.add(leg(0, -2.6)); gear.add(leg(-1.7, 1.2)); gear.add(leg(1.7, 1.2));
+  gear.add(leg(0, noseZ)); gear.add(leg(-track, mainZ)); gear.add(leg(track, mainZ));
   g.add(gear);
   g.userData.gear = gear;
 
   const flaps = [];
   for (const s of [-1, 1]) {
     const pivot = new THREE.Group();
-    pivot.position.set(s * 2.6, 0, 1.7);
-    const flap = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.12, 0.9), flapMat);
-    flap.position.set(0, 0, 0.45);
+    pivot.position.set(s * flapX, 0, flapZ);
+    const flap = new THREE.Mesh(new THREE.BoxGeometry(flapW, 0.12, flapC), flapMat);
+    flap.position.set(0, 0, flapC / 2);
     pivot.add(flap);
     g.add(pivot);
     flaps.push(pivot);
@@ -792,9 +812,9 @@ function addGearFlaps(g) {
   // Dorsal speedbrake panel near the tail — hinges up when the airbrake is out.
   const sbMat = new THREE.MeshStandardMaterial({ color: 0x9aa1a8, flatShading: true, metalness: 0.3, roughness: 0.6 });
   const sb = new THREE.Group();
-  sb.position.set(0, 0.42, 2.4); // hinge at the front edge of the panel
-  const panel = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.1, 1.6), sbMat);
-  panel.position.set(0, 0, 0.8);  // extends aft of the hinge
+  sb.position.set(0, sbY, sbZ); // hinge at the front edge of the panel
+  const panel = new THREE.Mesh(new THREE.BoxGeometry(sbW, 0.1, sbL), sbMat);
+  panel.position.set(0, 0, sbL / 2);  // extends aft of the hinge
   sb.add(panel);
   g.add(sb);
   g.userData.speedbrake = sb;
@@ -820,7 +840,7 @@ export function buildAircraftMesh(type, colorOverride) {
   else if (type === "littlebird") g = buildLittleBird(def);
   else if (type === "chinook") g = buildChinook(def);
   else g = buildF16(def);
-  if (!base.rotor) addGearFlaps(g); // helis carry skids/wheels in their own builders
+  if (!base.rotor) addGearFlaps(g, def); // helis carry skids/wheels in their own builders
   if (!g.userData.rotors) g.userData.rotors = [];
   g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
   return g;

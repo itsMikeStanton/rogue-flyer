@@ -831,6 +831,9 @@ function frame(now) {
     if (pad !== lastPad) { lastPad = pad; touch.setVisible(!pad); }
   }
 
+  // Vehicle bay from the joystick (Back/Select) — works whether parked or flying.
+  if (flying && !inXR && controls.hangarPressed) { hangarMode ? exitHangar() : enterHangar(true); }
+
   // Throttle-arming gate: hold the sim until the player engages the throttle.
   if (flying && !hangarMode && !state.crashed && armActive) updateArming(controls);
 
