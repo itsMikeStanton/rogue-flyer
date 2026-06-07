@@ -73,6 +73,42 @@ smoke.addSources(world.smokeSources);
 // Persistent crash wreckage (debris + fire + smoke) left in the world.
 const wrecks = new Wrecks(scene, smoke);
 
+// Spatial hash of (sub-sampled) tree positions so explosions can set nearby
+// trees alight without scanning the whole forest.
+const TREE_CELL = 140;
+const TP = world.treePositions || [];
+const treeGrid = new Map();
+for (let i = 0; i < TP.length; i += 3) {
+  const k = ((TP[i] / TREE_CELL) | 0) + "," + ((TP[i + 2] / TREE_CELL) | 0);
+  let arr = treeGrid.get(k); if (!arr) { arr = []; treeGrid.set(k, arr); }
+  arr.push(i);
+}
+function igniteTreesNear(pos, size) {
+  if (wrecks.fireCount > 70 || TP.length === 0) return; // throttle runaway fires
+  const R = 40 + size * 16, R2 = R * R;
+  const cx = (pos.x / TREE_CELL) | 0, cz = (pos.z / TREE_CELL) | 0;
+  let lit = 0;
+  for (let gx = cx - 1; gx <= cx + 1 && lit < 5; gx++) {
+    for (let gz = cz - 1; gz <= cz + 1 && lit < 5; gz++) {
+      const arr = treeGrid.get(gx + "," + gz); if (!arr) continue;
+      for (const i of arr) {
+        if (lit >= 5) break;
+        const tx = TP[i], ty = TP[i + 1], tz = TP[i + 2];
+        const dx = tx - pos.x, dz = tz - pos.z;
+        if (dx * dx + dz * dz > R2) continue;
+        if (pos.y - ty > 70 || ty - pos.y > 40) continue; // blast must be near the trees
+        if (Math.random() < 0.5) { wrecks.spawnFire(new THREE.Vector3(tx, ty, tz), { scale: 1.6, life: 6 + Math.random() * 3, color: 0x2a261c }); lit++; }
+      }
+    }
+  }
+}
+fx.onScorch = igniteTreesNear;
+// Missiles that hit the ground leave a small burning patch (on land only).
+weapons.onGroundImpact = (pos) => {
+  const solid = groundHeightAt(pos.x, pos.z);
+  if (solid >= SEA_LEVEL) wrecks.spawnFire(new THREE.Vector3(pos.x, solid + 0.3, pos.z), { scale: 1.1, life: 7, color: 0x242424 });
+};
+
 // Weather / time of day (sky, fog, lights, stars, rain).
 const weather = new Weather(scene, world);
 let weatherMode = "day";

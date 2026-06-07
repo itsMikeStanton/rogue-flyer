@@ -317,6 +317,7 @@ export class Weapons {
       // Ground/sea impact.
       if (mp.y <= surfaceAt(mp.x, mp.z)) {
         this.fx.add(mp, 2.4);
+        if (this.onGroundImpact) this.onGroundImpact(mp); // leave a burning patch on land
         detonate = true;
       }
       // Proximity-detonate near ANY target, so unguided rockets also score hits.

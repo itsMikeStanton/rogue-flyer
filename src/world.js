@@ -427,9 +427,10 @@ export function buildWorld(scene) {
   const colliders = [];
   const islands = [];
   const smokeSources = [];
+  const treePositions = []; // flat [x,y,z,…] subsample, for igniting trees near blasts
   let firstTerrain = null;
   for (const is of CFG.islands) {
-    const built = buildIsland(scene, is, waveMats, colliders, smokeSources);
+    const built = buildIsland(scene, is, waveMats, colliders, smokeSources, treePositions);
     if (!firstTerrain) firstTerrain = built.terrain;
     islands.push({ group: built.group, center: is.center, name: is.name, faction: is.faction, terrain: built.terrain });
   }
@@ -441,7 +442,7 @@ export function buildWorld(scene) {
   const clouds = buildClouds(scene);
 
   const rings = [];
-  return { terrain: firstTerrain, rings, sun, hemi, clouds, ocean, carriers, colliders, waveMats, islands, smokeSources };
+  return { terrain: firstTerrain, rings, sun, hemi, clouds, ocean, carriers, colliders, waveMats, islands, smokeSources, treePositions };
 }
 
 // One big tiled cumulus field. Returned mesh carries userData.tile so main can
@@ -704,7 +705,7 @@ export function buildPowerPlant() {
   return { group: g, stacks };
 }
 
-function buildIsland(scene, is, waveMats, colliders, smokeSources) {
+function buildIsland(scene, is, waveMats, colliders, smokeSources, treePositions) {
   const grp = new THREE.Group();
   grp.position.set(is.center.x, 0, is.center.z);
   scene.add(grp);
@@ -809,6 +810,7 @@ function buildIsland(scene, is, waveMats, colliders, smokeSources) {
           const s = (0.9 + rnd() * 1.4) * (1 + d * 0.9);
           tp.set(x, h + 3.5 * s, z); ts.set(s, s, s);
           trunks.setMatrixAt(n, m4.compose(tp, noRot, ts));
+          if (treePositions && (n & 3) === 0) treePositions.push(cx0 + x, h, cz0 + z); // 1-in-4 subsample (world coords)
           if (sp === 0) { tp.set(x, h + 13.5 * s, z); ts.set(s, s, s); pine.setMatrixAt(pc++, m4.compose(tp, noRot, ts)); }
           else if (sp === 1) { tp.set(x, h + 9 * s, z); ts.set(s * 1.1, s * 0.95, s * 1.1); oak.setMatrixAt(oc++, m4.compose(tp, noRot, ts)); }
           else { tp.set(x, h + 8 * s, z); ts.set(s * 0.85, s * 1.15, s * 0.85); birch.setMatrixAt(bc++, m4.compose(tp, noRot, ts)); }

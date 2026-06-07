@@ -15,7 +15,8 @@ export class Explosions {
     this.flareGeo = new THREE.SphereGeometry(1, 6, 6);
     this.sparkGeo = new THREE.SphereGeometry(0.6, 5, 4);
     this.ringGeo = new THREE.TorusGeometry(6, 0.5, 6, 28);
-    this.onAdd = null; // optional callback(size) — used to trigger sound
+    this.onAdd = null; // optional callback(size, pos) — used to trigger sound
+    this.onScorch = null; // optional callback(pos, size) — set nearby trees alight
   }
 
   // Scatter plane bits when something blows up.
@@ -103,6 +104,7 @@ export class Explosions {
 
     // The bigger blasts get the full treatment; tiny ground/gun puffs stay cheap.
     if (size >= 0.8) {
+      if (this.onScorch) this.onScorch(pos, size); // ignite trees in the vicinity
       // Brilliant flash core — additive, very fast.
       this._puff(pos, size * 0.7, 0xfff4d2, { life: 0.16, grow: 10, rise: 0, additive: true, op: 1 });
       // Inner white-hot ball.
