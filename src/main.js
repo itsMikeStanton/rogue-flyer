@@ -378,8 +378,9 @@ function updateCamera(dt) {
     return;
   }
 
-  const dist = mode === "Far Chase" ? 60 : 24;
-  const height = mode === "Far Chase" ? 16 : 8;
+  // Far Chase = the old close chase; close Chase now sits right on the tail.
+  const dist = mode === "Far Chase" ? 24 : 9.5;
+  const height = mode === "Far Chase" ? 8 : 3.6;
   const behind = _v.set(0, height, dist).applyQuaternion(q).add(pos);
   // smooth follow
   const lerp = 1 - Math.pow(0.0008, dt);
