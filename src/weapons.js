@@ -15,12 +15,15 @@ const BULLET_LIFE = 2.0;
 const FIRE_INTERVAL = 0.08;
 const GUN_DAMAGE = 12;
 
-const MSL_SPEED = 360;      // slower so you can watch them track
+const MSL_DROP = 0.55;      // unpowered coast before the motor lights (the "hang")
+const MSL_ACCEL = 1700;     // boost acceleration once lit (units/s^2)
+const MSL_MAX = 1900;       // top speed — clearly faster than the jets
+const MSL_G = 9.8;          // gravity during the coast (drops away from the jet)
 const MSL_LIFE = 8;
-const MSL_TURN = 2.6;       // rad/s homing turn rate
+const MSL_TURN = 3.0;       // rad/s homing turn rate (only while powered)
 const MSL_PROX = 75;        // detonation proximity (m)
 const MSL_DAMAGE = 120;
-const SMOKE_INTERVAL = 0.025; // seconds between smoke puffs
+const SMOKE_INTERVAL = 0.02; // seconds between smoke puffs
 const SMOKE_LIFE = 0.9;
 
 const LOCK_RANGE = 2900;                          // ~ missile reach (speed * life)
@@ -35,6 +38,7 @@ const _nose = new THREE.Vector3();
 const _to = new THREE.Vector3();
 const _desired = new THREE.Vector3();
 const _look = new THREE.Vector3();
+const _mdir = new THREE.Vector3();
 
 function steer(dir, desired, maxRad) {
   const d = _desired.copy(desired).normalize();
@@ -98,7 +102,7 @@ export class Weapons {
 
   // Returns true if a missile launched. It guides only on a SOLID lock; with no
   // lock (or only a partial one) it fires straight ahead as a dumb rocket.
-  fireMissile(position, quaternion) {
+  fireMissile(position, quaternion, jetVel) {
     if (this.missileCount <= 0) return false;
     this.missileCount--;
     _fwd.set(0, 0, -1).applyQuaternion(quaternion).normalize();
@@ -114,12 +118,15 @@ export class Weapons {
     m.position.copy(_nose);
     m.quaternion.copy(quaternion);
     this.scene.add(m);
+    // Launch with the jet's velocity (so it hangs alongside) plus a downward
+    // eject off the rail; the motor lights after MSL_DROP and it boosts away.
+    const vel = new THREE.Vector3();
+    if (jetVel) vel.copy(jetVel).multiplyScalar(1.6); // match the jet's ground speed
+    vel.addScaledVector(_up, -16);                    // ejected down off the pylon
     this.missiles.push({
-      mesh: m,
-      dir: _fwd.clone(),
+      mesh: m, vel,
       target: (this.locked && this.lock && this.lock.alive) ? this.lock : null,
-      life: MSL_LIFE,
-      smokeTimer: 0,
+      age: 0, lit: false, life: MSL_LIFE, smokeTimer: 0,
     });
     return true;
   }
@@ -189,22 +196,36 @@ export class Weapons {
       }
     }
 
-    // Homing missiles.
+    // Missiles: drop & coast, then the motor lights and they boost + home.
     for (let i = this.missiles.length - 1; i >= 0; i--) {
       const m = this.missiles[i];
-      if (m.target && m.target.alive) {
-        _desired.copy(m.target.position).sub(m.mesh.position).normalize();
-        steer(m.dir, _desired, MSL_TURN * dt);
+      m.age += dt;
+      if (m.age < MSL_DROP) {
+        // Unpowered coast — falls away from the jet, bleeds a little speed.
+        m.vel.y -= MSL_G * dt;
+        m.vel.multiplyScalar(1 - 0.5 * dt);
+      } else {
+        if (!m.lit) { m.lit = true; this.fx.add(m.mesh.position, 0.7, 0xffd27d, true); } // ignition flash
+        let sp = m.vel.length() || 1;
+        _mdir.copy(m.vel).multiplyScalar(1 / sp);
+        if (m.target && m.target.alive) {
+          _desired.copy(m.target.position).sub(m.mesh.position).normalize();
+          steer(_mdir, _desired, MSL_TURN * dt);
+        }
+        sp = Math.min(MSL_MAX, sp + MSL_ACCEL * dt);
+        m.vel.copy(_mdir).multiplyScalar(sp);
       }
-      m.mesh.position.addScaledVector(m.dir, MSL_SPEED * dt);
-      m.mesh.lookAt(_look.copy(m.mesh.position).add(m.dir));
+      m.mesh.position.addScaledVector(m.vel, dt);
+      m.mesh.lookAt(_look.copy(m.mesh.position).add(m.vel));
       m.life -= dt;
 
-      // lay a smoke trail
-      m.smokeTimer -= dt;
-      if (m.smokeTimer <= 0) {
-        m.smokeTimer = SMOKE_INTERVAL;
-        this._emitSmoke(m.mesh.position);
+      // Smoke trail only once the motor is burning.
+      if (m.lit) {
+        m.smokeTimer -= dt;
+        if (m.smokeTimer <= 0) {
+          m.smokeTimer = SMOKE_INTERVAL;
+          this._emitSmoke(m.mesh.position);
+        }
       }
 
       let detonate = false;
