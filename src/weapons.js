@@ -15,7 +15,7 @@ const BULLET_LIFE = 2.0;
 const FIRE_INTERVAL = 0.08;
 const GUN_DAMAGE = 12;
 
-const MSL_DROP = 0.55;      // unpowered coast before the motor lights (the "hang")
+const MSL_DROP = 0.44;      // unpowered coast before the motor lights (the "hang")
 const MSL_ACCEL = 1700;     // boost acceleration once lit (units/s^2)
 const MSL_MAX = 1900;       // top speed — clearly faster than the jets
 const MSL_G = 9.8;          // gravity during the coast (drops away from the jet)
