@@ -104,6 +104,7 @@ let ringsHit = 0;
 let lastPad = false; // tracks gamepad presence to toggle touch controls
 // Manual gear/flaps state + animated gear-deploy fraction (0 up .. 1 down).
 let gearDown = true, flapsDown = false, gearAnim = 1;
+let vtolMode = false; // Harrier nozzle state: false = aft (jet), true = down (hover)
 let brakeActive = false, brakeAnim = 0; // airbrake/wheel brake state + speedbrake panel anim
 
 // The player as a combat target the enemy can damage.
@@ -280,6 +281,8 @@ if (fsBtn) {
 function setAircraft(type) {
   jetType = type;
   def = AIRCRAFT[type];
+  vtolMode = false; // start with nozzles aft
+  touch.setVtol(false);
   if (mesh) scene.remove(mesh);
   mesh = buildAircraftMesh(type);
   scene.add(mesh);
@@ -841,6 +844,9 @@ function frame(now) {
     if (controls.gearPressed || controls.flapsPressed) touch.setGearFlaps(gearDown, flapsDown);
     controls.gear = gearDown;
     controls.flaps = flapsDown;
+    // Harrier: T / D-pad-down / VTOL button vectors the nozzles down for hover.
+    if (def.vtol && controls.vtolPressed) { vtolMode = !vtolMode; touch.setVtol(vtolMode); }
+    controls.vtol = def.vtol ? vtolMode : false;
     brakeActive = !!controls.brake; // airbrake (air) / wheel brake (ground)
 
     acc += dt;
@@ -943,6 +949,11 @@ function frame(now) {
     // Speedbrake panel pops up when the airbrake is held.
     brakeAnim += ((brakeActive ? 1 : 0) - brakeAnim) * Math.min(1, dt * 6);
     if (mesh.userData.speedbrake) mesh.userData.speedbrake.rotation.x = -brakeAnim * 1.05; // hinge up ~60°
+    // Harrier vectoring nozzles swing from aft (0) to straight down (~90°).
+    if (mesh.userData.nozzles) {
+      const tgt = vtolMode ? Math.PI / 2 : 0;
+      for (const n of mesh.userData.nozzles) n.rotation.x += (tgt - n.rotation.x) * Math.min(1, dt * 5);
+    }
     // Spin helicopter rotors — always turning while running, faster on collective.
     const rotors = mesh.userData.rotors;
     if (rotors && rotors.length) {
@@ -1105,6 +1116,7 @@ function frame(now) {
       gear: gearDown,
       flaps: flapsDown,
       brake: brakeActive,
+      vtol: def.vtol ? vtolMode : null,
       gearWarn: !gearDown && !state.onGround && state.telemetry.altitude < 350 && state.telemetry.speed < 140 && state.telemetry.vspeed < 0,
       lock,
       objective,

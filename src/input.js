@@ -133,7 +133,7 @@ export class Input {
     const pad = this.getPad();
     let pitch = 0, roll = 0, yaw = 0, throttle = 0;
     let viewPressed = false, resetPressed = false, fire = false, missilePressed = false, flarePressed = false;
-    let gearPressed = false, flapsPressed = false, brake = false;
+    let gearPressed = false, flapsPressed = false, brake = false, vtolPressed = false;
 
     if (pad) {
       const btn = (i) => pad.buttons[i] && pad.buttons[i].pressed;
@@ -157,6 +157,7 @@ export class Input {
         viewPressed = this.pressed("gp-view", btn(3));    // Y
         gearPressed = this.pressed("gp-gear", btn(4));    // LB
         flapsPressed = this.pressed("gp-flap", btn(12));  // D-pad up
+        vtolPressed = this.pressed("gp-vtol", btn(13));   // D-pad down (Harrier nozzles)
         resetPressed = this.pressed("gp-rst", btn(9));    // Start
       } else {
         // HOTAS flight stick (Logitech Extreme 3D Pro-style; remappable).
@@ -206,6 +207,7 @@ export class Input {
     if (this.pressed("key-flare", k.has("KeyX"))) flarePressed = true;
     if (this.pressed("key-gear", k.has("KeyG"))) gearPressed = true;   // G = gear toggle
     if (this.pressed("key-flaps", k.has("KeyV"))) flapsPressed = true; // V = flaps toggle
+    if (this.pressed("key-vtol", k.has("KeyT"))) vtolPressed = true;   // T = VTOL nozzle toggle
     if (k.has("KeyZ")) brake = true;   // Z = airbrake / wheel brake (held)
     if (k.has("Space")) fire = true;
 
@@ -221,13 +223,14 @@ export class Input {
     if (this.pressed("touch-flare", ts.flare)) flarePressed = true;
     if (this.pressed("touch-gear", ts.gear)) gearPressed = true;
     if (this.pressed("touch-flaps", ts.flaps)) flapsPressed = true;
+    if (this.pressed("touch-vtol", ts.vtol)) vtolPressed = true;
     if (ts.brake) brake = true;
 
     return {
       pitch: clamp(pitch), roll: clamp(roll), yaw: clamp(yaw),
       throttle: Math.min(1, Math.max(0, throttle)),
       viewPressed, resetPressed, fire, missilePressed, flarePressed,
-      gearPressed, flapsPressed, brake,
+      gearPressed, flapsPressed, brake, vtolPressed,
     };
   }
 }

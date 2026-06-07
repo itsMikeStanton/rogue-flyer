@@ -66,7 +66,9 @@ function liftCoeff(def, aoa) {
 // deck) at current XZ; if it's below sea level the surface there is open water.
 export function step(state, def, controls, dt, groundHeight) {
   if (state.crashed) return;
-  if (def.rotor) return stepHeli(state, def, controls, dt, groundHeight);
+  // Rotorcraft always hover-fly; the Harrier does only with its nozzles vectored
+  // down (VTOL) — otherwise it's a normal wing-borne jet.
+  if (def.rotor || (def.vtol && controls.vtol)) return stepHeli(state, def, controls, dt, groundHeight);
 
   const q = state.quaternion;
   _fwd.set(0, 0, -1).applyQuaternion(q);

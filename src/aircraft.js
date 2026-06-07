@@ -108,6 +108,26 @@ export const AIRCRAFT = {
     stats: { speed: 0.5, agility: 0.25, toughness: 1.0 },
   },
 
+  // AV-8B Harrier — a real jet, but the nozzles vector down for VTOL. Flies the
+  // fixed-wing model normally; with the nozzles down (controls.vtol) it switches
+  // to the helicopter hover model, so it can take off and land vertically. The
+  // `vtol` flag routes that, and the hover-model fields (twr/pull/grip/…) drive
+  // it while hovering.
+  harrier: {
+    name: "AV-8B Harrier II",
+    role: "VTOL jump jet",
+    color: 0x5a6552,
+    vtol: true,
+    mass: 9500, maxThrust: 120000, wingArea: 24,
+    cl0: 0.12, clAlpha: 5.0, clMax: 1.6, stallAngle: 0.40,
+    cd0: 0.024, k: 0.12,
+    pitchRate: 1.15, rollRate: 2.5, yawRate: 0.9,
+    // hover (nozzles down): can rise vertically, gentle forward pull, firm grip
+    twr: 1.4, pull: 12, drag: 0.0013, grip: 1.5,
+    maxPitch: 0.32, maxRoll: 0.5, atti: 5.2, bankTurn: 0.5,
+    stats: { speed: 0.6, agility: 0.78, toughness: 0.55 },
+  },
+
   // --- Rotorcraft ---------------------------------------------------------
   // Helicopters fly a Battlefield-style arcade model (flight.js stepHeli):
   //   rotor    routes to the hover/attitude-hold dynamics
@@ -526,6 +546,43 @@ function buildStrato(def) {
   return g;
 }
 
+// ---- AV-8B Harrier: shoulder wing, big side intakes, 4 vectoring nozzles ----
+function buildHarrier(def) {
+  const g = new THREE.Group(); const m = makeMaterials(def);
+  const fuse = new THREE.Mesh(new THREE.BoxGeometry(1.2, 1.1, 7.4), m.body); g.add(fuse);
+  const nose = new THREE.Mesh(new THREE.ConeGeometry(0.55, 2.8, 10), m.body); nose.rotation.x = -Math.PI / 2; nose.position.z = -4.8; g.add(nose);
+  const probe = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.8, 5), m.metal); probe.rotation.x = Math.PI / 2; probe.position.z = -6.3; g.add(probe);
+  g.add(makeCanopy(m.glass, -2.1, 0.82, 0.85, 2.0));
+
+  // big cheek intakes either side of the cockpit
+  for (const s of [-1, 1]) {
+    const intk = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.9, 2.0), m.accent); intk.position.set(s * 0.82, 0.1, -1.6); g.add(intk);
+    const lip = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.45, 0.3, 10), m.panel); lip.rotation.x = Math.PI / 2; lip.position.set(s * 0.82, 0.1, -2.6); g.add(lip);
+  }
+
+  // shoulder-mounted swept wing (sits high on the fuselage)
+  const w = wing(m.body, 4.3, 2.7, 0.8, 1.1, 0.16); w.position.set(0, 0.5, 0.5); g.add(w);
+  // tail
+  const vt = fin(m.body, 1.9, 1.7, 0.7, 0.6, 0.14); vt.position.set(0, 0.45, 3.1); g.add(vt);
+  const hs = wing(m.body, 2.2, 1.3, 0.5, 0.7, 0.14); hs.position.set(0, 0.2, 3.3); g.add(hs);
+
+  // four vectoring nozzles on pivots (2 per side) — animated by main.js
+  g.userData.nozzles = [];
+  for (const s of [-1, 1]) for (const z of [-0.7, 1.7]) {
+    const pivot = new THREE.Group(); pivot.position.set(s * 0.78, -0.35, z);
+    const noz = new THREE.Mesh(new THREE.CylinderGeometry(0.27, 0.22, 1.0, 10), m.metal);
+    noz.rotation.x = Math.PI / 2; noz.position.z = 0.5; pivot.add(noz);
+    const face = new THREE.Mesh(new THREE.CircleGeometry(0.2, 10), m.accent); face.position.z = 1.0; pivot.add(face);
+    g.add(pivot); g.userData.nozzles.push(pivot);
+  }
+
+  for (const s of [-1, 1]) { const o = ordnance(m); o.position.set(s * 2.1, -0.05, 0.6); g.add(o); }
+  const rl = navLight(m.red); rl.position.set(-4.3, 0.5, 0.7); g.add(rl);
+  const gl = navLight(m.green); gl.position.set(4.3, 0.5, 0.7); g.add(gl);
+  g.userData.flames = []; // no afterburner on the Pegasus
+  return g;
+}
+
 // ======================= Helicopters ====================================
 
 // A spinning rotor: hub + thin blades on a group we hand back to main.js to
@@ -757,6 +814,7 @@ export function buildAircraftMesh(type, colorOverride) {
   else if (type === "mig29") g = buildFulcrum(def);
   else if (type === "b2") g = buildSpirit(def);
   else if (type === "b52") g = buildStrato(def);
+  else if (type === "harrier") g = buildHarrier(def);
   else if (type === "apache") g = buildApache(def);
   else if (type === "blackhawk") g = buildBlackHawk(def);
   else if (type === "littlebird") g = buildLittleBird(def);

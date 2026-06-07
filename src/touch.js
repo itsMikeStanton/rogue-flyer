@@ -77,6 +77,8 @@ export class TouchControls {
     if (this.gearBtn) this.gearBtn.classList.toggle("active", !!gear);
     if (this.flapBtn) this.flapBtn.classList.toggle("active", !!flaps);
   }
+  // Light the VTOL button when the nozzles are vectored down (Harrier).
+  setVtol(on) { if (this.vtolBtn) this.vtolBtn.classList.toggle("active", !!on); }
 
   build() {
     const root = document.createElement("div");
@@ -98,6 +100,7 @@ export class TouchControls {
         <button class="t-btn" data-act="view">CAM</button>
         <button class="t-btn" data-act="gear">GEAR</button>
         <button class="t-btn" data-act="flaps">FLAPS</button>
+        <button class="t-btn" data-act="vtol">VTOL</button>
         <button class="t-btn" data-act="brake">BRAKE</button>
         <button class="t-btn" data-act="reset">RESET</button>
         <button class="t-btn msl" data-act="missile">MSL</button>
@@ -110,6 +113,7 @@ export class TouchControls {
     this.recenterBtn = root.querySelector("#t-recenter");
     this.gearBtn = root.querySelector('[data-act="gear"]');
     this.flapBtn = root.querySelector('[data-act="flaps"]');
+    this.vtolBtn = root.querySelector('[data-act="vtol"]');
 
     this.bindStick(this.stick);
     this.bindThrottle(root.querySelector("#t-throttle"));

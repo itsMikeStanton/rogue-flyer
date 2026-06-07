@@ -125,6 +125,13 @@ export class Hud {
       ctx.fillText(extra.flaps ? "FLAPS ▼" : "FLAPS ▲", 40, h - 192);
       if (extra.brake) { ctx.fillStyle = "#ffd23f"; ctx.fillText("◧ AIRBRAKE", 40, h - 208); }
     }
+    // Harrier nozzle / VTOL state.
+    if (extra.vtol != null) {
+      ctx.textAlign = "left";
+      ctx.font = "bold 12px 'Consolas', monospace";
+      ctx.fillStyle = extra.vtol ? "#36c8ff" : "#6b7785";
+      ctx.fillText(extra.vtol ? "NOZZLES ▼ HOVER" : "NOZZLES ▶ FWD", 40, h - 224);
+    }
     // Approaching the ground with the gear up — flash a warning.
     if (extra.gearWarn && Math.floor(performance.now() / 400) % 2 === 0) {
       ctx.textAlign = "center";
