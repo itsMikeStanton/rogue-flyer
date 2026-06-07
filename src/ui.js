@@ -18,6 +18,7 @@ export class UI {
     this.pickerMode = document.getElementById("picker-mode");
     this.pickerJet = document.getElementById("picker-jet");
     this.hangar = document.getElementById("hangar");
+    this.pause = document.getElementById("pause");
     this.hangarPick = "f16"; // current highlight inside the in-game vehicle bay
 
     this.buildModeList();
@@ -177,6 +178,9 @@ export class UI {
   }
   hideHangar() { if (this.hangar) this.hangar.classList.add("hidden"); }
 
+  showPause() { if (this.pause) this.pause.classList.remove("hidden"); }
+  hidePause() { if (this.pause) this.pause.classList.add("hidden"); }
+
   updateSummaries() {
     const m = (this.modesData || []).find((x) => x.key === this.mode);
     if (m) {
@@ -223,6 +227,10 @@ export class UI {
     if (hSpawn) hSpawn.addEventListener("click", () => { if (this.cb.onPickVehicle) this.cb.onPickVehicle(this.hangarPick); });
     const hStay = document.getElementById("hangar-stay");
     if (hStay) hStay.addEventListener("click", () => { if (this.cb.onHangarStay) this.cb.onHangarStay(); });
+    const pResume = document.getElementById("pause-resume");
+    if (pResume) pResume.addEventListener("click", () => { if (this.cb.onPauseResume) this.cb.onPauseResume(); });
+    const pMenu = document.getElementById("pause-menu");
+    if (pMenu) pMenu.addEventListener("click", () => { if (this.cb.onPauseMenu) this.cb.onPauseMenu(); });
     document.getElementById("btn-settings").addEventListener("click", () => this.showSettings());
     document.getElementById("btn-settings-back").addEventListener("click", () => {
       this.settings.classList.add("hidden");

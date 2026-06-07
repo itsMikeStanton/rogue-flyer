@@ -682,21 +682,22 @@ export function buildPowerPlant() {
   const band = new THREE.MeshStandardMaterial({ color: 0xb1452f, flatShading: true, roughness: 0.85 });
   const stacks = [];
 
-  const hall = new THREE.Mesh(new THREE.BoxGeometry(44, 26, 66), wall); hall.position.set(0, 13, 0); g.add(hall);
-  const hroof = new THREE.Mesh(new THREE.BoxGeometry(46, 3, 68), roof); hroof.position.set(0, 27, 0); g.add(hroof);
-  const annex = new THREE.Mesh(new THREE.BoxGeometry(28, 14, 30), wall); annex.position.set(34, 7, -8); g.add(annex);
+  // ~3x the previous size; smokestacks taller still. Big, billowing plumes.
+  const hall = new THREE.Mesh(new THREE.BoxGeometry(132, 78, 198), wall); hall.position.set(0, 39, 0); g.add(hall);
+  const hroof = new THREE.Mesh(new THREE.BoxGeometry(138, 9, 204), roof); hroof.position.set(0, 81, 0); g.add(hroof);
+  const annex = new THREE.Mesh(new THREE.BoxGeometry(84, 42, 90), wall); annex.position.set(102, 21, -24); g.add(annex);
 
-  // Waisted cooling tower (two flared cylinders) — big white vapour plume.
-  const ctLo = new THREE.Mesh(new THREE.CylinderGeometry(14, 21, 22, 20), wall); ctLo.position.set(-40, 11, 14); g.add(ctLo);
-  const ctHi = new THREE.Mesh(new THREE.CylinderGeometry(18, 14, 18, 20), wall); ctHi.position.set(-40, 31, 14); g.add(ctHi);
-  stacks.push({ lx: -40, ly: 41, lz: 14, size: 9, rate: 7, color: 0xe8eef4, rise: 13, drift: 3, life: 5.2, grow: 3.6, wind: 3 });
+  // Waisted cooling tower (two flared cylinders) — huge white vapour plume.
+  const ctLo = new THREE.Mesh(new THREE.CylinderGeometry(42, 63, 66, 22), wall); ctLo.position.set(-120, 33, 42); g.add(ctLo);
+  const ctHi = new THREE.Mesh(new THREE.CylinderGeometry(54, 42, 54, 22), wall); ctHi.position.set(-120, 93, 42); g.add(ctHi);
+  stacks.push({ lx: -120, ly: 122, lz: 42, size: 30, rate: 11, color: 0xe8eef4, rise: 30, drift: 9, life: 7.0, grow: 4.2, wind: 8 });
 
-  // Two banded smokestacks — dark exhaust.
-  for (const sx of [-6, 12]) {
-    const h = 60;
-    const st = new THREE.Mesh(new THREE.CylinderGeometry(3.0, 4.0, h, 14), wall); st.position.set(sx, h / 2, 24); g.add(st);
-    for (let b = 0; b < 2; b++) { const r = new THREE.Mesh(new THREE.CylinderGeometry(3.2, 3.2, 5, 14), band); r.position.set(sx, h - 7 - b * 14, 24); g.add(r); }
-    stacks.push({ lx: sx, ly: h + 1, lz: 24, size: 4.5, rate: 6, color: 0x3c3c3c, rise: 22, drift: 5, life: 4.2, grow: 4, wind: 4 });
+  // Two banded smokestacks — very tall, dark billowing exhaust.
+  for (const sx of [-18, 36]) {
+    const h = 220;
+    const st = new THREE.Mesh(new THREE.CylinderGeometry(9, 12, h, 16), wall); st.position.set(sx, h / 2, 72); g.add(st);
+    for (let b = 0; b < 3; b++) { const r = new THREE.Mesh(new THREE.CylinderGeometry(9.6, 9.6, 14, 16), band); r.position.set(sx, h - 22 - b * 40, 72); g.add(r); }
+    stacks.push({ lx: sx, ly: h + 4, lz: 72, size: 15, rate: 10, color: 0x363636, rise: 46, drift: 12, life: 6.5, grow: 4.6, wind: 11 });
   }
 
   g.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
@@ -1070,12 +1071,12 @@ function buildIsland(scene, is, waveMats, colliders, smokeSources) {
 
   // ---- Power plant near the city: big smoke plumes (and a strike target). ----
   {
-    const px = 4400, pz = 4600, gy = H(px, pz);
+    const px = 4900, pz = 5200, gy = H(px, pz);
     if (gy > SEA_LEVEL + 2) {
       const pp = buildPowerPlant();
       pp.group.position.set(px, gy, pz);
       grp.add(pp.group);
-      colliders.push({ x: cx0 + px, z: cz0 + pz, hx: 24, hz: 36, top: gy + 30 }); // turbine hall
+      colliders.push({ x: cx0 + px, z: cz0 + pz, hx: 72, hz: 108, top: gy + 90 }); // turbine hall
       if (smokeSources) for (const s of pp.stacks) smokeSources.push({
         x: cx0 + px + s.lx, y: gy + s.ly, z: cz0 + pz + s.lz,
         size: s.size, rate: s.rate, color: s.color, rise: s.rise, drift: s.drift, life: s.life, grow: s.grow, wind: s.wind,

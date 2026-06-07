@@ -132,7 +132,7 @@ export class Input {
   getControls(dt) {
     const pad = this.getPad();
     let pitch = 0, roll = 0, yaw = 0, throttle = 0;
-    let viewPressed = false, resetPressed = false, fire = false, missilePressed = false, flarePressed = false;
+    let viewPressed = false, pausePressed = false, fire = false, missilePressed = false, flarePressed = false;
     let gearPressed = false, flapsPressed = false, brake = false, vtolPressed = false, hangarPressed = false;
 
     if (pad) {
@@ -159,7 +159,7 @@ export class Input {
         flapsPressed = this.pressed("gp-flap", btn(12));  // D-pad up
         vtolPressed = this.pressed("gp-vtol", btn(13));   // D-pad down (Harrier nozzles)
         hangarPressed = this.pressed("gp-bay", btn(8));   // Back/Select (vehicle bay)
-        resetPressed = this.pressed("gp-rst", btn(9));    // Start
+        pausePressed = this.pressed("gp-rst", btn(9));    // Start → pause menu
       } else {
         // HOTAS flight stick (Logitech Extreme 3D Pro-style; remappable).
         roll = this.readAxis(pad, this.bindings.roll);
@@ -174,7 +174,7 @@ export class Input {
         missilePressed = this.pressed("pad-missile", btn(b.missile));
         flarePressed = this.pressed("pad-flare", btn(b.flare));
         viewPressed = this.pressed("pad-view", btn(b.view));
-        resetPressed = this.pressed("pad-reset", btn(b.reset));
+        pausePressed = this.pressed("pad-reset", btn(b.reset)); // → pause menu
         gearPressed = this.pressed("pad-gear", btn(b.gear));
         flapsPressed = this.pressed("pad-flaps", btn(b.flaps));
         vtolPressed = this.pressed("pad-vtol", btn(b.vtol));
@@ -205,7 +205,6 @@ export class Input {
     }
 
     if (this.pressed("key-view", k.has("KeyC"))) viewPressed = true;
-    if (this.pressed("key-reset", k.has("KeyR"))) resetPressed = true;
     if (this.pressed("key-missile", k.has("KeyB"))) missilePressed = true;
     if (this.pressed("key-flare", k.has("KeyX"))) flarePressed = true;
     if (this.pressed("key-gear", k.has("KeyG"))) gearPressed = true;   // G = gear toggle
@@ -221,7 +220,7 @@ export class Input {
     if (ts.throttleActive && !pad) { this.kbThrottle = ts.throttle; throttle = ts.throttle; }
     if (ts.fire) fire = true;
     if (this.pressed("touch-view", ts.view)) viewPressed = true;
-    if (this.pressed("touch-reset", ts.reset)) resetPressed = true;
+    if (this.pressed("touch-pause", ts.pause)) pausePressed = true;
     if (this.pressed("touch-missile", ts.missile)) missilePressed = true;
     if (this.pressed("touch-flare", ts.flare)) flarePressed = true;
     if (this.pressed("touch-gear", ts.gear)) gearPressed = true;
@@ -232,7 +231,7 @@ export class Input {
     return {
       pitch: clamp(pitch), roll: clamp(roll), yaw: clamp(yaw),
       throttle: Math.min(1, Math.max(0, throttle)),
-      viewPressed, resetPressed, fire, missilePressed, flarePressed,
+      viewPressed, pausePressed, fire, missilePressed, flarePressed,
       gearPressed, flapsPressed, brake, vtolPressed, hangarPressed,
     };
   }

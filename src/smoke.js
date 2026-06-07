@@ -6,7 +6,7 @@ import * as THREE from "three";
 // destroyed). Each source is { x, y, z, size, rate, color, rise, drift, life,
 // grow, wind }. Puffs rise, drift downwind, billow outward and fade.
 export class Smokestacks {
-  constructor(scene, { max = 460 } = {}) {
+  constructor(scene, { max = 820 } = {}) {
     this.scene = scene;
     this.sources = [];   // persistent
     this.dynamic = [];   // replaced each frame

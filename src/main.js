@@ -16,6 +16,7 @@ import { Editor } from "./editor.js";
 import { PostFX } from "./postfx.js";
 import { Weather } from "./weather.js";
 import { Smokestacks } from "./smoke.js";
+import { Wrecks } from "./wreckage.js";
 import { Net } from "./net.js";
 
 // --- Renderer / scene / camera ---
@@ -69,6 +70,8 @@ if (fxSel) {
 // Chimney / power-plant smoke plumes (world scenery + live strike targets).
 const smoke = new Smokestacks(scene);
 smoke.addSources(world.smokeSources);
+// Persistent crash wreckage (debris + fire + smoke) left in the world.
+const wrecks = new Wrecks(scene, smoke);
 
 // Weather / time of day (sky, fog, lights, stars, rain).
 const weather = new Weather(scene, world);
@@ -99,6 +102,8 @@ let missionDone = false;
 let startPos = "air"; // "air" | "runway" | "carrier"
 // In-game vehicle bay: sim paused, camera orbits the parked vehicle at the spawn.
 let hangarMode = false, hangarAngle = 0;
+let paused = false;                 // Esc pause menu (sim frozen)
+let crashHandled = false, respawnTimer = 0; // crash → wreckage → soft respawn
 
 // Throttle "arming" gesture before a flight begins (see updateArming).
 let armActive = false, armUp = false, armOpposite = false, armInit = false, armHint = "";
@@ -123,15 +128,30 @@ const player = {
     if (!this.alive) return;
     this.health = Math.max(0, this.health - d);
     sound.hit();
-    if (this.health <= 0) {
-      state.crashed = true;
-      fx.add(state.position, 2.6);
-      fx.burst(state.position, def.color, 16);
-      sound.stopEngine();
-      ui.showBanner("SHOT DOWN", "Press R / RESET to respawn");
-    }
+    if (this.health <= 0) { state.crashed = true; handleCrash("SHOT DOWN"); }
   },
 };
+
+// A crash: leave persistent burning wreckage at the site, hide the aircraft,
+// and start the short timer that respawns the player (the world is untouched).
+function handleCrash(title) {
+  if (crashHandled) return;
+  crashHandled = true;
+  fx.add(state.position, 2.8);
+  fx.burst(state.position, def.color, 18);
+  // Wreckage sits on the surface below the impact point.
+  const gx = state.position.x, gz = state.position.z;
+  const gy = Math.max(groundHeightAt(gx, gz), SEA_LEVEL);
+  wrecks.spawn(new THREE.Vector3(gx, gy + 0.5, gz), def.color);
+  // Kamikaze into the enemy carrier still counts.
+  for (const t of ground.targets) {
+    if (t.info && t.alive &&
+        Math.abs(gx - t.info.x) < t.info.halfW + 14 && Math.abs(gz - t.info.z) < t.info.halfL + 14) t.hit(99999);
+  }
+  sound.stopEngine(); sound.stopSeek();
+  ui.showBanner(title || "AIRCRAFT DOWN", "Recovering a new aircraft…");
+  respawnTimer = 2.8;
+}
 
 function missilesForMode(mode) { return 6; } // every mode is armed (dumb-fire works anywhere)
 
@@ -141,6 +161,8 @@ const ui = new UI(input, {
   onSelectJet: (type) => { if (!flying) setAircraft(type); }, // live hero swap on the menu
   onPickVehicle: (type) => pickVehicle(type),   // in-game vehicle bay: spawn this ride
   onHangarStay: () => exitHangar(),             // keep the current vehicle, close the bay
+  onPauseResume: () => closePause(),
+  onPauseMenu: () => exitToMenu(),
 }, touch, tilt);
 
 // --- Multiplayer (LAN free-for-all) ---
@@ -238,7 +260,7 @@ function toggleFullscreen() {
 }
 
 window.addEventListener("keydown", (e) => {
-  if (e.code === "Escape") togglePause();
+  if (e.code === "Escape") openPause();
   if (e.code === "KeyF") toggleFullscreen();
   if (e.code === "KeyM") updateSoundButton(sound.toggleMute());
   if (e.code === "KeyH" && flying && !inXR) { hangarMode ? exitHangar() : enterHangar(true); }
@@ -368,7 +390,10 @@ function populateBases() {
   }
 }
 
-function resetFlight() {
+// Put a fresh player aircraft down at the spawn point (the runway, carrier or
+// air). This is a SOFT reset — it touches only the player, leaving the rest of
+// the world (enemies, ground targets, rings, score, wreckage) exactly as it is.
+function placePlayer() {
   state = createState();
   if (startPos === "runway") {
     // Park at the start of the runway, level, stopped, throttle idle.
@@ -387,28 +412,37 @@ function resetFlight() {
     state.onGround = true;
     input.kbThrottle = 0.7;
   }
-  ringsHit = 0;
-  world.rings.forEach((r) => { r.visible = true; r.userData.hit = false; });
-  weapons.reset(missilesForMode(gameMode));
-  enemies.setMode(gameMode);
-  ground.setActive(gameMode === "mission", world.carriers.enemy, getCarriers().find((c) => c.team === "enemy"));
-  missionDone = false;
+  weapons.reset(missilesForMode(gameMode)); // fresh ammo + clear our own projectiles
   player.health = 100;
+  crashHandled = false; respawnTimer = 0;
   // Gear down for ground/carrier starts, up for air starts; flaps up. Snap the
   // animation so it doesn't visibly deploy on spawn.
   gearDown = startPos !== "air";
   flapsDown = false;
   gearAnim = gearDown ? 1 : 0;
   brakeActive = false; brakeAnim = 0;
+  vtolMode = false;
   touch.setGearFlaps(gearDown, flapsDown);
-  fx.reset();
+  touch.setVtol(false);
   ui.hideBanner();
-  // Require a deliberate throttle gesture before the sim runs: idle for a ground
-  // start (so a parked jet doesn't bolt), full for an air start.
+  // Require a deliberate throttle gesture before the sim runs.
   armActive = true;
   armUp = startPos === "air";
   armInit = false;
   armHint = "";
+}
+
+// Reset the whole world for a fresh game (enemies, ground targets, rings, FX,
+// wreckage), then place the player. Used when launching from the main menu.
+function resetFlight() {
+  ringsHit = 0;
+  world.rings.forEach((r) => { r.visible = true; r.userData.hit = false; });
+  enemies.setMode(gameMode);
+  ground.setActive(gameMode === "mission", world.carriers.enemy, getCarriers().find((c) => c.team === "enemy"));
+  missionDone = false;
+  fx.reset();
+  wrecks.reset();
+  placePlayer();
 }
 
 function startFlight(type, mode, start, vr) {
@@ -438,7 +472,7 @@ function startFlight(type, mode, start, vr) {
 function enterHangar(canStay) {
   hangarMode = true;
   hangarAngle = 0;
-  resetFlight();                 // set the chosen vehicle down at the base/carrier
+  placePlayer();                 // soft: park a fresh vehicle, world untouched
   armActive = false;             // no throttle-gate prompt while choosing
   const fab = document.getElementById("btn-hangar");
   if (fab) fab.classList.add("hidden");
@@ -448,7 +482,8 @@ function enterHangar(canStay) {
 function exitHangar() {
   hangarMode = false;
   ui.hideHangar();
-  resetFlight();                 // re-arm at the spawn so the throttle gate runs
+  placePlayer();                 // re-arm at the spawn so the throttle gate runs
+  sound.startEngine();           // (restarts it after a crash silenced it)
   touch.setVisible(!input.hasGamepad());
   const fab = document.getElementById("btn-hangar");
   if (fab && !inXR) fab.classList.remove("hidden");
@@ -458,20 +493,36 @@ function pickVehicle(type) {
   exitHangar();
 }
 
-function togglePause() {
-  if (!mesh) return;
-  if (flying) {
-    flying = false;
-    hangarMode = false; ui.hideHangar();
+// Esc / Start opens an in-game pause menu (Resume or quit to the main menu).
+function openPause() {
+  if (!flying || hangarMode) return;
+  paused = !paused;
+  if (paused) {
+    sound.stopEngine(); sound.stopSeek();
     const fab = document.getElementById("btn-hangar"); if (fab) fab.classList.add("hidden");
     touch.setVisible(false);
-    sound.stopEngine();
-    sound.stopSeek();
-    if (net.status !== "offline") { net.disconnect(); clearRemotePlayers(); }
-    ui.showMenu();
-  } else if (ui.menu.classList.contains("hidden") === false) {
-    // resuming from menu is done via FLY button
+    ui.showPause();
+  } else {
+    closePause();
   }
+}
+function closePause() {
+  paused = false;
+  ui.hidePause();
+  sound.startEngine();
+  touch.setVisible(!input.hasGamepad());
+  const fab = document.getElementById("btn-hangar"); if (fab && !inXR) fab.classList.remove("hidden");
+}
+// Full restart: drop back to the main menu to make new choices.
+function exitToMenu() {
+  paused = false; flying = false; hangarMode = false;
+  wrecks.reset();
+  ui.hidePause(); ui.hideHangar();
+  const fab = document.getElementById("btn-hangar"); if (fab) fab.classList.add("hidden");
+  touch.setVisible(false);
+  sound.stopEngine(); sound.stopSeek();
+  if (net.status !== "offline") { net.disconnect(); clearRemotePlayers(); }
+  ui.showMenu();
 }
 
 // --- Camera positioning per mode ---
@@ -821,6 +872,7 @@ function frame(now) {
   let dt = (now - last) / 1000;
   last = now;
   if (dt > 0.1) dt = 0.1; // clamp after tab-out
+  const simDt = paused ? 0 : dt; // freeze the world while the pause menu is open
 
   // World editor takes over rendering with its top-down camera. The ocean still
   // follows so coasts read right; clouds are hidden (no geometry over the map).
@@ -837,15 +889,15 @@ function frame(now) {
     if (pad !== lastPad) { lastPad = pad; touch.setVisible(!pad); }
   }
 
-  // Vehicle bay from the joystick (Back/Select) — works whether parked or flying.
+  // Vehicle bay / pause from the joystick (Back/Select & Start).
   if (flying && !inXR && controls.hangarPressed) { hangarMode ? exitHangar() : enterHangar(true); }
+  if (flying && controls.pausePressed) openPause();
 
   // Throttle-arming gate: hold the sim until the player engages the throttle.
-  if (flying && !hangarMode && !state.crashed && armActive) updateArming(controls);
+  if (flying && !hangarMode && !paused && !state.crashed && armActive) updateArming(controls);
 
-  if (flying && !hangarMode && !state.crashed && !armActive) {
+  if (flying && !hangarMode && !paused && !state.crashed && !armActive) {
     if (controls.viewPressed) camIndex = (camIndex + 1) % CAMS.length;
-    if (controls.resetPressed) resetFlight();
 
     // Gear + flaps are manual now (G / V keys, or on-screen GEAR / FLAPS).
     if (controls.gearPressed) gearDown = !gearDown;
@@ -899,7 +951,7 @@ function frame(now) {
 
     if (isMission && ground.total > 0 && ground.remaining === 0 && !missionDone) {
       missionDone = true;
-      ui.showBanner("MISSION COMPLETE", "Press R / RESET to fly again");
+      ui.showBanner("MISSION COMPLETE", "Keep flying — Esc for the menu");
     }
 
     // Lock audio: a growl that ramps while a target sits in the box, then a
@@ -909,32 +961,19 @@ function frame(now) {
     if (weapons.locked && !lastLocked) sound.lock();
     lastLocked = weapons.locked;
 
-    if (state.crashed && player.health > 0) {
-      fx.add(state.position, 2.6);
-      fx.burst(state.position, def.color, 16);
-      // If we slammed into the enemy carrier, blow it up too.
-      for (const t of ground.targets) {
-        if (t.info && t.alive &&
-            Math.abs(state.position.x - t.info.x) < t.info.halfW + 14 &&
-            Math.abs(state.position.z - t.info.z) < t.info.halfL + 14) {
-          t.hit(99999);
-        }
-      }
-      sound.stopEngine();
-      ui.showBanner("CRASHED", "Press R / RESET to respawn");
-    }
-  } else if (flying && state.crashed) {
-    // keep effects animating on the wreckage screen
+    if (state.crashed) handleCrash("AIRCRAFT DOWN");
+  } else if (flying && state.crashed && !paused) {
+    // Burning wreckage stays in the world; auto-respawn a fresh aircraft.
     sound.stopSeek();
     fx.update(dt);
-    if (controls.resetPressed) resetFlight();
+    if (respawnTimer > 0) { respawnTimer -= dt; if (respawnTimer <= 0) { if (inXR) placePlayer(); else enterHangar(false); } }
   }
 
   // Sync mesh to physics state
   if (mesh) {
     mesh.position.copy(state.position);
     mesh.quaternion.copy(state.quaternion);
-    mesh.visible = inXR ? false : CAMS[camIndex] !== "Cockpit"; // exterior hidden in VR (cockpit inside)
+    mesh.visible = !state.crashed && (inXR ? false : CAMS[camIndex] !== "Cockpit"); // gone on crash; hidden in VR cockpit
     const flames = mesh.userData.flames;
     if (flames) {
       const t = state.telemetry.throttle;
@@ -998,14 +1037,15 @@ function frame(now) {
   }
 
   if (inXR) { updateVRRig(dt); sound.setListener(playerRig); }
-  else if (flying) { updateCamera(dt); sound.setListener(camera); }
+  else if (flying) { updateCamera(simDt); sound.setListener(camera); }
   else { menuCinematic(dt); sound.setListener(camera); }
   updateSky(camera, true); // ocean + clouds follow the active camera
-  weather.update(dt, _skyPos); // stars/rain follow the camera; storm lightning
+  weather.update(simDt, _skyPos); // stars/rain follow the camera; storm lightning
   // Smoke plumes: scenery sources + any still-alive power-plant strike targets.
   const dyn = smoke.dynamic; dyn.length = 0;
   for (const t of ground.targets) if (t.alive && t.smokeStacks) for (const s of t.smokeStacks) dyn.push(s);
-  smoke.update(dt, _skyPos);
+  smoke.update(simDt, _skyPos);
+  wrecks.update(simDt, now / 1000); // crash wreckage fire flicker
   // Post FX on flat screen; VR renders direct (composer + WebXR don't mix).
   // Any composer failure falls back to a plain render so FX can't break the game.
   if (!inXR && post.enabled) {

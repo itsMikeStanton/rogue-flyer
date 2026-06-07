@@ -57,7 +57,7 @@ class GTarget {
     } else if (type === "powerplant") {
       const pp = buildPowerPlant();
       g.add(pp.group);
-      this.maxHealth = 240; this.radius = 54;
+      this.maxHealth = 460; this.radius = 150;
       this._stacks = pp.stacks; // local smoke sources, lifted to world below
     } else { // sam
       const b = new THREE.Mesh(new THREE.BoxGeometry(12, 5, 16), gmat(0x4f5b3a));
@@ -94,13 +94,13 @@ class GTarget {
     this.alive = false;
     this.group.visible = false;
     if (this.type === "powerplant") {
-      // A big plant goes up in a string of blasts (and the smoke stops).
+      // A big plant goes up in a long string of blasts (and the smoke stops).
       const c = this.group.position;
-      for (let i = 0; i < 8; i++) {
-        _v.set(c.x + (Math.random() - 0.5) * 64, c.y + 10 + Math.random() * 34, c.z + (Math.random() - 0.5) * 64);
-        this.fx.add(_v, 2.4 + Math.random() * 1.8);
+      for (let i = 0; i < 16; i++) {
+        _v.set(c.x + (Math.random() - 0.5) * 200, c.y + 20 + Math.random() * 120, c.z + (Math.random() - 0.5) * 220);
+        this.fx.add(_v, 3.0 + Math.random() * 2.4);
       }
-      this.fx.burst(c, 0x70757a, 30);
+      this.fx.burst(c, 0x70757a, 48);
     } else {
       this.fx.add(_v.copy(this.group.position).setY(this.group.position.y + 12), 3.4);
     }

@@ -79,7 +79,7 @@
             <li><b>Shift / Ctrl</b> &mdash; throttle up / down</li>
             <li><b>Space</b> &mdash; cannon &nbsp;&middot;&nbsp; <b>B</b> &mdash; missile (needs lock) &nbsp;&middot;&nbsp; <b>X</b> &mdash; flares</li>
             <li><b>G</b> &mdash; gear &nbsp;&middot;&nbsp; <b>V</b> &mdash; flaps &nbsp;&middot;&nbsp; <b>Z</b> &mdash; airbrake &nbsp;&middot;&nbsp; <b>T</b> &mdash; VTOL nozzles (Harrier) &nbsp;&middot;&nbsp; <b>H</b> &mdash; vehicle bay</li>
-            <li><b>C</b> &mdash; camera &nbsp;&middot;&nbsp; <b>R</b> &mdash; reset &nbsp;&middot;&nbsp; <b>F</b> &mdash; fullscreen &nbsp;&middot;&nbsp; <b>M</b> &mdash; mute &nbsp;&middot;&nbsp; <b>Esc</b> &mdash; menu</li>
+            <li><b>C</b> &mdash; camera &nbsp;&middot;&nbsp; <b>F</b> &mdash; fullscreen &nbsp;&middot;&nbsp; <b>M</b> &mdash; mute &nbsp;&middot;&nbsp; <b>Esc</b> &mdash; pause menu</li>
           </ul>
         </details>
         <div id="version" class="version">build &hellip;</div>
@@ -194,6 +194,17 @@
 
   <!-- In-flight: reopen the vehicle bay -->
   <button id="btn-hangar" class="hangar-fab hidden" title="Change vehicle (H)">✈ Vehicles</button>
+
+  <!-- Esc pause menu -->
+  <div id="pause" class="overlay picker hidden">
+    <div class="panel">
+      <h2>Paused</h2>
+      <div class="menu-buttons" style="flex-direction:column; gap:10px">
+        <button id="pause-resume" class="primary">Resume</button>
+        <button id="pause-menu">Main Menu &mdash; restart &amp; new choices</button>
+      </div>
+    </div>
+  </div>
 
   <!-- Crash / pause banner -->
   <div id="banner" class="banner hidden"></div>
