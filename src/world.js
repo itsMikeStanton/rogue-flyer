@@ -440,7 +440,7 @@ export function buildWorld(scene) {
   const clouds = buildClouds(scene);
 
   const rings = [];
-  return { terrain: firstTerrain, rings, sun, clouds, ocean, carriers, colliders, waveMats, islands };
+  return { terrain: firstTerrain, rings, sun, hemi, clouds, ocean, carriers, colliders, waveMats, islands };
 }
 
 // One big tiled cumulus field. Returned mesh carries userData.tile so main can

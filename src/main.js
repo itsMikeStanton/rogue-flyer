@@ -14,6 +14,7 @@ import { Explosions } from "./fx.js";
 import { SoundEngine } from "./audio.js";
 import { Editor } from "./editor.js";
 import { PostFX } from "./postfx.js";
+import { Weather } from "./weather.js";
 import { Net } from "./net.js";
 
 // --- Renderer / scene / camera ---
@@ -60,6 +61,21 @@ if (fxSel) {
     fxLook = fxSel.value;
     post.setLook(fxLook);
     try { localStorage.setItem("rf.fx", fxLook); } catch (_) { /* ignore */ }
+  });
+}
+
+// Weather / time of day (sky, fog, lights, stars, rain).
+const weather = new Weather(scene, world);
+let weatherMode = "day";
+try { weatherMode = localStorage.getItem("rf.weather") || "day"; } catch (_) { /* ignore */ }
+weather.setMode(weatherMode);
+const wxSel = document.getElementById("weather-mode");
+if (wxSel) {
+  wxSel.value = weatherMode;
+  wxSel.addEventListener("change", () => {
+    weatherMode = wxSel.value;
+    weather.setMode(weatherMode);
+    try { localStorage.setItem("rf.weather", weatherMode); } catch (_) { /* ignore */ }
   });
 }
 const input = new Input();
@@ -669,7 +685,7 @@ function frame(now) {
 
   // World editor takes over rendering with its top-down camera. The ocean still
   // follows so coasts read right; clouds are hidden (no geometry over the map).
-  if (editor.active) { updateSky(editor.cam, false); editor.render(); return; }
+  if (editor.active) { updateSky(editor.cam, false); weather.update(dt, _skyPos); editor.render(); return; }
 
   const controls = inXR ? getXRControls(dt) : input.getControls(dt);
 
@@ -829,6 +845,7 @@ function frame(now) {
   else if (flying) { updateCamera(dt); sound.setListener(camera); }
   else { menuCinematic(dt); sound.setListener(camera); }
   updateSky(camera, true); // ocean + clouds follow the active camera
+  weather.update(dt, _skyPos); // stars/rain follow the camera; storm lightning
   // Post FX on flat screen; VR renders direct (composer + WebXR don't mix).
   // Any composer failure falls back to a plain render so FX can't break the game.
   if (!inXR && post.enabled) {
