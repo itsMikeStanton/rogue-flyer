@@ -68,18 +68,28 @@ export class Weather {
   }
 
   _buildStars() {
-    const N = 1400, R = 14000;
+    const N = 1600, R = 14000;
     const pos = new Float32Array(N * 3);
+    const size = new Float32Array(N);
     for (let i = 0; i < N; i++) {
       const theta = 2 * Math.PI * Math.random();
       const phi = Math.acos(0.12 + 0.88 * Math.random()); // bias into the upper sky
       pos[i * 3] = R * Math.sin(phi) * Math.cos(theta);
       pos[i * 3 + 1] = R * Math.cos(phi);
       pos[i * 3 + 2] = R * Math.sin(phi) * Math.sin(theta);
+      // Mostly tiny; a handful are bigger and brighter.
+      const r = Math.random();
+      size[i] = r < 0.72 ? 0.8 + Math.random() * 0.9 : r < 0.94 ? 1.7 + Math.random() * 0.8 : 2.6 + Math.random() * 1.6;
     }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
-    const mat = new THREE.PointsMaterial({ color: 0xdfe8ff, size: 2.4, sizeAttenuation: false, transparent: true, opacity: 1, depthWrite: false, fog: false });
+    geo.setAttribute("aSize", new THREE.BufferAttribute(size, 1));
+    const mat = new THREE.ShaderMaterial({
+      uniforms: { uOpacity: { value: 1 }, uColor: { value: new THREE.Color(0xdfe8ff) } },
+      transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+      vertexShader: "attribute float aSize; varying float vB; void main(){ vB = clamp(aSize/3.6, 0.2, 1.0); gl_PointSize = aSize; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }",
+      fragmentShader: "uniform float uOpacity; uniform vec3 uColor; varying float vB; void main(){ vec2 d = gl_PointCoord - 0.5; float r = dot(d, d); if (r > 0.25) discard; float a = smoothstep(0.25, 0.0, r); gl_FragColor = vec4(uColor * (0.6 + 0.4 * vB), a * uOpacity * (0.5 + 0.5 * vB)); }",
+    });
     this.stars = new THREE.Points(geo, mat);
     this.stars.frustumCulled = false;
     this.stars.visible = false;
@@ -113,7 +123,7 @@ export class Weather {
     this.hemi.intensity = p.hemi; this.hemi.color.setHex(p.hSky); this.hemi.groundColor.setHex(p.hGnd);
     this.sun.intensity = p.sun; this.sun.color.setHex(p.sunCol);
     this.stars.visible = p.stars > 0;
-    this.stars.material.opacity = Math.min(1, p.stars);
+    this.stars.material.uniforms.uOpacity.value = Math.min(1, p.stars);
     this.rain.visible = p.rain > 0;
     this._rainScale = p.rain;
     // Sky bodies: show whichever is up and aim the sun light along it.

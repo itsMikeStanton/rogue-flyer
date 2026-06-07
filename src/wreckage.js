@@ -74,9 +74,9 @@ export class Wrecks {
   }
 
   // Small temporary fire (missile ground impact, burning tree, …).
-  spawnFire(pos, { scale = 1, life = 6, color = 0x232323 } = {}) {
+  spawnFire(pos, { scale = 1, life = 6, color = 0x232323, scorch = true } = {}) {
     this._make(pos, {
-      color, scorchSize: 4 * scale, debris: 0, fireCount: 4, spread: 3 * scale, fscale: 0.5 * scale,
+      color, scorchSize: scorch ? 4 * scale : 0, debris: 0, fireCount: 4, spread: 3 * scale, fscale: 0.5 * scale,
       smokeY: 4, smokeSize: 4 * scale, smokeRate: 7, smokeColor: color, smokeRise: 22, drift: 5, smokeLife: 4, smokeGrow: 4, wind: 4,
       burn: life * 0.5, life, fade: Math.min(2.5, life * 0.4),
     });
@@ -90,10 +90,12 @@ export class Wrecks {
       for (const f of w.fires) {
         if (i <= 0.02) { f.visible = false; continue; }
         f.visible = true;
-        const width = f.userData.base * w.fscale * i * (0.7 + 0.45 * Math.abs(Math.sin(t * 9 + f.userData.ph)) + Math.random() * 0.2);
-        const height = f.userData.h * w.fscale * (0.6 + 0.7 * Math.random()) * (0.5 + 0.5 * i);
+        // Gentle, mostly-sinusoidal flicker (no jumpy per-frame randomness).
+        const ph = f.userData.ph;
+        const width = f.userData.base * w.fscale * i * (0.9 + 0.12 * Math.sin(t * 5.5 + ph));
+        const height = f.userData.h * w.fscale * (0.5 + 0.5 * i) * (0.92 + 0.13 * Math.sin(t * 4.3 + ph * 1.7));
         f.scale.set(width, height, width);
-        f.material.opacity = (0.5 + Math.random() * 0.35) * i;
+        f.material.opacity = (0.72 + 0.12 * Math.sin(t * 6.0 + ph)) * i;
       }
       const si = Math.max(0, i * 1.15 - 0.1);
       w.src.rate = w.baseRate * si;

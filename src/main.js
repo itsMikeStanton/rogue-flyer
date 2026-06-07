@@ -73,32 +73,57 @@ smoke.addSources(world.smokeSources);
 // Persistent crash wreckage (debris + fire + smoke) left in the world.
 const wrecks = new Wrecks(scene, smoke);
 
-// Spatial hash of (sub-sampled) tree positions so explosions can set nearby
-// trees alight without scanning the whole forest.
+// Spatial hash of (sub-sampled) trees so explosions can set nearby trees alight
+// without scanning the whole forest. Each entry carries instance handles so a
+// burnt-down tree can be removed.
 const TREE_CELL = 140;
-const TP = world.treePositions || [];
+const TREES = world.trees || [];
 const treeGrid = new Map();
-for (let i = 0; i < TP.length; i += 3) {
-  const k = ((TP[i] / TREE_CELL) | 0) + "," + ((TP[i + 2] / TREE_CELL) | 0);
+for (let i = 0; i < TREES.length; i++) {
+  const tr = TREES[i];
+  const k = ((tr.x / TREE_CELL) | 0) + "," + ((tr.z / TREE_CELL) | 0);
   let arr = treeGrid.get(k); if (!arr) { arr = []; treeGrid.set(k, arr); }
   arr.push(i);
 }
+const _ZEROMAT = new THREE.Matrix4().makeScale(0.0001, 0.0001, 0.0001);
+const burningTrees = []; // { tr, timer } — vanish the tree when its timer runs out
 function igniteTreesNear(pos, size) {
-  if (wrecks.fireCount > 70 || TP.length === 0) return; // throttle runaway fires
+  if (wrecks.fireCount > 70 || TREES.length === 0) return; // throttle runaway fires
   const R = 40 + size * 16, R2 = R * R;
   const cx = (pos.x / TREE_CELL) | 0, cz = (pos.z / TREE_CELL) | 0;
   let lit = 0;
   for (let gx = cx - 1; gx <= cx + 1 && lit < 5; gx++) {
     for (let gz = cz - 1; gz <= cz + 1 && lit < 5; gz++) {
       const arr = treeGrid.get(gx + "," + gz); if (!arr) continue;
-      for (const i of arr) {
+      for (const idx of arr) {
         if (lit >= 5) break;
-        const tx = TP[i], ty = TP[i + 1], tz = TP[i + 2];
-        const dx = tx - pos.x, dz = tz - pos.z;
+        const tr = TREES[idx];
+        if (tr.burning) continue;
+        const dx = tr.x - pos.x, dz = tr.z - pos.z;
         if (dx * dx + dz * dz > R2) continue;
-        if (pos.y - ty > 70 || ty - pos.y > 40) continue; // blast must be near the trees
-        if (Math.random() < 0.5) { wrecks.spawnFire(new THREE.Vector3(tx, ty, tz), { scale: 1.6, life: 6 + Math.random() * 3, color: 0x2a261c }); lit++; }
+        if (pos.y - tr.y > 70 || tr.y - pos.y > 40) continue; // blast must be near the trees
+        if (Math.random() < 0.5) {
+          tr.burning = true;
+          const life = 6 + Math.random() * 3;
+          // Fire sprouts from the greenery (canopy height), not the trunk.
+          wrecks.spawnFire(new THREE.Vector3(tr.x, tr.cy, tr.z), { scale: 1.6, life, color: 0x2a261c, scorch: false });
+          burningTrees.push({ tr, timer: life * 0.7 }); // burns down, then the tree vanishes
+          lit++;
+        }
       }
+    }
+  }
+}
+// Remove burnt-down trees once their timer elapses (call from the frame loop).
+function updateBurningTrees(dt) {
+  for (let i = burningTrees.length - 1; i >= 0; i--) {
+    const b = burningTrees[i];
+    b.timer -= dt;
+    if (b.timer <= 0) {
+      const tr = b.tr;
+      tr.tm.setMatrixAt(tr.ti, _ZEROMAT); tr.tm.instanceMatrix.needsUpdate = true;
+      tr.cm.setMatrixAt(tr.ci, _ZEROMAT); tr.cm.instanceMatrix.needsUpdate = true;
+      burningTrees.splice(i, 1);
     }
   }
 }
@@ -1105,6 +1130,7 @@ function frame(now) {
   for (const t of ground.targets) if (t.alive && t.smokeStacks) for (const s of t.smokeStacks) dyn.push(s);
   smoke.update(simDt, _skyPos);
   wrecks.update(simDt, now / 1000); // crash wreckage fire flicker
+  updateBurningTrees(simDt);         // burnt-down trees vanish
   // Post FX on flat screen; VR renders direct (composer + WebXR don't mix).
   // Any composer failure falls back to a plain render so FX can't break the game.
   if (!inXR && post.enabled) {
