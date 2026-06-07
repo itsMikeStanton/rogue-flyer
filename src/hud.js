@@ -109,10 +109,20 @@ export class Hud {
     if ((extra.mode === "dogfight" || extra.mode === "mission" || extra.mode === "ffa") && extra.health != null) {
       this.healthBar(20, 58, extra.health);
     }
-    if (extra.missiles != null) {
-      ctx.fillStyle = extra.missiles > 0 ? green : "#888";
+    if (extra.ord) {
       ctx.font = "13px 'Consolas', monospace";
-      ctx.fillText(`MSL x${extra.missiles}`, 20, 92);
+      const parts = [];
+      if (extra.ord.missiles) parts.push(["MSL", extra.ord.missiles]);
+      if (extra.ord.rockets) parts.push(["RKT", extra.ord.rockets]);
+      if (extra.ord.bombs) parts.push(["BMB", extra.ord.bombs]);
+      if (!parts.length) parts.push(["GUN", "∞"]);
+      let x = 20;
+      for (const [label, n] of parts) {
+        ctx.fillStyle = (typeof n === "number" && n <= 0) ? "#888" : green;
+        const s = `${label} ${n}`;
+        ctx.fillText(s, x, 92);
+        x += ctx.measureText(s).width + 14;
+      }
     }
 
     // Gear / flaps / brake status (above the throttle bar, bottom-left).

@@ -218,7 +218,6 @@ function handleCrash(title) {
   respawnTimer = 2.8;
 }
 
-function missilesForMode(mode) { return 6; } // every mode is armed (dumb-fire works anywhere)
 
 const ui = new UI(input, {
   onFly: (type, mode, start) => startFlight(type, mode, start),
@@ -477,7 +476,7 @@ function placePlayer() {
     state.onGround = true;
     input.kbThrottle = 0.7;
   }
-  weapons.reset(missilesForMode(gameMode)); // fresh ammo + clear our own projectiles
+  weapons.reset(def.loadout); // per-aircraft loadout (missiles / rockets / bombs)
   player.health = 100;
   crashHandled = false; respawnTimer = 0;
   // Gear down for ground/carrier starts, up for air starts; flaps up. Snap the
@@ -879,8 +878,10 @@ function drawVRHud() {
   c.textAlign = "left"; c.font = "bold 17px Consolas, monospace";
   c.fillStyle = player.health > 50 ? green : player.health > 25 ? "#ffd23f" : "#ff5a5a";
   c.fillText("HULL " + Math.max(0, Math.round(player.health)), 18, 210);
-  c.textAlign = "right"; c.fillStyle = weapons.missileCount > 0 ? green : "#888";
-  c.fillText("MSL x" + weapons.missileCount, 494, 210);
+  c.textAlign = "right";
+  const ow = weapons.missileCount ? "MSL " + weapons.missileCount : weapons.rocketCount ? "RKT " + weapons.rocketCount : weapons.bombCount ? "BMB " + weapons.bombCount : "GUN";
+  c.fillStyle = green;
+  c.fillText(ow, 494, 210);
 
   // Lock status.
   if (weapons.locked) { c.fillStyle = "#ff5a5a"; c.font = "bold 24px Consolas, monospace"; c.textAlign = "center"; c.fillText("◉ LOCK", cx, cy + 46); }
@@ -1067,7 +1068,8 @@ function frame(now) {
     const isMission = gameMode === "mission";
     const activeTargets = gameMode === "ffa" ? netTargets : (isMission ? ground.targets : enemies.targets);
     if (controls.fire && weapons.fire(state.position, state.quaternion)) sound.gun();
-    if (controls.missilePressed && weapons.fireMissile(state.position, state.quaternion, state.velocity)) sound.missile();
+    if (controls.missilePressed && weapons.fireOrdnance(state.position, state.quaternion, state.velocity)) sound.missile();
+    if (controls.bombPressed && weapons.dropBomb(state.position, state.quaternion, state.velocity)) sound.missile();
     weapons.update(dt, state.position, state.quaternion, activeTargets);
     enemies.update(dt, player);
     if (isMission) ground.update(dt, player);
@@ -1299,7 +1301,7 @@ function frame(now) {
       bandits: gameMode === "ffa" ? null : (isMissionHud ? ground.remaining : enemies.alive()),
       total: isMissionHud ? ground.total : null,
       health: player.health,
-      missiles: weapons.missileCount,
+      ord: { missiles: weapons.missileCount, rockets: weapons.rocketCount, bombs: weapons.bombCount },
       gear: def.rotor ? null : gearDown, // helis have skids — no gear/flaps readouts
       flaps: def.rotor ? null : flapsDown,
       brake: brakeActive,

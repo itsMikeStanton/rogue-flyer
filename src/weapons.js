@@ -26,6 +26,15 @@ const MSL_DAMAGE = 120;
 const SMOKE_INTERVAL = 0.02; // seconds between smoke puffs
 const SMOKE_LIFE = 0.9;
 
+// Dumb rockets: unguided, fired forward, faster/cheaper, less damage, more of
+// them. Bombs: dropped, fall under gravity, big area blast.
+const ROCKET_DAMAGE = 45;
+const ROCKET_LIFE = 3.2;
+const ROCKET_SPEED = 650;     // muzzle speed added to the jet's
+const BOMB_DAMAGE = 240;
+const BOMB_RADIUS = 120;      // splash radius
+const BOMB_GRAVITY = 28;      // arcade fall
+
 const LOCK_RANGE = 2900;                          // ~ missile reach (speed * life)
 const LOCK_COS = Math.cos((22 * Math.PI) / 180);  // must be loosely pointed at it
 const LOCK_TIME = 1.6;                             // seconds holding it in the box to lock
@@ -116,11 +125,14 @@ export class Weapons {
     this.scene = scene;
     this.fx = fx;
     this.bullets = [];
-    this.missiles = [];
+    this.missiles = [];   // guided missiles AND dumb rockets share this list (rocket flag)
+    this.bombs = [];
     this.smoke = [];
     this.deadTrails = []; // orphaned ribbons finishing their fade after detonation
     this.cooldown = 0;
     this.missileCount = 0;
+    this.rocketCount = 0;
+    this.bombCount = 0;
     // Intent-based lock: hold a target in the box to earn a guided launch.
     this.lock = null;          // target the HUD draws a box around (candidate or locked)
     this.lockProgress = 0;     // 0..1 acquisition progress
@@ -136,22 +148,40 @@ export class Weapons {
     // Little rocket-motor flame trailing the missile (lit after ignition).
     this.mslFlameGeo = new THREE.ConeGeometry(0.24, 1.5, 8);
     this.mslFlameMat = new THREE.MeshBasicMaterial({ color: 0xffd27d, transparent: true, opacity: 0, depthWrite: false, blending: THREE.AdditiveBlending });
+    // Dumb rocket: a smaller, stubbier projectile.
+    this.rocketGeo = new THREE.CylinderGeometry(0.16, 0.16, 1.5, 6); this.rocketGeo.rotateX(Math.PI / 2);
+    // Bomb: a finned slug.
+    this.bombGeo = new THREE.CylinderGeometry(0.45, 0.32, 2.6, 8); this.bombGeo.rotateX(Math.PI / 2);
+    this.bombMat = new THREE.MeshStandardMaterial({ color: 0x4a5042, flatShading: true, metalness: 0.3, roughness: 0.6 });
   }
 
-  reset(missileCount) {
+  reset(loadout) {
     for (const b of this.bullets) this.scene.remove(b.mesh);
     for (const m of this.missiles) { this.scene.remove(m.mesh); if (m.trail) m.trail.dispose(); }
     for (const t of this.deadTrails) t.dispose();
     for (const s of this.smoke) this.scene.remove(s.mesh);
+    for (const b of this.bombs) this.scene.remove(b.mesh);
     this.bullets.length = 0;
     this.missiles.length = 0;
+    this.bombs.length = 0;
     this.deadTrails.length = 0;
     this.smoke.length = 0;
     this.cooldown = 0;
-    this.missileCount = missileCount || 0;
+    const lo = loadout || {};
+    this.missileCount = lo.missiles || 0;
+    this.rocketCount = lo.rockets || 0;
+    this.bombCount = lo.bombs || 0;
     this.lock = null;
     this.lockProgress = 0;
     this.locked = false;
+  }
+
+  // Fire the aircraft's forward ordnance: a guided/dumb missile if it has any,
+  // otherwise a dumb rocket. Returns the type fired ("missile"|"rocket") or null.
+  fireOrdnance(position, quaternion, jetVel) {
+    if (this.missileCount > 0) return this.fireMissile(position, quaternion, jetVel) ? "missile" : null;
+    if (this.rocketCount > 0) return this.fireRocket(position, quaternion, jetVel) ? "rocket" : null;
+    return null;
   }
 
   fire(position, quaternion) {
@@ -201,8 +231,48 @@ export class Weapons {
       mesh: m, vel, flame,
       trail: new Ribbon(this.scene),
       target: (this.locked && this.lock && this.lock.alive) ? this.lock : null,
-      age: 0, lit: false, life: MSL_LIFE, smokeTimer: 0,
+      age: 0, lit: false, life: MSL_LIFE, smokeTimer: 0, smokeEvery: SMOKE_INTERVAL, dmg: MSL_DAMAGE, rocket: false,
     });
+    return true;
+  }
+
+  // Dumb rocket: shoots straight off the nose, no guidance, lights immediately.
+  fireRocket(position, quaternion, jetVel) {
+    if (this.rocketCount <= 0) return false;
+    this.rocketCount--;
+    _fwd.set(0, 0, -1).applyQuaternion(quaternion).normalize();
+    _up.set(0, 1, 0).applyQuaternion(quaternion).normalize();
+    _right.set(1, 0, 0).applyQuaternion(quaternion).normalize();
+    this._mslSide = -this._mslSide;
+    _nose.copy(position).addScaledVector(_right, this._mslSide * 1.8).addScaledVector(_up, -0.5).addScaledVector(_fwd, 2.0);
+    const m = new THREE.Mesh(this.rocketGeo, this.mslMat);
+    m.position.copy(_nose); m.quaternion.copy(quaternion);
+    const flame = new THREE.Mesh(this.mslFlameGeo, this.mslFlameMat.clone());
+    flame.rotation.x = Math.PI / 2; flame.position.z = 1.0; flame.scale.setScalar(0.7); flame.visible = false;
+    m.add(flame);
+    this.scene.add(m);
+    const sp = (jetVel ? jetVel.length() * 1.6 : 0) + ROCKET_SPEED;
+    const vel = _fwd.clone().multiplyScalar(sp);
+    this.missiles.push({
+      mesh: m, vel, flame,
+      trail: new Ribbon(this.scene, { baseW: 0.3, expand: 7, alpha: 0.4 }),
+      target: null, age: MSL_DROP, lit: false, life: ROCKET_LIFE, smokeTimer: 0, smokeEvery: 0.05, dmg: ROCKET_DAMAGE, rocket: true,
+    });
+    return true;
+  }
+
+  // Bomb: drops off the belly, falls under gravity, big area blast on impact.
+  dropBomb(position, quaternion, jetVel) {
+    if (this.bombCount <= 0) return false;
+    this.bombCount--;
+    _up.set(0, 1, 0).applyQuaternion(quaternion).normalize();
+    const m = new THREE.Mesh(this.bombGeo, this.bombMat);
+    m.position.copy(position).addScaledVector(_up, -1.3);
+    m.quaternion.copy(quaternion);
+    this.scene.add(m);
+    const vel = new THREE.Vector3();
+    if (jetVel) vel.copy(jetVel);
+    this.bombs.push({ mesh: m, vel, life: 14 });
     return true;
   }
 
@@ -308,7 +378,7 @@ export class Weapons {
         m.flame.material.opacity = 0.55 + Math.random() * 0.35;
         m.trail.push(m.mesh.position, m.vel);
         m.smokeTimer -= dt;
-        if (m.smokeTimer <= 0) { m.smokeTimer = SMOKE_INTERVAL; this._emitSmoke(m.mesh.position); }
+        if (m.smokeTimer <= 0) { m.smokeTimer = m.smokeEvery || SMOKE_INTERVAL; this._emitSmoke(m.mesh.position); }
       }
       m.trail.update(dt);
 
@@ -316,16 +386,16 @@ export class Weapons {
       const mp = m.mesh.position;
       // Ground/sea impact.
       if (mp.y <= surfaceAt(mp.x, mp.z)) {
-        this.fx.add(mp, 2.4);
-        if (this.onGroundImpact) this.onGroundImpact(mp); // leave a burning patch on land
+        this.fx.add(mp, m.rocket ? 1.6 : 2.4);
+        if (this.onGroundImpact && !m.rocket) this.onGroundImpact(mp); // missiles leave a burning patch
         detonate = true;
       }
       // Proximity-detonate near ANY target, so unguided rockets also score hits.
       if (!detonate) for (const t of targets) {
         if (!t.alive) continue;
         if (mp.distanceTo(t.position) < MSL_PROX) {
-          t.hit(MSL_DAMAGE);
-          this.fx.add(mp, 3.0, 0xffd23f);
+          t.hit(m.dmg);
+          this.fx.add(mp, m.rocket ? 2.0 : 3.0, 0xffd23f);
           detonate = true;
           break;
         }
@@ -334,6 +404,25 @@ export class Weapons {
         this.scene.remove(m.mesh);
         if (m.trail) { this.deadTrails.push(m.trail); m.trail = null; } // let the ribbon linger & fade out
         this.missiles.splice(i, 1);
+      }
+    }
+
+    // Bombs: fall under gravity, tumble, and blow a big hole on impact.
+    for (let i = this.bombs.length - 1; i >= 0; i--) {
+      const b = this.bombs[i];
+      b.vel.y -= BOMB_GRAVITY * dt;
+      b.mesh.position.addScaledVector(b.vel, dt * 1.3);
+      b.mesh.rotation.x += dt * 2.2;
+      b.life -= dt;
+      const bp = b.mesh.position;
+      let boom = bp.y <= surfaceAt(bp.x, bp.z);
+      if (!boom) for (const t of targets) { if (t.alive && bp.distanceTo(t.position) < t.radius + 16) { boom = true; break; } }
+      if (boom || b.life <= 0) {
+        this.fx.add(bp, 4.2);                                  // big blast
+        if (this.onGroundImpact) this.onGroundImpact(bp);      // scorch + fire on land
+        for (const t of targets) if (t.alive && bp.distanceTo(t.position) < BOMB_RADIUS) t.hit(BOMB_DAMAGE);
+        this.scene.remove(b.mesh);
+        this.bombs.splice(i, 1);
       }
     }
 

@@ -14,6 +14,7 @@ export const AIRCRAFT = {
   f16: {
     name: "F-16 Falcon",
     role: "Agile dogfighter",
+    loadout: { missiles: 6, rockets: 0, bombs: 4 },
     color: 0xb8c4cf,
     mass: 9000,
     maxThrust: 165000,
@@ -26,6 +27,7 @@ export const AIRCRAFT = {
   fa18: {
     name: "F/A-18 Hornet",
     role: "All-round multirole",
+    loadout: { missiles: 6, rockets: 0, bombs: 6 },
     color: 0x9aa7b3,
     mass: 11000,
     maxThrust: 178000,
@@ -38,6 +40,7 @@ export const AIRCRAFT = {
   a10: {
     name: "A-10 Warthog",
     role: "Heavy ground-attack",
+    loadout: { missiles: 2, rockets: 19, bombs: 6 },
     color: 0x6f7a5e,
     mass: 14000,
     maxThrust: 108000,
@@ -51,6 +54,7 @@ export const AIRCRAFT = {
   f15: {
     name: "F-15 Eagle",
     role: "Air-superiority fighter",
+    loadout: { missiles: 8, rockets: 0, bombs: 0 },
     color: 0xb6bdc6,
     mass: 13000, maxThrust: 210000, wingArea: 56,
     cl0: 0.10, clAlpha: 5.0, clMax: 1.6, stallAngle: 0.40,
@@ -62,6 +66,7 @@ export const AIRCRAFT = {
   f14: {
     name: "F-14 Tomcat",
     role: "Swing-wing interceptor",
+    loadout: { missiles: 6, rockets: 0, bombs: 0 },
     color: 0x9aa3ad,
     mass: 16000, maxThrust: 220000, wingArea: 54,
     cl0: 0.10, clAlpha: 4.8, clMax: 1.6, stallAngle: 0.40,
@@ -73,6 +78,7 @@ export const AIRCRAFT = {
   f22: {
     name: "F-22 Raptor",
     role: "Stealth air-dominance",
+    loadout: { missiles: 8, rockets: 0, bombs: 0 },
     color: 0x4a525c,
     mass: 14000, maxThrust: 260000, wingArea: 50,
     cl0: 0.12, clAlpha: 5.4, clMax: 1.7, stallAngle: 0.46,
@@ -84,6 +90,7 @@ export const AIRCRAFT = {
   mig29: {
     name: "MiG-29 Fulcrum",
     role: "Agile frontline fighter",
+    loadout: { missiles: 6, rockets: 0, bombs: 0 },
     color: 0x8a96a6,
     mass: 11000, maxThrust: 162000, wingArea: 38,
     cl0: 0.10, clAlpha: 5.1, clMax: 1.65, stallAngle: 0.42,
@@ -95,6 +102,7 @@ export const AIRCRAFT = {
   b2: {
     name: "B-2 Spirit",
     role: "Stealth flying-wing bomber",
+    loadout: { missiles: 0, rockets: 0, bombs: 16 },
     color: 0x2b2f36,
     mass: 70000, maxThrust: 320000, wingArea: 230,
     cl0: 0.18, clAlpha: 4.6, clMax: 1.5, stallAngle: 0.34,
@@ -106,6 +114,7 @@ export const AIRCRAFT = {
   b52: {
     name: "B-52 Stratofortress",
     role: "Heavy strategic bomber",
+    loadout: { missiles: 0, rockets: 0, bombs: 24 },
     color: 0x5c6670,
     mass: 120000, maxThrust: 360000, wingArea: 380,
     cl0: 0.16, clAlpha: 4.6, clMax: 1.55, stallAngle: 0.36,
@@ -123,6 +132,7 @@ export const AIRCRAFT = {
   harrier: {
     name: "AV-8B Harrier II",
     role: "VTOL jump jet",
+    loadout: { missiles: 4, rockets: 14, bombs: 4 },
     color: 0x5a6552,
     vtol: true,
     mass: 9500, maxThrust: 120000, wingArea: 24,
@@ -149,6 +159,7 @@ export const AIRCRAFT = {
   apache: {
     name: "AH-64 Apache",
     role: "Attack helicopter",
+    loadout: { missiles: 8, rockets: 38, bombs: 0 },
     color: 0x444b3c,
     rotor: true,
     mass: 8000, maxThrust: 0, wingArea: 0,
@@ -159,6 +170,7 @@ export const AIRCRAFT = {
   blackhawk: {
     name: "UH-60 Black Hawk",
     role: "Utility helicopter",
+    loadout: { missiles: 2, rockets: 14, bombs: 0 },
     color: 0x363b42,
     rotor: true,
     mass: 9000, maxThrust: 0, wingArea: 0,
@@ -169,6 +181,7 @@ export const AIRCRAFT = {
   littlebird: {
     name: "MH-6 Little Bird",
     role: "Light scout / special ops",
+    loadout: { missiles: 0, rockets: 14, bombs: 0 },
     color: 0x202327,
     rotor: true,
     mass: 1400, maxThrust: 0, wingArea: 0,
@@ -179,6 +192,7 @@ export const AIRCRAFT = {
   chinook: {
     name: "CH-47 Chinook",
     role: "Tandem-rotor heavy lift",
+    loadout: { missiles: 0, rockets: 0, bombs: 8 },
     color: 0x47503d,
     rotor: true, tandem: true,
     mass: 16000, maxThrust: 0, wingArea: 0,
