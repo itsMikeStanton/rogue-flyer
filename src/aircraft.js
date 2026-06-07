@@ -109,20 +109,23 @@ export const AIRCRAFT = {
   },
 
   // --- Rotorcraft ---------------------------------------------------------
-  // Helicopters fly on a completely different model (flight.js stepHeli):
-  //   rotor    flag that routes to the hover/collective/cyclic dynamics
-  //   twr      thrust-to-weight at full collective (>1 = can climb vertically)
-  //   bodyDrag lumped Cd*A — sets how fast it'll go before drag balances tilt
-  //   pitch/roll/yawRate  cyclic + tail-rotor (pedal) authority (rad/s)
-  //   levelRate self-leveling rate — bleeds cyclic tilt back toward hover
+  // Helicopters fly a Battlefield-style arcade model (flight.js stepHeli):
+  //   rotor    routes to the hover/attitude-hold dynamics
+  //   twr      collective thrust-to-weight (>1 climbs); hover at throttle 1/twr
+  //   pull     arcade "tip the nose and get pulled forward" accel scale
+  //   drag     quadratic forward drag — sets top speed
+  //   grip     lateral velocity damping, so it tracks where the nose points
+  //   maxPitch/maxRoll  attitude limits the airframe holds (can't flip)
+  //   atti     how fast it snaps to the commanded attitude
+  //   yawRate  tail-rotor pedal; bankTurn  how much banking carves a turn
   apache: {
     name: "AH-64 Apache",
     role: "Attack helicopter",
     color: 0x444b3c,
     rotor: true,
     mass: 8000, maxThrust: 0, wingArea: 0,
-    twr: 1.55, bodyDrag: 6.0, levelRate: 2.1,
-    pitchRate: 0.95, rollRate: 1.8, yawRate: 1.5,
+    twr: 1.6, pull: 17, drag: 0.0016, grip: 1.6,
+    maxPitch: 0.46, maxRoll: 0.7, atti: 6.5, yawRate: 1.5, bankTurn: 0.9,
     stats: { speed: 0.5, agility: 0.7, toughness: 0.8 },
   },
   blackhawk: {
@@ -131,8 +134,8 @@ export const AIRCRAFT = {
     color: 0x363b42,
     rotor: true,
     mass: 9000, maxThrust: 0, wingArea: 0,
-    twr: 1.5, bodyDrag: 7.5, levelRate: 2.0,
-    pitchRate: 0.85, rollRate: 1.5, yawRate: 1.3,
+    twr: 1.5, pull: 14, drag: 0.0019, grip: 1.5,
+    maxPitch: 0.42, maxRoll: 0.6, atti: 5.5, yawRate: 1.3, bankTurn: 0.8,
     stats: { speed: 0.45, agility: 0.55, toughness: 0.7 },
   },
   littlebird: {
@@ -141,8 +144,8 @@ export const AIRCRAFT = {
     color: 0x202327,
     rotor: true,
     mass: 1400, maxThrust: 0, wingArea: 0,
-    twr: 1.75, bodyDrag: 2.2, levelRate: 2.5,
-    pitchRate: 1.35, rollRate: 2.5, yawRate: 1.9,
+    twr: 1.8, pull: 22, drag: 0.0014, grip: 1.9,
+    maxPitch: 0.55, maxRoll: 0.85, atti: 8.5, yawRate: 1.9, bankTurn: 1.1,
     stats: { speed: 0.6, agility: 0.95, toughness: 0.3 },
   },
   chinook: {
@@ -151,8 +154,8 @@ export const AIRCRAFT = {
     color: 0x47503d,
     rotor: true, tandem: true,
     mass: 16000, maxThrust: 0, wingArea: 0,
-    twr: 1.45, bodyDrag: 12.0, levelRate: 1.8,
-    pitchRate: 0.7, rollRate: 1.15, yawRate: 0.95,
+    twr: 1.45, pull: 11, drag: 0.0024, grip: 1.3,
+    maxPitch: 0.36, maxRoll: 0.48, atti: 4.0, yawRate: 0.95, bankTurn: 0.6,
     stats: { speed: 0.4, agility: 0.3, toughness: 1.0 },
   },
 };

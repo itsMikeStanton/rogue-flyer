@@ -246,15 +246,15 @@ export function step(state, def, controls, dt, groundHeight) {
   };
 }
 
-// ---- Helicopter dynamics ------------------------------------------------
-// A different beast entirely. The rotor makes thrust along the *body up* axis;
-// you fly by tilting the whole airframe (cyclic) so that thrust gets a sideways
-// component, while the collective (throttle) sets how hard the rotor pushes.
-//   - throttle 1/twr  => hover (rotor thrust balances weight)
-//   - tilt nose-down  => the thrust vector leans forward, you accelerate
-//   - tail rotor      => pedal yaw, spins the heading on the spot
-//   - cyclic self-centres back to level, so letting go returns you to a hover
-// No wing, no stall, lots of drag — it bleeds speed the instant you level off.
+// ---- Helicopter dynamics (Battlefield-style arcade) ---------------------
+// You fly an *attitude*, not a rate: the stick commands how far the airframe
+// leans (capped, so you can't flip), and it snaps there and HOLDS it. Tipping
+// the nose down then "pulls" you forward with a strong, sustained force — so it
+// feels like the rotor is dragging you where you point. A lateral grip keeps
+// the body tracking its nose (little sideways slop), and banking carves a turn.
+//   - throttle 1/twr  => hover (collective balances weight)
+//   - nose down       => pulled forward; nose up => bleed off / back up
+//   - bank            => carve a turn (bank-to-turn) ; pedal => spot yaw
 export function stepHeli(state, def, controls, dt, groundHeight) {
   const q = state.quaternion;
   _fwd.set(0, 0, -1).applyQuaternion(q);
@@ -266,48 +266,50 @@ export function stepHeli(state, def, controls, dt, groundHeight) {
   const altitude = state.position.y - SEA_LEVEL;
   const rho = airDensity(altitude);
 
-  _force.set(0, 0, 0);
+  // Work in accelerations (per unit mass) — cleaner to tune for arcade feel.
+  const acc = _force.set(0, 0, 0);
 
-  // Collective -> rotor thrust along the (tilted) body-up axis. Air thins with
-  // altitude so the rotor loses bite up high (a service ceiling, gently).
-  const hoverThrust = def.mass * GRAVITY;
+  // Collective lift along body-up. Hover at throttle 1/twr; air thins up high.
   const densityFactor = 0.72 + 0.28 * (rho / 1.225);
-  const thrustMag = hoverThrust * def.twr * controls.throttle * densityFactor;
-  _tmp.copy(_up).multiplyScalar(thrustMag);
-  _force.add(_tmp);
+  const liftA = GRAVITY * def.twr * controls.throttle * densityFactor;
+  acc.addScaledVector(_up, liftA);
 
-  // Body drag (no wings to help) — quadratic, lumped Cd*A from the def.
-  if (speed > 0.05) {
-    const dragMag = 0.5 * rho * speed * speed * def.bodyDrag;
-    _tmp.copy(vel).multiplyScalar(-dragMag / speed);
-    _force.add(_tmp);
-  }
+  // Gravity.
+  acc.y -= GRAVITY;
 
-  // Gravity
-  _force.y -= GRAVITY * def.mass;
+  // The "pull": tip the nose down and the rotor drags you forward (nose up =>
+  // negative => brake / back-pedal). Acts along the horizontal nose heading.
+  const noseDown = -_fwd.y; // >0 when the nose points below the horizon
+  const fl = Math.hypot(_fwd.x, _fwd.z) || 1;
+  const pullA = def.pull * noseDown;
+  acc.x += (_fwd.x / fl) * pullA;
+  acc.z += (_fwd.z / fl) * pullA;
 
-  // Integrate linear motion. Helis cover less ground per m/s than jets.
-  const invMass = 1 / def.mass;
-  vel.addScaledVector(_force, invMass * dt);
+  // Quadratic forward drag (sets top speed) + lateral grip (track the nose).
+  acc.addScaledVector(vel, -def.drag * speed);
+  const vSide = vel.dot(_right);
+  acc.addScaledVector(_right, -vSide * def.grip);
+
+  // Integrate. Helis cover a little less ground per m/s than jets.
+  vel.addScaledVector(acc, dt);
   state.position.addScaledVector(vel, dt * 1.3);
 
-  // --- Attitude control: cyclic (pitch/roll) + pedal (yaw) -----------------
+  // --- Attitude hold: cyclic sets target lean, pedal yaws, bank carves -----
   const sc = state.sctrl;
-  const sm = 1 - Math.exp(-dt / 0.14);
+  const sm = 1 - Math.exp(-dt / 0.10);
   sc.pitch += (controls.pitch - sc.pitch) * sm;
   sc.roll += (controls.roll - sc.roll) * sm;
   sc.yaw += (controls.yaw - sc.yaw) * sm;
 
-  // Rate command from cyclic, minus a self-levelling rate proportional to the
-  // current tilt away from level. The equilibrium tilt at full stick is
-  // pitchRate/levelRate, so the airframe naturally caps how far it leans and
-  // springs back to a hover when you release.
-  const pitch = sc.pitch * def.pitchRate - _fwd.y * def.levelRate;
-  const roll = sc.roll * def.rollRate + _right.y * def.levelRate;
-  const yaw = sc.yaw * def.yawRate;
-  _euler.set(pitch * dt, yaw * dt, -roll * dt, "XYZ");
-  _dq.setFromEuler(_euler);
-  q.multiply(_dq).normalize();
+  const tgtPitch = sc.pitch * def.maxPitch;   // +pitch = nose up
+  const tgtRoll = -sc.roll * def.maxRoll;     // +roll  = bank right (euler.z<0)
+  _euler.setFromQuaternion(q, "YXZ");
+  _euler.y -= sc.yaw * def.yawRate * dt;       // tail-rotor pedal
+  const k = 1 - Math.exp(-dt * def.atti);
+  _euler.x += (tgtPitch - _euler.x) * k;
+  _euler.z += (tgtRoll - _euler.z) * k;
+  _euler.y += _euler.z * def.bankTurn * dt;    // bank-to-turn carve
+  q.setFromEuler(_euler);
 
   // --- Ground / sea interaction (set down on skids anywhere) ---------------
   const overWater = groundHeight < SEA_LEVEL;
