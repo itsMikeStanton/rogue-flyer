@@ -367,25 +367,23 @@ class Zeppelin extends Mover {
     this.group.rotation.set(this.fall ? 0.6 * (this.fall / 400) : 0, this.dir > 0 ? Math.PI / 2 : -Math.PI / 2, Math.sin(this.bob * 0.7) * 0.04);
   }
   die() {
-    this.alive = false; this.dyingT = 4.5;
+    this.alive = false;
+    this.deathPhase = "fall";
+    this.fallV = 10;                  // downward speed, accelerates as she drops
+    this.cPitch = 0; this.cRoll = 0;  // careen pitch/roll ramp
+    this.careenDir = Math.random() < 0.5 ? 1 : -1;
+    this.boomCd = 0.3; this.burnT = 0; this.sink = 0;
     const c = this.position;
-    for (let i = 0; i < 12; i++) {
-      _v.set(c.x + (Math.random() - 0.5) * 280, c.y + (Math.random() - 0.5) * 90, c.z + (Math.random() - 0.5) * 90);
-      this.mgr.fx.add(_v, 3.2 + Math.random() * 2.4);
+    this.mgr.fx.add(_v.copy(c), 3.6); // initial fireball as the gasbag ignites
+    for (let i = 0; i < 10; i++) {
+      _v.set(c.x + (Math.random() - 0.5) * 300, c.y + (Math.random() - 0.5) * 80, c.z + (Math.random() - 0.5) * 80);
+      this.mgr.fx.add(_v, 2.4 + Math.random() * 2.0);
     }
-    this.mgr.fx.burst(c, 0xff7a3c, 40);
+    this.mgr.fx.burst(c, 0xff7a3c, 48);
   }
   update(dt, player) {
-    for (const p of this.props) p.rotation.z += dt * (this.alive ? 26 : 4);
-    if (!this.alive) {
-      this.dyingT -= dt;
-      this.fall += dt * (60 + (4.5 - this.dyingT) * 30); // accelerate downward
-      this.group.scale.lerp(_d.set(0.7, 0.5, 1), Math.min(1, dt * 0.6)); // envelope deflates
-      this.place();
-      if (Math.random() < dt * 4) this.mgr.fx.add(_v.copy(this.position).add(_d.set((Math.random() - 0.5) * 200, 0, (Math.random() - 0.5) * 60)), 2.4);
-      if (this.dyingT <= 0) { this.group.visible = false; this.respawnT = 8 + Math.random() * 5; this.dyingT = -1; }
-      return;
-    }
+    for (const p of this.props) p.rotation.z += dt * (this.alive ? 26 : 1.4);
+    if (!this.alive) { this._death(dt); return; }
     this.travel(dt);
     this.bob += dt * 0.6;
     this.place();
@@ -403,6 +401,52 @@ class Zeppelin extends Mover {
     _q.copy(this.group.quaternion).invert(); _v.applyQuaternion(_q);
     const h = this.hull;
     return (_v.x * _v.x) / (h.rx * h.rx) + (_v.y * _v.y) / (h.ry * h.ry) + (_v.z * _v.z) / (h.rz * h.rz) < 1;
+  }
+  // Multi-phase death: catch fire and careen down trailing explosions → smash
+  // into the ocean and burn massively at the surface → finally sink under.
+  _death(dt) {
+    const fx = this.mgr.fx, seaY = SEA_LEVEL, yaw = this.dir > 0 ? Math.PI / 2 : -Math.PI / 2, g = this.group;
+    if (this.deathPhase === "fall") {
+      this.fallV = Math.min(240, this.fallV + dt * 80);
+      this.position.y -= this.fallV * dt;
+      this.position.x += this.dir * dt * 18;                   // carries forward as she noses over
+      this.cPitch = Math.min(1.15, this.cPitch + dt * 0.55);   // nose pitches down
+      this.cRoll = Math.min(Math.PI * 0.7, this.cRoll + dt * 0.85); // and rolls onto her side
+      g.position.copy(this.position);
+      g.rotation.set(this.cPitch, yaw, this.cRoll * this.careenDir);
+      g.scale.lerp(_d.set(0.82, 0.66, 1), Math.min(1, dt * 0.5)); // envelope sags as it burns
+      fx.ember(this.position, 1.8);
+      if (Math.random() < dt * 12) fx.add(_v.copy(this.position).add(_d.set((Math.random() - 0.5) * 140, (Math.random() - 0.5) * 60, (Math.random() - 0.5) * 220)), 1.6 + Math.random() * 1.2);
+      this.boomCd -= dt;
+      if (this.boomCd <= 0) { this.boomCd = 0.3 + Math.random() * 0.4; fx.add(_v.copy(this.position).add(_d.set((Math.random() - 0.5) * 200, (Math.random() - 0.5) * 50, (Math.random() - 0.5) * 280)), 2.2 + Math.random() * 1.4); }
+      if (this.position.y <= seaY + 26) {                      // impact the water
+        this.position.y = seaY + 26; g.position.copy(this.position);
+        this.deathPhase = "burn"; this.burnT = 10 + Math.random() * 4;
+        fx.add(_v.copy(this.position), 5.0);                   // huge impact blast
+        fx.burst(_v.copy(this.position).setY(seaY + 6), 0xbcd2e0, 70); // water spray
+        fx.burst(this.position, 0xff7a3c, 40);
+      }
+      return;
+    }
+    if (this.deathPhase === "burn") {
+      this.burnT -= dt;
+      this.bob += dt * 1.2;
+      this.position.y = seaY + 26 + Math.sin(this.bob) * 3;    // wallow on the swell
+      g.position.copy(this.position);
+      g.rotation.set(this.cPitch * 0.4 + Math.sin(this.bob * 0.5) * 0.05, yaw, (Math.PI * 0.72) * this.careenDir);
+      fx.ember(this.position, 2.4);
+      if (Math.random() < dt * 22) fx.add(_v.copy(this.position).add(_d.set((Math.random() - 0.5) * 260, Math.random() * 30, (Math.random() - 0.5) * 120)), 2.0 + Math.random() * 1.8); // sustained inferno
+      if (Math.random() < dt * 1.4) fx.add(_v.copy(this.position).add(_d.set((Math.random() - 0.5) * 200, 10, (Math.random() - 0.5) * 100)), 3.0 + Math.random()); // secondary blasts
+      if (this.burnT <= 0) { this.deathPhase = "sink"; this.sink = 0; }
+      return;
+    }
+    // sink: dive under the waves, fire giving way to steam
+    this.sink += dt * (10 + this.sink * 0.9);                  // accelerating dive
+    this.position.y = (seaY + 26) - this.sink;
+    g.position.copy(this.position);
+    if (Math.random() < dt * 8) fx.add(_v.copy(this.position).setY(seaY + 4).add(_d.set((Math.random() - 0.5) * 200, 0, (Math.random() - 0.5) * 100)), 1.4, 0x9fb4c2); // steam
+    fx.ember(_v.copy(this.position).setY(seaY + 2), 1.2);
+    if (this.position.y < seaY - 220) { g.visible = false; this.respawnT = 8 + Math.random() * 5; this.deathPhase = null; }
   }
 }
 

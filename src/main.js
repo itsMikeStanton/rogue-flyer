@@ -110,7 +110,7 @@ function igniteTreesNear(pos, size) {
         if (pos.y - tr.y > 90 || tr.y - pos.y > 50) continue; // blast must be near the trees
         if (Math.random() < 0.55) {
           tr.burning = true;
-          const life = 6 + Math.random() * 3;
+          const life = 12 + Math.random() * 6; // trees burn a good long while
           const fs = 2.0 + Math.random() * 1.4; // bigger flames, varied per tree
           // Fire sprouts from the greenery (canopy height), not the trunk.
           wrecks.spawnFire(new THREE.Vector3(tr.x, tr.cy, tr.z), { scale: fs, life, color: 0x2a261c, scorch: false });
