@@ -134,6 +134,7 @@ export class Input {
     let pitch = 0, roll = 0, yaw = 0, throttle = 0;
     let viewPressed = false, pausePressed = false, fire = false, missilePressed = false, flarePressed = false;
     let gearPressed = false, flapsPressed = false, brake = false, vtolPressed = false, hangarPressed = false, bombPressed = false, rocketPressed = false;
+    let lookX = 0, lookY = 0; // POV hat free-look (x = right, y = up)
 
     if (pad) {
       const btn = (i) => pad.buttons[i] && pad.buttons[i].pressed;
@@ -184,6 +185,18 @@ export class Input {
         rocketPressed = this.pressed("pad-rkt", btn(b.rocket));
         hangarPressed = this.pressed("pad-bay", btn(b.hangar));
         if (btn(b.brake)) brake = true; // airbrake / wheel brake (held)
+        // POV hat → free-look. Many sticks report it as a "hat" axis whose value
+        // snaps to one of 8 detents (centred reads out of band); only act when
+        // it's near a detent so an ordinary analog axis can't spin the view.
+        if (pad.axes.length > 8) {
+          const hv = pad.axes[pad.axes.length > 9 ? 9 : pad.axes.length - 1];
+          const D = [-1, -0.714, -0.428, -0.142, 0.142, 0.428, 0.714, 1.0]; // up..up-left, clockwise
+          let hi = -1;
+          for (let i = 0; i < 8; i++) if (Math.abs(hv - D[i]) < 0.06) { hi = i; break; }
+          if (hi >= 0) { lookX = Math.sin(hi * Math.PI / 4); lookY = Math.cos(hi * Math.PI / 4); }
+        }
+        // Some sticks report the POV as the d-pad buttons instead.
+        if (btn(12)) lookY = 1; if (btn(13)) lookY = -1; if (btn(14)) lookX = -1; if (btn(15)) lookX = 1;
       }
     }
 
@@ -241,6 +254,7 @@ export class Input {
       throttle: Math.min(1, Math.max(0, throttle)),
       viewPressed, pausePressed, fire, missilePressed, flarePressed,
       gearPressed, flapsPressed, brake, vtolPressed, hangarPressed, bombPressed, rocketPressed,
+      look: { x: lookX, y: lookY },
     };
   }
 }

@@ -596,8 +596,15 @@ const _q = new THREE.Quaternion();
 const _v = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
 const _v3 = new THREE.Vector3();
+const _lookE = new THREE.Euler(0, 0, 0, "YXZ");
+const freeLook = { yaw: 0, pitch: 0 };  // smoothed POV-hat look offset
+const lookInput = { x: 0, y: 0 };       // raw hat input this frame
 
 function updateCamera(dt) {
+  // Ease the free-look toward the hat input (orbit the view to check your six).
+  freeLook.yaw += (lookInput.x * 2.6 - freeLook.yaw) * Math.min(1, dt * 9);
+  freeLook.pitch += (lookInput.y * 0.7 - freeLook.pitch) * Math.min(1, dt * 9);
+  _lookE.set(freeLook.pitch, freeLook.yaw, 0, "YXZ");
   const mode = CAMS[camIndex];
   const pos = state.position;
   const q = state.quaternion;
@@ -645,7 +652,8 @@ function updateCamera(dt) {
   if (mode === "Cockpit") {
     const eye = _v.set(0, 0.5, -1.5).applyQuaternion(q).add(pos);
     camera.position.copy(eye);
-    const look = new THREE.Vector3(0, 0.3, -20).applyQuaternion(q).add(pos);
+    // Hat turns your head: rotate the look direction by the free-look offset.
+    const look = _v2.set(0, 0.3, -20).applyEuler(_lookE).applyQuaternion(q).add(pos);
     camera.up.set(0, 1, 0).applyQuaternion(q);
     camera.lookAt(look);
     return;
@@ -654,15 +662,18 @@ function updateCamera(dt) {
   // Far Chase = the old close chase; close Chase now sits right on the tail.
   const dist = mode === "Far Chase" ? 24 : 9.5;
   const height = mode === "Far Chase" ? 8 : 3.6;
-  const behind = _v.set(0, height, dist).applyQuaternion(q).add(pos);
-  // smooth follow
+  // Free-look orbits the camera around the jet (so you can look to the sides /
+  // behind). With the hat centred this is exactly the normal chase view.
+  const behind = _v.set(0, height, dist).applyEuler(_lookE).applyQuaternion(q).add(pos);
   const lerp = 1 - Math.pow(0.0008, dt);
   camPos.lerp(behind, lerp);
   if (camPos.lengthSq() === 0) camPos.copy(behind);
   camera.position.copy(camPos);
   camera.up.set(0, 1, 0);
-  camTarget.copy(pos).addScaledVector(_v.set(0, 0, -1).applyQuaternion(q), 30);
-  camTarget.y += 4;
+  // Look ahead normally; pan toward the jet itself as you swing the view around.
+  const la = Math.min(1, (Math.abs(freeLook.yaw) + Math.abs(freeLook.pitch)) / 1.2);
+  camTarget.copy(pos).addScaledVector(_v2.set(0, 0, -1).applyQuaternion(q), 30 * (1 - la));
+  camTarget.y += 4 * (1 - la);
   camera.lookAt(camTarget);
 }
 
@@ -1013,6 +1024,9 @@ function frame(now) {
   if (editor.active) { updateSky(editor.cam, false); weather.update(dt, _skyPos); editor.render(); return; }
 
   const controls = inXR ? getXRControls(dt) : input.getControls(dt);
+  // POV-hat free-look (only while actively flying, not in the bay / paused).
+  const lk = (flying && !hangarMode && !paused && controls.look) ? controls.look : null;
+  lookInput.x = lk ? lk.x : 0; lookInput.y = lk ? lk.y : 0;
 
   // Live monitor for the settings panel
   ui.updateMonitors();

@@ -231,6 +231,9 @@ export class Weapons {
       mesh: m, vel, flame,
       trail: new Ribbon(this.scene),
       target: (this.locked && this.lock && this.lock.alive) ? this.lock : null,
+      // Boresight at launch, nudged up a touch to cancel the launch-below + drop
+      // so a dumb shot tracks where you aimed instead of sagging under it.
+      fwd0: _fwd.clone().addScaledVector(_up, 0.03).normalize(),
       age: 0, lit: false, life: MSL_LIFE, smokeTimer: 0, smokeEvery: SMOKE_INTERVAL, dmg: MSL_DAMAGE, rocket: false,
     });
     return true;
@@ -251,10 +254,11 @@ export class Weapons {
     flame.rotation.x = Math.PI / 2; flame.position.z = 1.0; flame.scale.setScalar(0.7); flame.visible = false;
     m.add(flame);
     this.scene.add(m);
+    const fwd0 = _fwd.clone().addScaledVector(_up, 0.03).normalize(); // slight up bias vs the drop/launch-below
     const sp = (jetVel ? jetVel.length() * 1.6 : 0) + ROCKET_SPEED;
-    const vel = _fwd.clone().multiplyScalar(sp);
+    const vel = fwd0.clone().multiplyScalar(sp);
     this.missiles.push({
-      mesh: m, vel, flame,
+      mesh: m, vel, flame, fwd0,
       trail: new Ribbon(this.scene, { baseW: 0.3, expand: 7, alpha: 0.4 }),
       target: null, age: MSL_DROP, lit: false, life: ROCKET_LIFE, smokeTimer: 0, smokeEvery: 0.05, dmg: ROCKET_DAMAGE, rocket: true,
     });
@@ -292,20 +296,31 @@ export class Weapons {
     this.smoke.push({ mesh, life: SMOKE_LIFE * (0.8 + Math.random() * 0.5), max: SMOKE_LIFE, s0, op0 });
   }
 
-  // Pick the best target inside the lock box, then ramp/decay lock progress so
-  // you must keep it in the reticle to earn a solid (guiding) lock.
+  // Hold the lock on the current target as long as it stays in the box; only
+  // search for a new one when there's no valid current target — no swapping to
+  // a "better" target mid-lock.
   _acquireLock(dt, position, quaternion, targets) {
     _fwd.set(0, 0, -1).applyQuaternion(quaternion).normalize();
-    let best = null;
-    let bestDot = LOCK_COS;
-    for (const t of targets) {
-      if (!t.alive) continue;
+    const inBox = (t) => {
+      if (!t || !t.alive) return false;
       _to.copy(t.position).sub(position);
       const dist = _to.length();
-      if (dist > LOCK_RANGE || dist < 1) continue;
+      if (dist > LOCK_RANGE || dist < 1) return false;
       _to.multiplyScalar(1 / dist);
-      const dot = _fwd.dot(_to);
-      if (dot > bestDot) { bestDot = dot; best = t; }
+      return _fwd.dot(_to) > LOCK_COS;
+    };
+    let best = inBox(this.lock) ? this.lock : null; // keep the current target if still in the box
+    if (!best) {
+      let bestDot = LOCK_COS;
+      for (const t of targets) {
+        if (!t.alive) continue;
+        _to.copy(t.position).sub(position);
+        const dist = _to.length();
+        if (dist > LOCK_RANGE || dist < 1) continue;
+        _to.multiplyScalar(1 / dist);
+        const dot = _fwd.dot(_to);
+        if (dot > bestDot) { bestDot = dot; best = t; }
+      }
     }
     if (best) {
       if (best !== this.lock) { this.lock = best; this.lockProgress = 0; } // new candidate — start over
@@ -358,10 +373,13 @@ export class Weapons {
       } else {
         if (!m.lit) { m.lit = true; this.fx.add(m.mesh.position, 0.7, 0xffd27d, true); } // ignition flash
         let sp = m.vel.length() || 1;
-        _mdir.copy(m.vel).multiplyScalar(1 / sp);
         if (m.target && m.target.alive) {
+          _mdir.copy(m.vel).multiplyScalar(1 / sp);
           _desired.copy(m.target.position).sub(m.mesh.position).normalize();
           steer(_mdir, _desired, MSL_TURN * dt);
+        } else {
+          // Dumb shot: fly straight along the launch boresight (no gravity sag).
+          _mdir.copy(m.fwd0);
         }
         sp = Math.min(MSL_MAX, sp + MSL_ACCEL * dt);
         m.vel.copy(_mdir).multiplyScalar(sp);
