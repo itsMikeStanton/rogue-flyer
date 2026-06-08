@@ -503,6 +503,13 @@ function buildRaptor(def) {
   const fuse = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.85, 7.0), m.body); g.add(fuse);
   const nose = new THREE.Mesh(new THREE.ConeGeometry(0.8, 3.0, 4), m.body); nose.rotation.x = -Math.PI / 2; nose.rotation.z = Math.PI / 4; nose.position.z = -4.9; g.add(nose);
   for (const s of [-1, 1]) { const ch = flatPoly(m.panel, [[0, -3.0], [s * 1.2, 1.2], [s * 0.3, 1.4]], 0.1); ch.position.set(0, 0.12, -0.8); g.add(ch); }
+  // Caret (angled) side intakes below the chines — the Raptor's signature inlets.
+  for (const s of [-1, 1]) {
+    const intk = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.7, 1.9), m.accent);
+    intk.position.set(s * 0.95, -0.22, -1.3); intk.rotation.y = s * 0.18; g.add(intk);
+    const lip = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.7, 0.5), m.panel);
+    lip.position.set(s * 1.22, -0.22, -2.05); lip.rotation.y = s * 0.18; g.add(lip);
+  }
   g.add(makeCanopy(m.glass, -2.2, 0.9, 0.85, 2.2));
   const w = wing(m.body, 4.8, 3.8, 0.6, 1.6, 0.16); w.position.z = 0.9; g.add(w);
   for (const s of [-1, 1]) { const vt = fin(m.body, 1.7, 1.6, 0.6, 0.6, 0.14); vt.position.set(s * 1.0, 0.4, 2.4); vt.rotation.z = Math.PI / 2 + s * 0.5; g.add(vt); }
@@ -533,18 +540,38 @@ function buildFulcrum(def) {
 // ---- B-2 Spirit: flying-wing stealth bomber (swept LE, sawtooth W trailing) ----
 function buildSpirit(def) {
   const g = new THREE.Group(); const m = makeMaterials(def);
+  // Planform: the centre apex points FORWARD (−z) and the serrated double-W
+  // trailing edge is AFT (+z). flatPoly maps a point's 2nd coord to world −Z, so
+  // the nose apex needs a positive value and the trailing edge negative ones.
   const planform = [
-    [0, -9], [10, 1.5], [7.5, 3.2], [5.0, 1.6], [2.4, 3.4],
-    [0, 1.7], [-2.4, 3.4], [-5.0, 1.6], [-7.5, 3.2], [-10, 1.5],
+    [0, 7.5], [10, -1.5], [7.5, -3.2], [5.0, -1.6], [2.4, -3.4],
+    [0, -1.7], [-2.4, -3.4], [-5.0, -1.6], [-7.5, -3.2], [-10, -1.5],
   ];
-  const w = flatPoly(m.body, planform, 0.55); g.add(w);
-  const center = new THREE.Mesh(new THREE.BoxGeometry(2.6, 0.7, 6.4), m.body); center.position.set(0, 0.45, -2.0); g.add(center);
-  const cockpit = new THREE.Mesh(new THREE.SphereGeometry(0.9, 10, 6, 0, Math.PI * 2, 0, Math.PI / 2), m.glass);
-  cockpit.scale.set(1.1, 0.7, 1.6); cockpit.position.set(0, 0.8, -4.2); g.add(cockpit);
-  for (const s of [-1, 1]) { const intk = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.3, 2.0), m.accent); intk.position.set(s * 1.7, 0.78, -1.4); g.add(intk); }
-  for (const s of [-1, 1]) { const ex = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.2, 0.7), m.metal); ex.position.set(s * 1.7, 0.5, 1.7); g.add(ex); }
+  const w = flatPoly(m.body, planform, 0.5); g.add(w);
+
+  // Blended centre body.
+  const center = new THREE.Mesh(new THREE.BoxGeometry(2.8, 0.85, 7.4), m.body);
+  center.position.set(0, 0.42, -1.2); g.add(center);
+  // The two engine humps on the upper surface, each with a saw-tooth intake and
+  // a flush exhaust slot near the trailing edge (no visible flame — stealth).
+  for (const s of [-1, 1]) {
+    const hump = new THREE.Mesh(new THREE.BoxGeometry(2.2, 0.55, 4.6), m.panel);
+    hump.position.set(s * 2.0, 0.5, -0.8); g.add(hump);
+    const intk = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.26, 1.5), m.accent);
+    intk.position.set(s * 2.0, 0.82, -2.3); g.add(intk);
+    const ex = new THREE.Mesh(new THREE.BoxGeometry(1.5, 0.16, 0.9), m.metal);
+    ex.position.set(s * 2.0, 0.58, 1.4); g.add(ex);
+  }
+  // Cockpit blister just aft of the nose apex.
+  const cockpit = new THREE.Mesh(new THREE.SphereGeometry(0.85, 12, 7, 0, Math.PI * 2, 0, Math.PI / 2), m.glass);
+  cockpit.scale.set(1.25, 0.7, 1.8); cockpit.position.set(0, 0.82, -4.2); g.add(cockpit);
+  // Faint dorsal centreline ridge running back to the trailing notch.
+  const ridge = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.3, 6.0), m.panel);
+  ridge.position.set(0, 0.7, -1.0); g.add(ridge);
+
   g.userData.flames = []; // flush stealth exhausts — no visible flame
-  const rl = navLight(m.red); rl.position.set(-9.6, 0.1, 1.5); g.add(rl); const gl = navLight(m.green); gl.position.set(9.6, 0.1, 1.5); g.add(gl);
+  const rl = navLight(m.red); rl.position.set(-9.6, 0.16, 1.4); g.add(rl);
+  const gl = navLight(m.green); gl.position.set(9.6, 0.16, 1.4); g.add(gl);
   return g;
 }
 
