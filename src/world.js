@@ -592,10 +592,19 @@ function buildLighthouse() {
   const core = new THREE.Mesh(new THREE.SphereGeometry(lantR * 0.5, 10, 8),
     new THREE.MeshStandardMaterial({ color: 0xfff3cf, emissive: 0xfff0c0, emissiveIntensity: 4.4, roughness: 0.3 }));
   core.position.y = lampY; g.add(core);
-  const beamMat = new THREE.MeshBasicMaterial({ color: 0xfff0c0, transparent: true, opacity: 0.16, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, side: THREE.DoubleSide });
+  // Long, wispy beam: a hollow cone that's faint, fades along its length and
+  // softens at the tip, so it reads as a searchlight shaft rather than a solid
+  // cone. Alpha falls off from the lamp (apex) toward the far end.
+  const BEAM_LEN = 420;
+  const beamMat = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, fog: false, side: THREE.DoubleSide,
+    uniforms: { uColor: { value: new THREE.Color(0xfff0c0) }, uOpacity: { value: 0.085 }, uLen: { value: BEAM_LEN } },
+    vertexShader: "varying float vT; uniform float uLen; void main(){ vT = clamp(-position.y / uLen, 0.0, 1.0); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }",
+    fragmentShader: "varying float vT; uniform vec3 uColor; uniform float uOpacity; void main(){ float a = uOpacity * smoothstep(0.0, 0.04, vT) * pow(1.0 - vT, 1.8); gl_FragColor = vec4(uColor, a); }",
+  });
   const makeBeam = () => {
-    const cone = new THREE.ConeGeometry(7.5, 150, 14, 1, true);
-    cone.translate(0, -75, 0);           // apex at the lamp, base out along -Y
+    const cone = new THREE.ConeGeometry(15, BEAM_LEN, 16, 1, true);
+    cone.translate(0, -BEAM_LEN / 2, 0); // apex at the lamp, base out along -Y
     const m = new THREE.Mesh(cone, beamMat);
     m.rotation.z = Math.PI / 2;          // lay it flat: base points +X
     return m;
@@ -605,7 +614,7 @@ function buildLighthouse() {
   beacon.add(makeBeam());
   const wrap = new THREE.Group(); wrap.rotation.y = Math.PI; wrap.add(makeBeam()); beacon.add(wrap); // opposite beam
   // A real spotlight that actually lights the terrain/fog as the beacon sweeps.
-  const spot = new THREE.SpotLight(0xfff0c0, 3.5, 4000, 0.30, 0.6, 0); // decay 0 = no distance falloff (lights the ground from the lantern)
+  const spot = new THREE.SpotLight(0xfff0c0, 3.5, 5000, 0.16, 0.7, 0); // decay 0 = no distance falloff (lights the ground from the lantern)
   spot.castShadow = false;
   const spotTarget = new THREE.Object3D(); spotTarget.position.set(120, -26, 0); // out +X, raked down
   beacon.add(spot); beacon.add(spotTarget); spot.target = spotTarget;
@@ -1075,8 +1084,8 @@ function buildIsland(scene, is, waveMats, colliders, smokeSources, trees, spinne
         new THREE.MeshStandardMaterial({ color: 0xffd79a, emissive: 0xffc070, emissiveIntensity: 3.4, roughness: 0.4 }), n);
       // Ground pool of cast light under each lamp (additive, brightest at night).
       const pools = new THREE.InstancedMesh(poolGeo(),
-        new THREE.MeshBasicMaterial({ map: lightPoolTexture(), color: 0xffc070, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }), n);
-      const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), one = new THREE.Vector3(1, 1, 1), pool = new THREE.Vector3(11, 11, 11), pp = new THREE.Vector3();
+        new THREE.MeshBasicMaterial({ map: lightPoolTexture(), color: 0xffce8a, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }), n);
+      const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), one = new THREE.Vector3(1, 1, 1), pool = new THREE.Vector3(13.5, 13.5, 13.5), pp = new THREE.Vector3();
       for (let i = 0; i < n; i++) {
         const x = lampPos[i * 2], z = lampPos[i * 2 + 1], gy = H(x, z);
         pp.set(x, gy + 7.5, z); poles.setMatrixAt(i, m4.compose(pp, q, one));
@@ -1163,7 +1172,7 @@ function buildIsland(scene, is, waveMats, colliders, smokeSources, trees, spinne
     lh.scale.setScalar(3); // three times as large all around
     lh.position.set(lx, Math.max(H(lx, lz), SEA_LEVEL + 2), lz);
     grp.add(lh);
-    if (spinners && lh.userData.beacon) spinners.push({ obj: lh.userData.beacon, speed: 0.7 });
+    if (spinners && lh.userData.beacon) spinners.push({ obj: lh.userData.beacon, speed: 0.35 });
   }
 
   // ---- Power plant near the city: big smoke plumes (and a strike target). ----
