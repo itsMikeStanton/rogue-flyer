@@ -428,21 +428,37 @@ class RailCar {
     if (this.health <= 0) blowUpTrain(this.train, this); // any car down → whole train goes
   }
   // Become a flying wreck: launched along the train's momentum + an outward kick,
-  // tumbling and trailing fire. Some blow up in the air, the rest on impact.
+  // tumbling and trailing fire. Fate decides what happens: some detonate in the
+  // air (widely staggered), some on impact, and some never blow — they just
+  // tumble and come to rest as wreckage.
   startDerail(vel) {
-    this.derail = true; this.dieClock = 0; this.smokeT = 0;
+    this.derail = true; this.dieClock = 0; this.smokeT = 0; this.settled = false;
     this.dvel = vel.clone();
-    this.dvel.x += (Math.random() - 0.5) * 50;
-    this.dvel.z += (Math.random() - 0.5) * 50;
-    this.dvel.y += 24 + Math.random() * 55;
-    this.dspin = new THREE.Vector3((Math.random() - 0.5) * 5, (Math.random() - 0.5) * 4, (Math.random() - 0.5) * 6);
+    this.dvel.x += (Math.random() - 0.5) * 95;
+    this.dvel.z += (Math.random() - 0.5) * 95;
+    this.dvel.y += 45 + Math.random() * 135;     // big upward launch (≈2× the old throw)
+    this.dspin = new THREE.Vector3((Math.random() - 0.5) * 6, (Math.random() - 0.5) * 5, (Math.random() - 0.5) * 7.5);
     this.group.rotation.order = "XYZ";
-    this.airBoom = Math.random() < 0.4 ? 0.25 + Math.random() * 1.1 : -1; // some detonate mid-air
+    const r = Math.random();
+    this.fate = r < 0.32 ? "air" : (r < 0.68 ? "ground" : "none"); // ~air / impact / never
+    this.airBoom = this.fate === "air" ? 0.5 + Math.random() * 3.0 : -1; // staggered, not all at once
+  }
+  _explode(gy) {
+    this.alive = false;
+    if (this.position.y < gy + 3) this.position.y = gy;
+    this.fx.add(_v.copy(this.position), this.isLoco ? 3.4 : 2.6);
+    this.fx.burst(this.position, 0x9aa2ab, this.isLoco ? 22 : 14);
+    this.group.visible = false;
   }
   updateDerail(dt) {
-    if (!this.alive) return; // already exploded
+    if (!this.alive) return;
+    if (this.settled) { // resting wreck: just the odd smoulder
+      this.smokeT -= dt;
+      if (this.smokeT <= 0) { this.smokeT = 0.5 + Math.random() * 0.7; if (Math.random() < 0.5) this.fx.ember(this.position, 0.7); }
+      return;
+    }
     this.dieClock += dt;
-    this.dvel.y -= 64 * dt;  // heavy gravity
+    this.dvel.y -= 66 * dt;  // heavy gravity
     this.position.addScaledVector(this.dvel, dt);
     this.group.position.copy(this.position);
     this.group.rotation.x += this.dspin.x * dt;
@@ -451,11 +467,18 @@ class RailCar {
     this.smokeT -= dt;
     if (this.smokeT <= 0) { this.smokeT = 0.06; this.fx.ember(this.position, 1.6); } // burning trail
     const gy = Math.max(terrainHeight(this.position.x, this.position.z), SEA_LEVEL);
-    if ((this.airBoom > 0 && this.dieClock >= this.airBoom) || this.position.y <= gy + 3 || this.dieClock > 9) {
-      this.alive = false;
-      this.fx.add(_v.copy(this.position), this.isLoco ? 3.4 : 2.6);
-      this.fx.burst(this.position, 0x9aa2ab, this.isLoco ? 22 : 14);
-      this.group.visible = false;
+    const onGround = this.position.y <= gy + 3;
+    const airDue = this.fate === "air" && this.dieClock >= this.airBoom;
+    if (airDue || (this.dieClock > 12 && this.fate !== "none")) { this._explode(gy); return; }
+    if (onGround) {
+      if (this.fate === "ground" || this.fate === "air") { this._explode(gy); return; } // air-fated that fell first blows on impact
+      // "none" → settle as wreckage: bleed momentum, drop flat, stay put.
+      this.position.y = gy + 1.2; this.group.position.copy(this.position);
+      this.dvel.multiplyScalar(0.26); this.dvel.y = 0; this.dspin.multiplyScalar(0.4);
+      if (this.dvel.lengthSq() < 80 || this.dieClock > 8) {
+        this.settled = true; this.dvel.set(0, 0, 0);
+        this.fx.burst(this.position, 0x6a6f76, 6);
+      }
     }
   }
   reset() {
@@ -471,14 +494,14 @@ function blowUpTrain(train, hitCar) {
   train.destroyed = true;
   train.respawnT = 10 + Math.random() * 4;
   const fwd = train._forward(_d2);
-  const mom = Math.max(50, train.speed * 0.75);
+  const mom = Math.max(80, train.speed * 1.4); // ≈2× the old momentum throw
   const hp = (hitCar && hitCar.position) || train.cars[0].position;
   train.mgr.fx.add(_v.copy(hp).setY(hp.y + 6), 3.8);
   for (const c of train.cars) {
     if (!c.alive) continue;
     _d.copy(c.position).sub(hp); _d.y = 0;
     const away = _d.lengthSq() > 1 ? _d.normalize() : _d.copy(fwd);
-    _v.copy(fwd).multiplyScalar(mom).addScaledVector(away, 24 + Math.random() * 30);
+    _v.copy(fwd).multiplyScalar(mom).addScaledVector(away, 40 + Math.random() * 90);
     c.startDerail(_v);
   }
 }

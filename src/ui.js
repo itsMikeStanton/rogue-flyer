@@ -29,6 +29,7 @@ export class UI {
     this.buildMarkingsStrip();
     this.bindButtons();
     this.buildBindingControls();
+    this.buildButtonBindings();
     this.wireMobile();
     this.updateGamepadStatus();
     this.updateSummaries();
@@ -420,7 +421,58 @@ export class UI {
     document.getElementById("btn-settings-reset").addEventListener("click", () => {
       this.input.resetBindings();
       this.buildBindingControls();
+      this.buildButtonBindings();
     });
+  }
+
+  // Every action → any joystick button. Click "Set", then press a button.
+  buildButtonBindings() {
+    const root = document.getElementById("button-bindings");
+    if (!root) return;
+    const ACTIONS = [
+      ["fire", "Fire cannon"], ["missile", "Missile"], ["rocket", "Rockets"], ["bomb", "Drop bomb"],
+      ["bombsight", "Bomb sight"], ["flare", "Flares"], ["view", "Camera"], ["flyby", "Flyby cam"],
+      ["radar", "Radar / markers"], ["hud", "HUD on/off"], ["gear", "Gear"], ["flaps", "Flaps"],
+      ["brake", "Airbrake"], ["vtol", "VTOL nozzles"], ["hangar", "Vehicle bay"], ["reset", "Pause menu"],
+    ];
+    root.innerHTML = "";
+    for (const [key, label] of ACTIONS) {
+      const lab = document.createElement("span"); lab.className = "bb-label"; lab.textContent = label;
+      const cur = document.createElement("span"); cur.className = "bb-cur";
+      const b = this.input.bindings.buttons[key];
+      cur.textContent = (b == null || b > 31) ? "—" : ("Btn " + b);
+      const set = document.createElement("button"); set.className = "bb-set"; set.textContent = "Set";
+      set.addEventListener("click", () => this._captureButton(key, set));
+      root.appendChild(lab); root.appendChild(cur); root.appendChild(set);
+    }
+  }
+
+  _captureButton(key, btnEl) {
+    if (this._capture && this._capture.btnEl) { this._capture.btnEl.textContent = "Set"; this._capture.btnEl.classList.remove("listening"); }
+    if (this._capture && this._capture.key === key) { this._capture = null; return; } // toggle off
+    const pad = this.input.getPad();
+    const prev = new Set();
+    if (pad) pad.buttons.forEach((bn, i) => { if (bn.pressed) prev.add(i); });
+    this._capture = { key, prev, btnEl };
+    btnEl.textContent = "Press…"; btnEl.classList.add("listening");
+  }
+
+  // Poll for the captured button each frame (called from updateMonitors).
+  _pollCapture() {
+    if (!this._capture) return;
+    const pad = this.input.getPad();
+    if (!pad) return;
+    for (let i = 0; i < pad.buttons.length; i++) {
+      const down = pad.buttons[i].pressed;
+      if (down && !this._capture.prev.has(i)) {
+        this.input.bindings.buttons[this._capture.key] = i;
+        this.input.saveBindings();
+        this._capture = null;
+        this.buildButtonBindings();
+        return;
+      }
+      if (!down) this._capture.prev.delete(i); // a held-at-start button only counts once re-pressed
+    }
   }
 
   buildBindingControls() {
@@ -458,6 +510,7 @@ export class UI {
   // Called each frame while the settings panel is open.
   updateMonitors() {
     if (this.settings.classList.contains("hidden")) return;
+    this._pollCapture(); // listen for a button to bind, if capturing
     const pad = this.input.getPad();
     const am = document.getElementById("axis-monitor");
     const bm = document.getElementById("button-monitor");

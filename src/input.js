@@ -20,7 +20,9 @@ const DEFAULTS = {
   yaw: { axis: 5, invert: true, deadzone: 0.16 },
   throttle: { axis: 6, invert: true, deadzone: 0.0 },
   // button indices for actions (standard mapping-ish; remappable later)
-  buttons: { fire: 0, missile: 1, flare: 2, view: 3, reset: 9, gear: 4, flaps: 5, brake: 6, vtol: 7, hangar: 8, bomb: 10, rocket: 11, bombsight: 16 },
+  // Every action can be bound to any joystick button (remap in Settings). High
+  // defaults for the niche actions are usually out of range (unbound) until set.
+  buttons: { fire: 0, missile: 1, flare: 2, view: 3, reset: 9, gear: 4, flaps: 5, brake: 6, vtol: 7, hangar: 8, bomb: 10, rocket: 11, bombsight: 16, flyby: 17, radar: 18, hud: 19 },
 };
 
 // Expo response curve: e in [0,1], higher = gentler near centre, full at edge.
@@ -187,6 +189,9 @@ export class Input {
         bombPressed = this.pressed("pad-bomb", btn(b.bomb));
         rocketPressed = this.pressed("pad-rkt", btn(b.rocket));
         bombsightPressed = this.pressed("pad-bsight", btn(b.bombsight)); // bomb sight (bombers)
+        flybyPressed = this.pressed("pad-flyby", btn(b.flyby));
+        radarPressed = this.pressed("pad-radar", btn(b.radar));
+        hudPressed = this.pressed("pad-hud", btn(b.hud));
         hangarPressed = this.pressed("pad-bay", btn(b.hangar));
         if (btn(b.brake)) brake = true; // airbrake / wheel brake (held)
         // POV hat → free-look. Many sticks report it as a "hat" axis whose value
