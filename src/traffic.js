@@ -483,9 +483,15 @@ class RailCar {
     this.dvel.y += 45 + Math.random() * 135;     // big upward launch (≈2× the old throw)
     this.dspin = new THREE.Vector3((Math.random() - 0.5) * 6, (Math.random() - 0.5) * 5, (Math.random() - 0.5) * 7.5);
     this.group.rotation.order = "XYZ";
+    // What this car does — kept varied so the consist doesn't all light up at
+    // once: a few are already ablaze and blow (some mid-air, some on impact),
+    // many fly a CLEAN arc and only ignite + explode when they hit the ground,
+    // and some never explode at all — they just tumble and come to rest.
     const r = Math.random();
-    this.fate = r < 0.32 ? "air" : (r < 0.68 ? "ground" : "none"); // ~air / impact / never
-    this.airBoom = this.fate === "air" ? 0.5 + Math.random() * 3.0 : -1; // staggered, not all at once
+    if (r < 0.18) { this.fate = "air"; this.ignited = true; this.airBoom = 0.3 + Math.random() * 2.2; }       // ablaze, bursts mid-air (staggered)
+    else if (r < 0.42) { this.fate = "ground"; this.ignited = true; this.airBoom = -1; }                       // ablaze, blows on impact
+    else if (r < 0.76) { this.fate = "ground"; this.ignited = false; this.airBoom = -1; }                      // CLEAN arc, ignites + blows only on landing
+    else { this.fate = "none"; this.ignited = false; this.airBoom = -1; }                                       // clean tumble, settles as cold wreckage
   }
   _explode(gy) {
     this.alive = false;
@@ -496,7 +502,8 @@ class RailCar {
   }
   updateDerail(dt) {
     if (!this.alive) return;
-    if (this.settled) { // resting wreck: just the odd smoulder
+    if (this.settled) { // resting wreck: ablaze ones smoulder, clean ones just lie there
+      if (!this.ignited) return;
       this.smokeT -= dt;
       if (this.smokeT <= 0) { this.smokeT = 0.5 + Math.random() * 0.7; if (Math.random() < 0.5) this.fx.ember(this.position, 0.7); }
       return;
@@ -508,8 +515,10 @@ class RailCar {
     this.group.rotation.x += this.dspin.x * dt;
     this.group.rotation.y += this.dspin.y * dt;
     this.group.rotation.z += this.dspin.z * dt;
-    this.smokeT -= dt;
-    if (this.smokeT <= 0) { this.smokeT = 0.06; this.fx.ember(this.position, 1.6); } // burning trail
+    if (this.ignited) { // only cars actually on fire trail flame; clean ones fly dark
+      this.smokeT -= dt;
+      if (this.smokeT <= 0) { this.smokeT = 0.06; this.fx.ember(this.position, 1.6); }
+    }
     const gy = Math.max(terrainHeight(this.position.x, this.position.z), SEA_LEVEL);
     const onGround = this.position.y <= gy + 3;
     const airDue = this.fate === "air" && this.dieClock >= this.airBoom;
@@ -548,6 +557,8 @@ function blowUpTrain(train, hitCar) {
     _v.copy(fwd).multiplyScalar(mom).addScaledVector(away, 40 + Math.random() * 90);
     c.startDerail(_v);
   }
+  // The directly-struck car was just hit — let it go up almost at once.
+  if (hitCar && hitCar.alive) { hitCar.fate = "air"; hitCar.ignited = true; hitCar.airBoom = 0.05 + Math.random() * 0.3; }
 }
 
 // The train: owns the cars, runs them along the viaduct lane, respawns the
