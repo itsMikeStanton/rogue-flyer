@@ -480,26 +480,46 @@ class Train {
 // ---------------------------------------------------------------------------
 
 const LOOP_N = 360;       // samples around the loop
-const LOOP_CLEAR = 1.0;   // how far the track sits above ground / sea
+const LAND_CLEAR = 3;     // how far the deck sits above terrain on land
+const SEA_MIN = 70;       // minimum deck height above sea — an elevated trestle over water
+const CAR_SCALE = 1.9;    // the loop cars run large so they read from altitude
+const GAUGE = 9.5;        // half the rail-to-rail spacing (matches the scaled wheels)
+const BED_HW = 13;        // ballast-bed half-width
+const RAIL_HY = 1.7;      // rail height above the deck
+const POST_STEP = 4;      // place a support bent every N samples
+const POST_W = 3.2;       // support-leg thickness
 const _lpPos = new THREE.Vector3(), _lpDir = new THREE.Vector3(), _lp = { pos: _lpPos, dir: _lpDir };
 
-// Sample the closed loop centreline + its terrain-clamped heights. The height
-// is max(terrain, sea), so the path never dips underwater — it bridges across.
+// Sample the closed loop centreline. Each point's deck height is
+// max(terrain + LAND_CLEAR, sea + SEA_MIN): it hugs the ground on land but never
+// drops below a fixed height over water, so water crossings become an elevated
+// trestle. The deck is smoothed (then re-clamped above the surface) so grades
+// are gentle, and `surf` records the actual ground/sea surface for the posts.
 function buildLoopPath(cx, cz) {
-  const xs = new Float32Array(LOOP_N), zs = new Float32Array(LOOP_N), ys = new Float32Array(LOOP_N);
+  const xs = new Float32Array(LOOP_N), zs = new Float32Array(LOOP_N), ys = new Float32Array(LOOP_N), surf = new Float32Array(LOOP_N);
   const A = 7600, B = 6200;
   for (let i = 0; i < LOOP_N; i++) {
     const t = (i / LOOP_N) * Math.PI * 2;
     const x = cx + A * Math.cos(t) + 700 * Math.sin(2 * t);   // wobble off a plain ellipse
     const z = cz + B * Math.sin(t) + 600 * Math.cos(3 * t);
-    xs[i] = x; zs[i] = z; ys[i] = Math.max(terrainHeight(x, z), SEA_LEVEL) + LOOP_CLEAR;
+    const th = terrainHeight(x, z);
+    xs[i] = x; zs[i] = z;
+    surf[i] = Math.max(th, SEA_LEVEL);
+    ys[i] = Math.max(th + LAND_CLEAR, SEA_LEVEL + SEA_MIN);
   }
+  // Smooth the deck for gentle grades, then keep it above the surface.
+  const tmp = new Float32Array(LOOP_N);
+  for (let pass = 0; pass < 6; pass++) {
+    for (let i = 0; i < LOOP_N; i++) tmp[i] = (ys[(i - 1 + LOOP_N) % LOOP_N] + ys[i] * 2 + ys[(i + 1) % LOOP_N]) / 4;
+    ys.set(tmp);
+  }
+  for (let i = 0; i < LOOP_N; i++) if (ys[i] < surf[i] + 1) ys[i] = surf[i] + 1;
   const cum = new Float32Array(LOOP_N + 1);
   for (let i = 0; i < LOOP_N; i++) {
     const j = (i + 1) % LOOP_N;
     cum[i + 1] = cum[i] + Math.hypot(xs[j] - xs[i], zs[j] - zs[i]); // horizontal arc length, closed
   }
-  return { xs, zs, ys, cum, L: cum[LOOP_N] };
+  return { xs, zs, ys, surf, cum, L: cum[LOOP_N] };
 }
 
 // Position + 3D tangent at arc-length s (wraps around the loop).
@@ -515,7 +535,7 @@ function sampleLoop(p, s) {
 }
 
 // A flat ribbon mesh following the loop, offset sideways by `off`, half-width
-// `hw`, raised `hy` over the path — used for the ballast bed and the two rails.
+// `hw`, raised `hy` over the deck — used for the ballast bed and the two rails.
 function loopRibbon(p, off, hw, hy, color, opts = {}) {
   const verts = new Float32Array(LOOP_N * 2 * 3), idx = [];
   for (let i = 0; i < LOOP_N; i++) {
@@ -542,22 +562,45 @@ function loopRibbon(p, off, hw, hy, color, opts = {}) {
   return m;
 }
 
+// Support bents (paired vertical legs at the rail offsets) marching down from the
+// deck to the surface below — so the track stands on posts, especially over water.
+function buildLoopPosts(p) {
+  const legs = [];
+  for (let i = 0; i < LOOP_N; i += POST_STEP) {
+    const ip = (i - 1 + LOOP_N) % LOOP_N, inx = (i + 1) % LOOP_N;
+    let dx = p.xs[inx] - p.xs[ip], dz = p.zs[inx] - p.zs[ip];
+    const len = Math.hypot(dx, dz) || 1; dx /= len; dz /= len;
+    const px = -dz, pz = dx;
+    const top = p.ys[i] + 0.4, bot = p.surf[i] - 4, h = top - bot;
+    if (h < 3) continue;
+    for (const s of [-GAUGE, GAUGE]) legs.push({ x: p.xs[i] + px * s, y: (top + bot) / 2, z: p.zs[i] + pz * s, h });
+  }
+  const im = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), mat(0x5a554e, { r: 1 }), Math.max(1, legs.length));
+  const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), pos = new THREE.Vector3(), sc = new THREE.Vector3();
+  legs.forEach((l, k) => { pos.set(l.x, l.y, l.z); sc.set(POST_W, l.h, POST_W); im.setMatrixAt(k, m4.compose(pos, q, sc)); });
+  im.count = legs.length;
+  im.instanceMatrix.needsUpdate = true; im.castShadow = true; im.receiveShadow = true;
+  return im;
+}
+
 class LoopTrain {
   constructor(mgr, cx, cz) {
     this.mgr = mgr;
     this.path = buildLoopPath(cx, cz);
     this.track = new THREE.Group();
-    this.track.add(loopRibbon(this.path, 0, 7.0, 0.35, 0x39342f, { r: 1 }));            // ballast bed
-    this.track.add(loopRibbon(this.path, 5.0, 0.6, 0.9, 0x9aa0a6, { m: 0.4, r: 0.5 }));  // rails (gauge ~ wheels)
-    this.track.add(loopRibbon(this.path, -5.0, 0.6, 0.9, 0x9aa0a6, { m: 0.4, r: 0.5 }));
+    this.track.add(loopRibbon(this.path, 0, BED_HW, 0.4, 0x39342f, { r: 1 }));                      // ballast bed
+    this.track.add(loopRibbon(this.path, GAUGE, 0.9, RAIL_HY, 0x9aa0a6, { m: 0.4, r: 0.5 }));        // rails
+    this.track.add(loopRibbon(this.path, -GAUGE, 0.9, RAIL_HY, 0x9aa0a6, { m: 0.4, r: 0.5 }));
+    this.track.add(buildLoopPosts(this.path));                                                       // support bents
     mgr.scene.add(this.track);
 
-    this.spacing = 30; this.speed = 200;
+    this.spacing = 30 * CAR_SCALE; this.speed = 230;
     const palette = [0x6a4a3a, 0x40566a, 0x55663f, 0x7a6a3a, 0x4a4f55];
     const variants = ["boxcar", "tanker", "hopper", "boxcar", "tanker"];
     this.cars = [new RailCar(mgr.scene, mgr.fx, this, "loco", 0x394b3a, true)];
     for (let i = 0; i < variants.length; i++)
       this.cars.push(new RailCar(mgr.scene, mgr.fx, this, variants[i], palette[i % palette.length], false));
+    for (const c of this.cars) { c.group.scale.setScalar(CAR_SCALE); c.radius *= CAR_SCALE; } // bigger cars + hit boxes
     this.spawn();
   }
   spawn() { this.s = 0; this.respawnT = 0; for (const c of this.cars) c.reset(); this.place(); }
@@ -566,7 +609,7 @@ class LoopTrain {
     for (let i = 0; i < this.cars.length; i++) {
       const c = this.cars[i];
       const sr = sampleLoop(this.path, this.s - i * this.spacing); // loco (i=0) leads
-      c.position.copy(sr.pos); c.position.y += 0.8;                // wheels sit on the rails
+      c.position.copy(sr.pos); c.position.y += RAIL_HY;            // wheels sit on the rails
       c.group.position.copy(c.position);
       c.group.rotation.order = "YXZ";
       c.group.rotation.y = Math.atan2(sr.dir.x, sr.dir.z);         // yaw onto heading
@@ -583,7 +626,7 @@ class LoopTrain {
     for (const c of this.cars) {
       if (!c.alive) continue;
       const dx = pos.x - c.position.x, dz = pos.z - c.position.z;
-      if (Math.abs(dx) < 8 && Math.abs(dz) < 14 && Math.abs(pos.y - (c.position.y + 10)) < 16) return true;
+      if (Math.abs(dx) < 16 && Math.abs(dz) < 26 && Math.abs(pos.y - (c.position.y + 18)) < 32) return true;
     }
     return false;
   }
