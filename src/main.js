@@ -655,15 +655,15 @@ function updateCamera(dt) {
   const q = state.quaternion;
   bombMarker.visible = false; // only shown in Bomb Sight (set below)
 
-  // Vehicle bay showroom: a fixed 3/4 view auto-framed to the vehicle's size,
+  // Vehicle bay showroom: a centred 3/4 view auto-framed to the vehicle's size,
   // which rotates in place (the spin is applied to the mesh in the sync block).
-  // The look target is shifted right so the vehicle sits left of the stats panel.
+  // The model is centred head-on between the flanking info / armament panels.
   if (hangarMode) {
     hangarSpin += dt * 0.5; // medium rotation
     const r = hangarRadius;
-    camera.position.set(pos.x + r * 1.5, pos.y + r * 1.0, pos.z - r * 2.4);
+    camera.position.set(pos.x + r * 0.45, pos.y + r * 0.95, pos.z - r * 2.7);
     camera.up.set(0, 1, 0);
-    camera.lookAt(pos.x + r * 0.55, pos.y + r * 0.1, pos.z);
+    camera.lookAt(pos.x, pos.y + r * 0.08, pos.z);
     camera.fov += (42 - camera.fov) * Math.min(1, dt * 3);
     camera.updateProjectionMatrix();
     return;

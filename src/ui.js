@@ -170,23 +170,69 @@ export class UI {
   }
 
   updateHangarStats(key) {
-    const el = document.getElementById("hangar-stats");
+    const info = document.getElementById("hangar-info");
+    const wep = document.getElementById("hangar-weapons");
     const def = AIRCRAFT[key];
-    if (!el || !def) return;
-    const bar = (label, v) => `<div class="stat">${label}</div><div class="bar"><i style="width:${Math.round(v * 100)}%"></i></div>`;
-    const lo = def.loadout || {};
-    const arms = [];
-    if (lo.missiles) arms.push(`MSL ×${lo.missiles}`);
-    if (lo.rockets) arms.push(`RKT ×${lo.rockets}`);
-    if (lo.bombs) arms.push(`BMB ×${lo.bombs}`);
-    arms.push("GUN");
-    el.innerHTML = `
+    if (!def) return;
+
+    const bar = (label, v) => `<div class="stat">${label}<span>${Math.round(v * 100)}</span></div><div class="bar"><i style="width:${Math.round(v * 100)}%"></i></div>`;
+    const spec = (l, v) => `<div class="spec"><span class="sl">${l}</span><span class="sv">${v}</span></div>`;
+    const DEG = 180 / Math.PI;
+    const g = 9.81;
+    const isHeli = !!def.rotor;
+    const cls = isHeli ? "Rotorcraft" : def.vtol ? "VTOL jet" : (def.loadout && def.loadout.bombs >= 12) ? "Heavy bomber" : "Fixed-wing jet";
+
+    // --- LEFT: airframe / performance ---
+    const rows = [];
+    rows.push(spec("Class", cls));
+    rows.push(spec("Empty mass", `${(def.mass / 1000).toFixed(1)} t`));
+    if (isHeli) {
+      rows.push(spec("Rotor T/W", `${def.twr.toFixed(2)}`));
+      rows.push(spec("Top-speed drag", `${def.drag}`));
+    } else if (def.maxThrust > 0) {
+      const twr = def.maxThrust / (def.mass * g);
+      rows.push(spec("Max thrust", `${(def.maxThrust / 1000).toFixed(0)} kN`));
+      rows.push(spec("Thrust / weight", `${twr.toFixed(2)}`));
+      if (def.wingArea > 0) {
+        rows.push(spec("Wing area", `${def.wingArea} m²`));
+        rows.push(spec("Wing loading", `${Math.round(def.mass / def.wingArea)} kg/m²`));
+      }
+      if (def.stallAngle) rows.push(spec("Stall AoA", `${(def.stallAngle * DEG).toFixed(0)}°`));
+      if (def.clMax) rows.push(spec("Max lift Cl", `${def.clMax.toFixed(2)}`));
+    }
+    const roll = (def.rollRate || def.maxRoll || 0) * DEG;
+    const pitch = (def.pitchRate || def.maxPitch || 0) * DEG;
+    const yaw = (def.yawRate || 0) * DEG;
+
+    if (info) info.innerHTML = `
       <div class="hb-name">${def.name}</div>
       <div class="hb-role">${def.role}</div>
       ${bar("Speed", def.stats.speed)}
       ${bar("Agility", def.stats.agility)}
       ${bar("Toughness", def.stats.toughness)}
-      <div class="hb-arms">${arms.join("  ·  ")}</div>`;
+      <div class="hb-sub">Specifications</div>
+      ${rows.join("")}
+      <div class="hb-sub">Control rates</div>
+      ${spec("Roll rate", `${roll.toFixed(0)} °/s`)}
+      ${spec("Pitch rate", `${pitch.toFixed(0)} °/s`)}
+      ${spec("Yaw rate", `${yaw.toFixed(0)} °/s`)}`;
+
+    // --- RIGHT: armament ---
+    const lo = def.loadout || {};
+    const wpn = (name, count, dmg, desc, on = true) =>
+      `<div class="wpn${on ? "" : " off"}"><div class="whead"><span class="wn">${name}</span><span class="wc">${count}</span></div>` +
+      `<div class="wd">${dmg}${desc ? " · " + desc : ""}</div></div>`;
+    const arms = [];
+    arms.push(wpn("Cannon", "∞", "12 dmg/hit", "1400 m/s rounds, lead the target"));
+    arms.push(wpn("Heat missiles", lo.missiles ? `×${lo.missiles}` : "—", "120 dmg", "IR-guided, locks ahead", !!lo.missiles));
+    arms.push(wpn("Rockets", lo.rockets ? `×${lo.rockets}` : "—", "45 dmg", "Unguided, fly straight", !!lo.rockets));
+    arms.push(wpn("Bombs", lo.bombs ? `×${lo.bombs}` : "—", "240 dmg", "120 m blast, ballistic drop", !!lo.bombs));
+    const total = (lo.missiles || 0) + (lo.rockets || 0) + (lo.bombs || 0);
+    if (wep) wep.innerHTML = `
+      <div class="hb-name" style="font-size:18px">Armament</div>
+      <div class="hb-role">${total} stores + cannon</div>
+      <div class="hb-sub">Loadout</div>
+      ${arms.join("")}`;
   }
 
   showHangar(current, canStay) {
