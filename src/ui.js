@@ -1,6 +1,7 @@
 // Menu, jet selection, and the joystick remap / live-monitor panel.
 
 import { AIRCRAFT, LIVERIES } from "./aircraft.js";
+import { INSIGNIA, insigniaDataURL } from "./markings.js";
 
 export class UI {
   constructor(input, callbacks, touch, tilt) {
@@ -25,6 +26,7 @@ export class UI {
     this.buildJetList();
     this.buildHangarList();
     this.buildLiveryStrip();
+    this.buildMarkingsStrip();
     this.bindButtons();
     this.buildBindingControls();
     this.wireMobile();
@@ -168,6 +170,7 @@ export class UI {
     if (list) [...list.children].forEach((c) => c.classList.toggle("selected", c.dataset.key === key));
     this.updateHangarStats(key);
     this.refreshLiverySwatches(); // Factory swatch follows the selected airframe's colour
+    this.refreshMarkings();
     if (this.cb.onPreviewVehicle) this.cb.onPreviewVehicle(key); // swap the rotating preview
   }
 
@@ -211,6 +214,56 @@ export class UI {
   _selectLivery(id) {
     if (this.cb.onPreviewLivery) this.cb.onPreviewLivery(id);
     this.refreshLiverySwatches();
+  }
+
+  // Markings picker: national/squadron insignia swatches + a tail-number stepper.
+  buildMarkingsStrip() {
+    const strip = document.getElementById("hangar-markings");
+    if (!strip) return;
+    strip.innerHTML = `<span class="hbl-label">INSIGNIA</span>`;
+    for (const ins of INSIGNIA) {
+      const sw = document.createElement("button");
+      sw.className = "hbl-sw ins";
+      sw.dataset.id = ins.id;
+      sw.title = ins.id === "none" ? "No insignia" : `${ins.name} — ${ins.kind}`;
+      const url = insigniaDataURL(ins.id);
+      sw.innerHTML = url ? `<img src="${url}" alt="${ins.name}" />` : `<span class="ins-x">∅</span>`;
+      sw.addEventListener("click", () => this._selectInsignia(ins.id));
+      strip.appendChild(sw);
+    }
+    // Tail-number stepper.
+    const num = document.createElement("span");
+    num.className = "hbm-num-group";
+    num.innerHTML =
+      `<span class="hbl-label">CODE</span>` +
+      `<button class="hbm-step" data-d="-1">–</button>` +
+      `<span class="hbm-num" id="hangar-num">—</span>` +
+      `<button class="hbm-step" data-d="1">+</button>`;
+    strip.appendChild(num);
+    num.querySelectorAll(".hbm-step").forEach((b) =>
+      b.addEventListener("click", () => this._stepNumber(parseInt(b.dataset.d, 10))));
+    this.refreshMarkings();
+  }
+
+  refreshMarkings() {
+    const strip = document.getElementById("hangar-markings");
+    if (!strip) return;
+    const cur = this.cb.insigniaId ? this.cb.insigniaId() : "none";
+    for (const sw of strip.querySelectorAll(".hbl-sw")) sw.classList.toggle("selected", sw.dataset.id === cur);
+    const n = this.cb.tailNumber ? this.cb.tailNumber() : -1;
+    const el = document.getElementById("hangar-num");
+    if (el) el.textContent = n < 0 ? "—" : (n < 10 ? "0" + n : "" + n);
+  }
+
+  _selectInsignia(id) {
+    if (this.cb.onPreviewInsignia) this.cb.onPreviewInsignia(id);
+    this.refreshMarkings();
+  }
+  _stepNumber(d) {
+    let n = (this.cb.tailNumber ? this.cb.tailNumber() : -1) + d;
+    if (n < -1) n = 99; else if (n > 99) n = -1; // wrap through "off"
+    if (this.cb.onPreviewNumber) this.cb.onPreviewNumber(n);
+    this.refreshMarkings();
   }
 
   updateHangarStats(key) {
@@ -289,6 +342,7 @@ export class UI {
     }
     this.updateHangarStats(this.hangarPick);
     this.refreshLiverySwatches();
+    this.refreshMarkings();
     const stay = document.getElementById("hangar-stay");
     if (stay) stay.classList.toggle("hidden", !canStay);
     this.hangar.classList.remove("hidden");

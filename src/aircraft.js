@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { applyMarkings } from "./markings.js";
 
 // Arcade-plus aircraft definitions.
 // Physical-ish numbers (SI) tuned for fun rather than fidelity.
@@ -928,7 +929,7 @@ function addGearFlaps(g, def) {
 // Build the distinct low-poly mesh for a given aircraft type.
 // `colorOverride` (optional) repaints the airframe a single colour — used for
 // enemy jets. `liveryId` (optional) applies a named paint scheme instead.
-export function buildAircraftMesh(type, colorOverride, liveryId) {
+export function buildAircraftMesh(type, colorOverride, liveryId, markings) {
   const base = AIRCRAFT[type] || AIRCRAFT.f16;
   const def = { ...base };
   if (colorOverride != null) def.color = colorOverride;       // single-colour repaint (enemies)
@@ -950,6 +951,7 @@ export function buildAircraftMesh(type, colorOverride, liveryId) {
   else g = buildF16(def);
   if (!base.rotor) addGearFlaps(g, def); // helis carry skids/wheels in their own builders
   if (!g.userData.rotors) g.userData.rotors = [];
-  g.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+  if (markings) applyMarkings(g, def, markings); // national/squadron decals (player only)
+  g.traverse((o) => { if (o.isMesh && !o.userData.decal) o.castShadow = true; }); // decals are flat stickers — no shadow
   return g;
 }
