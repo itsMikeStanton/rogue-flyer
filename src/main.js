@@ -204,7 +204,7 @@ let crashHandled = false, respawnTimer = 0; // crash → wreckage → soft respa
 let armActive = false, armUp = false, armOpposite = false, armInit = false, armHint = "";
 const ARM_HI = 0.9, ARM_LO = 0.08;
 
-const CAMS = ["Chase", "Far Chase", "Cockpit", "Rear View", "Flyby"];
+const CAMS = ["Chase", "Far Chase", "Cockpit", "Rear View"];
 function camList() { return CAMS; }
 function currentCam() { return CAMS[camIndex % CAMS.length]; }
 let camIndex = 0;
@@ -217,11 +217,35 @@ function setCamIndex(i) {
 // part of the camera rotation. It overrides whatever chase view is selected.
 let bombSightOn = false;
 function bombSightActive() { return bombSightOn && def && def.loadout && def.loadout.bombs > 0; }
-function activeCamName() { return bombSightActive() ? "Bomb Sight" : currentCam(); }
-// Flyby cam: a world-anchored point ahead on the flight path you zoom past, then
-// it re-anchors ahead again for continuous heroic passes.
+function activeCamName() { return flybyActive ? "Flyby" : (bombSightActive() ? "Bomb Sight" : currentCam()); }
+
+// Flyby: a one-shot cinematic pass. Press the button → a camera is dropped far
+// ahead, almost directly on your flight path; you streak past it, then it hands
+// control back to your normal view. Not part of the camera cycle.
+let flybyActive = false, flybyT = 0;
 let flybyAnchor = null;
 const _flyFwd = new THREE.Vector3(), _flySide = new THREE.Vector3();
+function triggerFlyby() {
+  if (!flying || state.crashed || hangarMode || inXR) return;
+  _flyFwd.copy(state.velocity); _flyFwd.y = 0;
+  if (_flyFwd.lengthSq() < 1) { _flyFwd.set(0, 0, -1).applyQuaternion(state.quaternion); _flyFwd.y = 0; }
+  _flyFwd.normalize();
+  if (!flybyAnchor) flybyAnchor = new THREE.Vector3();
+  // Far out and almost dead ahead on the path (tiny lateral so the jet doesn't
+  // clip the lens), a touch above and clear of the ground.
+  _flySide.set(-_flyFwd.z, 0, _flyFwd.x).multiplyScalar((Math.random() < 0.5 ? -1 : 1) * 12);
+  flybyAnchor.copy(state.position).addScaledVector(_flyFwd, 440).add(_flySide);
+  flybyAnchor.y = Math.max(state.position.y + 14, groundHeightAt(flybyAnchor.x, flybyAnchor.z) + 16);
+  camTarget.copy(state.position);
+  flybyActive = true; flybyT = 0;
+}
+
+// HUD toggles (persisted): radar-off = "pure flight" (no target/enemy markers or
+// radar); hud-off = blank screen, just the world.
+let radarOff = false, hudOff = false;
+try { radarOff = localStorage.getItem("rf.radarOff") === "1"; hudOff = localStorage.getItem("rf.hudOff") === "1"; } catch (_) { /* ignore */ }
+function setRadarOff(v) { radarOff = v; try { localStorage.setItem("rf.radarOff", v ? "1" : "0"); } catch (_) { /* ignore */ } }
+function setHudOff(v) { hudOff = v; try { localStorage.setItem("rf.hudOff", v ? "1" : "0"); } catch (_) { /* ignore */ } }
 let ringsHit = 0;
 
 // Ground reticle showing the predicted bomb impact (shown in Bomb Sight).
@@ -600,7 +624,7 @@ function populateBases() {
 // the world (enemies, ground targets, rings, score, wreckage) exactly as it is.
 function placePlayer() {
   state = createState();
-  flybyAnchor = null; // re-anchor the flyby cam after a (re)spawn/teleport
+  flybyActive = false; flybyAnchor = null; // cancel any flyby on (re)spawn/teleport
   if (startPos === "runway") {
     // Park at the start of the runway, level, stopped, throttle idle.
     const z = 520;
@@ -799,6 +823,18 @@ function updateCamera(dt) {
   camera.fov += (targetFov - camera.fov) * Math.min(1, dt * 3);
   camera.updateProjectionMatrix();
 
+  // Flyby (one-shot): a fixed point far ahead on the path; you streak past it and
+  // it hands control back to your normal view. Overrides every other mode.
+  if (flybyActive) {
+    flybyT += dt;
+    camera.position.copy(flybyAnchor); // world-locked
+    camera.up.set(0, 1, 0);
+    camTarget.lerp(pos, 1 - Math.pow(0.0009, dt));
+    camera.lookAt(camTarget);
+    if (_v.copy(pos).sub(flybyAnchor).dot(_flyFwd) > 30 || flybyT > 6) flybyActive = false; // passed it / timed out
+    return;
+  }
+
   // Bombardier sight: the jet keeps flying while you look down at the ground and
   // a reticle marks where a bomb dropped now would hit. Steer to walk it onto
   // the target, then drop with N / the BOMB button.
@@ -845,45 +881,17 @@ function updateCamera(dt) {
     return;
   }
 
-  // Flyby: a fixed point ahead on the flight path. You scream past it, then it
-  // re-anchors further ahead for the next pass — continuous cinematic flybys.
-  if (mode === "Flyby") {
-    _flyFwd.copy(state.velocity); _flyFwd.y = 0;
-    if (_flyFwd.lengthSq() < 1) { _flyFwd.set(0, 0, -1).applyQuaternion(q); _flyFwd.y = 0; }
-    _flyFwd.normalize();
-    // Re-anchor when we have no anchor, have flown past it, or strayed far (turns).
-    const past = flybyAnchor && _v.copy(pos).sub(flybyAnchor).dot(_flyFwd) > 8;
-    const far = flybyAnchor && pos.distanceTo(flybyAnchor) > 520;
-    if (!flybyAnchor || past || far) {
-      if (!flybyAnchor) flybyAnchor = new THREE.Vector3();
-      _flySide.set(-_flyFwd.z, 0, _flyFwd.x).multiplyScalar((Math.random() < 0.5 ? -1 : 1) * (55 + Math.random() * 35));
-      flybyAnchor.copy(pos).addScaledVector(_flyFwd, 200 + Math.random() * 90).add(_flySide);
-      flybyAnchor.y = pos.y + 6 + Math.random() * 26;
-      flybyAnchor.y = Math.max(flybyAnchor.y, groundHeightAt(flybyAnchor.x, flybyAnchor.z) + 14);
-    }
-    camera.position.copy(flybyAnchor); // world-locked; the jet streaks past
-    camera.up.set(0, 1, 0);
-    camTarget.lerp(pos, 1 - Math.pow(0.0006, dt));
-    if (camTarget.lengthSq() === 0) camTarget.copy(pos);
-    camera.lookAt(camTarget);
-    return;
-  }
-
-  // Chase / Far Chase. The close chase is rigid — it stays glued exactly on the
-  // tail so a fast jet can never outrun it; Far Chase sits back and eases.
+  // Chase / Far Chase. Both follow with a little lag (they're NOT glued to the
+  // jet) so you have to catch up coming out of turns. Far Chase sits back more.
   const isFar = mode === "Far Chase";
-  const dist = isFar ? 24 : 7;
-  const height = isFar ? 8 : 2.7;
+  const dist = isFar ? 24 : 9;
+  const height = isFar ? 8 : 3.2;
   // Free-look orbits the camera around the jet (so you can look to the sides /
   // behind). With the hat centred this is exactly the normal chase view.
   const behind = _v.set(0, height, dist).applyEuler(_lookE).applyQuaternion(q).add(pos);
-  if (isFar) {
-    const lerp = 1 - Math.pow(0.0008, dt);
-    camPos.lerp(behind, lerp);
-    if (camPos.lengthSq() === 0) camPos.copy(behind);
-  } else {
-    camPos.copy(behind); // rigid close chase — no lag at any speed
-  }
+  const lerp = 1 - Math.pow(isFar ? 0.0008 : 0.0019, dt); // close chase lags a touch → you catch up on turns
+  camPos.lerp(behind, lerp);
+  if (camPos.lengthSq() === 0) camPos.copy(behind);
   camera.position.copy(camPos);
   camera.up.set(0, 1, 0);
   // Look ahead normally; pan toward the jet itself as you swing the view around.
@@ -1285,6 +1293,9 @@ function frame(now) {
   if (flying && !hangarMode && !paused && !state.crashed && !armActive) {
     if (controls.viewPressed) setCamIndex(camIndex + 1);
     if (controls.bombsightPressed && def.loadout && def.loadout.bombs > 0) bombSightOn = !bombSightOn; // bomber-only sight toggle
+    if (controls.flybyPressed) triggerFlyby();            // one-shot cinematic flyby
+    if (controls.radarPressed) setRadarOff(!radarOff);    // pure-flight: hide target/enemy markers + radar
+    if (controls.hudPressed) setHudOff(!hudOff);          // blank the whole HUD
 
     // Gear + flaps are manual now (G / V keys, or on-screen GEAR / FLAPS).
     if (controls.gearPressed) gearDown = !gearDown;
@@ -1477,7 +1488,7 @@ function frame(now) {
   }
 
   // HUD
-  if (flying && !hangarMode) {
+  if (flying && !hangarMode && !hudOff) {
     // Project the locked target to screen space for the lock box.
     let lock = null;
     if (weapons.lock && weapons.lock.alive) {
@@ -1594,12 +1605,14 @@ function frame(now) {
       brake: brakeActive,
       vtol: def.vtol ? vtolMode : null,
       gearWarn: !def.rotor && !gearDown && !state.onGround && state.telemetry.altitude < 350 && state.telemetry.speed < 140 && state.telemetry.vspeed < 0,
-      lock,
-      objective,
+      // "Pure flight" hides every target/enemy indicator (lock, objective,
+      // contacts, radar); nav island markers + instruments stay.
+      lock: radarOff ? null : lock,
+      objective: radarOff ? null : objective,
       islandMarkers,
       netStatus,
-      contacts,
-      radar,
+      contacts: radarOff ? null : contacts,
+      radar: radarOff ? null : radar,
     });
   } else {
     hud.ctx.clearRect(0, 0, hud.w, hud.h);

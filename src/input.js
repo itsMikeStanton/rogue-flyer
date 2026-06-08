@@ -134,6 +134,7 @@ export class Input {
     let pitch = 0, roll = 0, yaw = 0, throttle = 0;
     let viewPressed = false, pausePressed = false, fire = false, missilePressed = false, flarePressed = false;
     let gearPressed = false, flapsPressed = false, brake = false, vtolPressed = false, hangarPressed = false, bombPressed = false, rocketPressed = false, bombsightPressed = false;
+    let flybyPressed = false, radarPressed = false, hudPressed = false;
     let lookX = 0, lookY = 0; // POV hat free-look (x = right, y = up)
 
     if (pad) {
@@ -162,6 +163,7 @@ export class Input {
         bombPressed = this.pressed("gp-bomb", btn(14));   // D-pad left (drop bomb)
         rocketPressed = this.pressed("gp-rkt", btn(15)); // D-pad right (rockets)
         bombsightPressed = this.pressed("gp-bsight", btn(10)); // L3 (bomb sight, bombers)
+        flybyPressed = this.pressed("gp-flyby", btn(11));      // R3 (one-shot flyby cam)
         hangarPressed = this.pressed("gp-bay", btn(8));   // Back/Select (vehicle bay)
         pausePressed = this.pressed("gp-rst", btn(9));    // Start → pause menu
       } else {
@@ -232,6 +234,9 @@ export class Input {
     if (this.pressed("key-bomb", k.has("KeyN"))) bombPressed = true;   // N = drop bomb
     if (this.pressed("key-rkt", k.has("KeyR"))) rocketPressed = true;  // R = fire rockets
     if (this.pressed("key-bsight", k.has("KeyU"))) bombsightPressed = true; // U = bomb sight toggle (bombers)
+    if (this.pressed("key-flyby", k.has("KeyY"))) flybyPressed = true;       // Y = one-shot flyby cam
+    if (this.pressed("key-radar", k.has("KeyK"))) radarPressed = true;       // K = toggle radar / target markers
+    if (this.pressed("key-hud", k.has("KeyJ"))) hudPressed = true;           // J = toggle the whole HUD
     if (k.has("KeyZ")) brake = true;   // Z = airbrake / wheel brake (held)
     if (k.has("Space")) fire = true;
 
@@ -258,6 +263,7 @@ export class Input {
       throttle: Math.min(1, Math.max(0, throttle)),
       viewPressed, pausePressed, fire, missilePressed, flarePressed,
       gearPressed, flapsPressed, brake, vtolPressed, hangarPressed, bombPressed, rocketPressed, bombsightPressed,
+      flybyPressed, radarPressed, hudPressed,
       look: { x: lookX, y: lookY },
     };
   }
