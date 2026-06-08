@@ -328,7 +328,7 @@ export class Weapons {
   _acquireLock(dt, position, quaternion, targets) {
     _fwd.set(0, 0, -1).applyQuaternion(quaternion).normalize();
     const inBox = (t) => {
-      if (!t || !t.alive) return false;
+      if (!t || !t.alive || t.lockable === false) return false; // e.g. only the train's loco is lockable
       _to.copy(t.position).sub(position);
       const dist = _to.length();
       if (dist > LOCK_RANGE || dist < 1) return false;
@@ -339,7 +339,7 @@ export class Weapons {
     if (!best) {
       let bestDot = LOCK_COS;
       for (const t of targets) {
-        if (!t.alive) continue;
+        if (!t.alive || t.lockable === false) continue;
         _to.copy(t.position).sub(position);
         const dist = _to.length();
         if (dist > LOCK_RANGE || dist < 1) continue;

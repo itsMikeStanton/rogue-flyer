@@ -1556,7 +1556,7 @@ function frame(now) {
       });
     };
     // Ambient traffic shows as amber contacts in every mode.
-    for (const t of traffic.targets) if (t.alive) addContact(t.position, { color: "#ffc23c" });
+    for (const t of traffic.targets) if (t.alive && t.lockable !== false) addContact(t.position, { color: "#ffc23c" }); // one blip per train (loco), ships, zeppelin
     if (gameMode === "dogfight" || gameMode === "practice") {
       for (const t of enemies.targets) if (t.alive) addContact(t.position, { color: "#ff5b5b" });
     } else if (gameMode === "ffa") {

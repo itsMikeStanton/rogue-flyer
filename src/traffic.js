@@ -14,6 +14,7 @@ import { terrainHeight, SEA_LEVEL } from "./world.js";
 
 const _v = new THREE.Vector3();
 const _d = new THREE.Vector3();
+const _d2 = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 
 // Flak (shared by the warship-grade gunners: ships + zeppelin).
@@ -149,7 +150,7 @@ function buildZeppelin() {
 // One rail car — a sleek, modern, light-coloured coach (or a streamlined power
 // car for the loco), so the train pops against the terrain/ocean. Built facing
 // +Z. CAR_LEN is the body length; the trains' car spacing derives from it.
-const CAR_LEN = 34;
+const CAR_LEN = 42;
 function buildCar(variant, accent) {
   const g = new THREE.Group();
   const W = 11, L = CAR_LEN, isLoco = variant === "loco";
@@ -405,31 +406,81 @@ class Zeppelin extends Mover {
   }
 }
 
-// A single rail car target. Position is driven by the parent Train; the car
-// only owns its own life/health and explodes in place when killed.
+// A single rail car. Position is driven by the parent Train. Only the loco is
+// "lockable" (so the targeting reticle sits on the front engine), but every car
+// is hittable — and a kill on ANY car blows up the whole train (see hit()).
 class RailCar {
   constructor(scene, fx, train, variant, color, isLoco) {
     this.fx = fx; this.train = train; this.isLoco = isLoco;
     this.group = buildCar(variant, color);
     this.position = new THREE.Vector3();
-    this.radius = isLoco ? 16 : 14;
-    this.maxHealth = isLoco ? 60 : 30;
+    this.radius = isLoco ? 18 : 16;
+    this.maxHealth = isLoco ? 70 : 36;
     this.health = this.maxHealth;
     this.alive = true;
+    this.lockable = isLoco; // reticle/lock only on the front engine
+    this.derail = false;
     scene.add(this.group);
   }
   hit(dmg) {
-    if (!this.alive) return;
+    if (!this.alive || this.train.destroyed) return;
     this.health -= dmg;
-    if (this.health <= 0) this.die();
+    if (this.health <= 0) blowUpTrain(this.train, this); // any car down → whole train goes
   }
-  die() {
-    this.alive = false; this.group.visible = false;
-    this.fx.add(_v.copy(this.position).setY(this.position.y + 8), this.isLoco ? 3.2 : 2.4);
-    this.fx.burst(this.position, 0x6a5040, this.isLoco ? 18 : 12);
-    this.train.onCarDestroyed();
+  // Become a flying wreck: launched along the train's momentum + an outward kick,
+  // tumbling and trailing fire. Some blow up in the air, the rest on impact.
+  startDerail(vel) {
+    this.derail = true; this.dieClock = 0; this.smokeT = 0;
+    this.dvel = vel.clone();
+    this.dvel.x += (Math.random() - 0.5) * 50;
+    this.dvel.z += (Math.random() - 0.5) * 50;
+    this.dvel.y += 24 + Math.random() * 55;
+    this.dspin = new THREE.Vector3((Math.random() - 0.5) * 5, (Math.random() - 0.5) * 4, (Math.random() - 0.5) * 6);
+    this.group.rotation.order = "XYZ";
+    this.airBoom = Math.random() < 0.4 ? 0.25 + Math.random() * 1.1 : -1; // some detonate mid-air
   }
-  reset() { this.alive = true; this.health = this.maxHealth; this.group.visible = true; }
+  updateDerail(dt) {
+    if (!this.alive) return; // already exploded
+    this.dieClock += dt;
+    this.dvel.y -= 64 * dt;  // heavy gravity
+    this.position.addScaledVector(this.dvel, dt);
+    this.group.position.copy(this.position);
+    this.group.rotation.x += this.dspin.x * dt;
+    this.group.rotation.y += this.dspin.y * dt;
+    this.group.rotation.z += this.dspin.z * dt;
+    this.smokeT -= dt;
+    if (this.smokeT <= 0) { this.smokeT = 0.06; this.fx.ember(this.position, 1.6); } // burning trail
+    const gy = Math.max(terrainHeight(this.position.x, this.position.z), SEA_LEVEL);
+    if ((this.airBoom > 0 && this.dieClock >= this.airBoom) || this.position.y <= gy + 3 || this.dieClock > 9) {
+      this.alive = false;
+      this.fx.add(_v.copy(this.position), this.isLoco ? 3.4 : 2.6);
+      this.fx.burst(this.position, 0x9aa2ab, this.isLoco ? 22 : 14);
+      this.group.visible = false;
+    }
+  }
+  reset() {
+    this.alive = true; this.health = this.maxHealth; this.group.visible = true; this.derail = false;
+    this.group.rotation.set(0, 0, 0);
+  }
+}
+
+// Blow up an entire train: a blast at the hit car, then every car derails with
+// the train's momentum plus an outward kick so the consist concertinas apart.
+function blowUpTrain(train, hitCar) {
+  if (train.destroyed) return;
+  train.destroyed = true;
+  train.respawnT = 10 + Math.random() * 4;
+  const fwd = train._forward(_d2);
+  const mom = Math.max(50, train.speed * 0.75);
+  const hp = (hitCar && hitCar.position) || train.cars[0].position;
+  train.mgr.fx.add(_v.copy(hp).setY(hp.y + 6), 3.8);
+  for (const c of train.cars) {
+    if (!c.alive) continue;
+    _d.copy(c.position).sub(hp); _d.y = 0;
+    const away = _d.lengthSq() > 1 ? _d.normalize() : _d.copy(fwd);
+    _v.copy(fwd).multiplyScalar(mom).addScaledVector(away, 24 + Math.random() * 30);
+    c.startDerail(_v);
+  }
 }
 
 // The train: owns the cars, runs them along the viaduct lane, respawns the
@@ -446,13 +497,11 @@ class Train {
   }
   get targets() { return this.cars; }
   spawn() {
-    this.s = 20; this.dir = 1; this.speed = this.lane.speed; this.pauseT = 0; this.respawnT = 0;
+    this.s = 20; this.dir = 1; this.speed = this.lane.speed; this.pauseT = 0; this.respawnT = 0; this.destroyed = false;
     for (const c of this.cars) c.reset();
     this.place();
   }
-  onCarDestroyed() {
-    if (this.cars.every((c) => !c.alive)) this.respawnT = 7 + Math.random() * 4;
-  }
+  _forward(out) { return out.set(0, 0, this.dir || 1).normalize(); }
   place() {
     const L = this.lane;
     for (let i = 0; i < this.cars.length; i++) {
@@ -464,8 +513,11 @@ class Train {
     }
   }
   update(dt) {
-    if (this.respawnT > 0) { this.respawnT -= dt; if (this.respawnT <= 0) this.spawn(); return; }
-    if (this.cars.every((c) => !c.alive)) return;
+    if (this.destroyed) { // derailing wreckage, then respawn the consist
+      for (const c of this.cars) if (c.alive) c.updateDerail(dt);
+      this.respawnT -= dt; if (this.respawnT <= 0) this.spawn();
+      return;
+    }
     if (this.pauseT > 0) this.pauseT -= dt;
     else {
       this.s += this.dir * this.speed * dt;
@@ -608,12 +660,12 @@ class LoopTrain {
     this.spacing = (CAR_LEN + 8) * CAR_SCALE; this.speed = 184; // ~80% of the old pace
     const accent = 0xff5a3c; // warm stripe that pops against blue water + green land
     this.cars = [new RailCar(mgr.scene, mgr.fx, this, "loco", accent, true)];
-    for (let i = 0; i < 7; i++) this.cars.push(new RailCar(mgr.scene, mgr.fx, this, "coach", accent, false)); // loco + 7 (was +5)
+    for (let i = 0; i < 9; i++) this.cars.push(new RailCar(mgr.scene, mgr.fx, this, "coach", accent, false)); // loco + 9
     for (const c of this.cars) { c.group.scale.setScalar(CAR_SCALE); c.radius *= CAR_SCALE; } // bigger cars + hit boxes
     this.spawn();
   }
-  spawn() { this.s = 0; this.respawnT = 0; for (const c of this.cars) c.reset(); this.place(); }
-  onCarDestroyed() { if (this.cars.every((c) => !c.alive)) this.respawnT = 8 + Math.random() * 5; }
+  spawn() { this.s = 0; this.respawnT = 0; this.destroyed = false; for (const c of this.cars) c.reset(); this.place(); }
+  _forward(out) { const sr = sampleLoop(this.path, this.s); return out.copy(sr.dir).setY(0).normalize(); }
   place() {
     for (let i = 0; i < this.cars.length; i++) {
       const c = this.cars[i];
@@ -626,8 +678,11 @@ class LoopTrain {
     }
   }
   update(dt) {
-    if (this.respawnT > 0) { this.respawnT -= dt; if (this.respawnT <= 0) this.spawn(); return; }
-    if (this.cars.every((c) => !c.alive)) return;
+    if (this.destroyed) { // derailing wreckage, then respawn the consist
+      for (const c of this.cars) if (c.alive) c.updateDerail(dt);
+      this.respawnT -= dt; if (this.respawnT <= 0) this.spawn();
+      return;
+    }
     this.s += this.speed * dt;  // continuous — sampleLoop wraps it around the circuit
     this.place();
   }
