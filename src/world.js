@@ -351,8 +351,9 @@ float wFbm(vec2 p){ float v = 0.0, a = 0.5; for (int k = 0; k < 4; k++){ v += a 
   return mat;
 }
 
-// Procedural window textures for buildings: a tiled grid of window panes, with
-// a matching emissive map where some windows are "lit".
+// Procedural window textures for buildings: bigger, more widely-spaced glass
+// with faint concrete floor bands (reads as a cement curtain wall, not brick),
+// plus a matching emissive map where some windows are "lit".
 function makeWindowTextures() {
   const N = 64;
   const wall = document.createElement("canvas"); wall.width = wall.height = N;
@@ -360,11 +361,16 @@ function makeWindowTextures() {
   const gw = wall.getContext("2d"), ge = emis.getContext("2d");
   gw.fillStyle = "#ffffff"; gw.fillRect(0, 0, N, N); // white wall (tinted by instanceColor)
   ge.fillStyle = "#000000"; ge.fillRect(0, 0, N, N);
-  for (let y = 7; y < N - 4; y += 13) {
-    for (let x = 6; x < N - 4; x += 12) {
-      gw.fillStyle = Math.random() < 0.5 ? "#39434f" : "#2a3340";
-      gw.fillRect(x, y, 7, 9);
-      if (Math.random() < 0.33) { ge.fillStyle = "#ffcf86"; ge.fillRect(x, y, 7, 9); }
+  // Faint horizontal floor lines + a couple of vertical pier lines = concrete.
+  gw.fillStyle = "rgba(40,44,50,0.12)";
+  for (let y = 0; y < N; y += 16) gw.fillRect(0, y, N, 1);
+  for (let x = 0; x < N; x += 32) gw.fillRect(x, 0, 1, N);
+  // Fewer, larger window panes with generous cement between them.
+  for (let y = 6; y < N - 10; y += 16) {
+    for (let x = 6; x < N - 10; x += 16) {
+      gw.fillStyle = Math.random() < 0.5 ? "#39434f" : "#2c3641";
+      gw.fillRect(x, y, 9, 11);
+      if (Math.random() < 0.22) { ge.fillStyle = "#ffcf86"; ge.fillRect(x, y, 9, 11); }
     }
   }
   const t = new THREE.CanvasTexture(wall);
@@ -874,7 +880,7 @@ function buildIsland(scene, is, waveMats, colliders, smokeSources, trees) {
   {
     const MAX = 900;
     const win = makeWindowTextures();
-    const wallMat = new THREE.MeshStandardMaterial({ map: win.map, emissive: 0xffcf86, emissiveMap: win.emissiveMap, emissiveIntensity: 0.9, roughness: 0.8 });
+    const wallMat = new THREE.MeshStandardMaterial({ map: win.map, emissive: 0xffcf86, emissiveMap: win.emissiveMap, emissiveIntensity: 0.7, roughness: 0.85 });
     // Tile the window texture per-instance from each building's world size, so
     // windows stay a constant size instead of stretching to the box dimensions.
     wallMat.onBeforeCompile = (sh) => {
@@ -889,7 +895,11 @@ function buildIsland(scene, is, waveMats, colliders, smokeSources, trees) {
           if (an.y > 0.5) { pUV = position.xz; sz = vec2(isc.x, isc.z); }
           else if (an.x > 0.5) { pUV = position.zy; sz = vec2(isc.z, isc.y); }
           else { pUV = position.xy; sz = vec2(isc.x, isc.y); }
-          vMapUv = (pUV + 0.5) * (sz / 30.0);
+          // Per-building UV offset from its world position, so the lit-window
+          // pattern differs on every building instead of repeating identically.
+          vec2 woff = fract(vec2(instanceMatrix[3].x * 0.0173 + instanceMatrix[3].z * 0.0091,
+                                 instanceMatrix[3].z * 0.0151 + instanceMatrix[3].x * 0.0067));
+          vMapUv = (pUV + 0.5) * (sz / 30.0) + woff;
         }
 #endif`
       );
@@ -906,7 +916,7 @@ function buildIsland(scene, is, waveMats, colliders, smokeSources, trees) {
     buildings.castShadow = buildings.receiveShadow = true;
     flatRoofs.castShadow = hipRoofs.castShadow = caps.castShadow = acUnits.castShadow = antennas.castShadow = true;
     // Cement/concrete greys (cool, low-saturation) rather than warm brick tones.
-    const wallTones = [0xb3b6b7, 0x9b9ea0, 0x868a8c, 0xa6a8a7, 0x787c7e];
+    const wallTones = [0xc4c4c0, 0xb8bab9, 0xc9c6be, 0xa9acab, 0xbfbcb4, 0x9ea2a3];
     const roofTones = [0x52565b, 0x40474d, 0x6b6f74, 0x3a4148];
     const tmpCol = new THREE.Color();
     let n = 0, fr = 0, hr = 0, cp = 0, ac = 0, an = 0;
