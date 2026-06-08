@@ -205,7 +205,17 @@ export class UI {
       if (!lv) continue;
       const body = lv.body != null ? lv.body : acDef.color;
       const panel = lv.panel != null ? lv.panel : 0x3a4048;
-      sw.querySelector(".hbl-body").style.background = `linear-gradient(135deg, ${hex(body)} 0 60%, ${hex(panel)} 60% 100%)`;
+      const bg = sw.querySelector(".hbl-body");
+      if (lv.pattern) {
+        // Hint the camo with overlapping colour blobs from the 3-tone palette.
+        const a = hex(body), b = hex(panel), c = hex(lv.accent);
+        bg.style.background =
+          `radial-gradient(circle at 25% 30%, ${b} 0 26%, transparent 27%),` +
+          `radial-gradient(circle at 75% 65%, ${c} 0 24%, transparent 25%),` +
+          `radial-gradient(circle at 60% 20%, ${c} 0 16%, transparent 17%), ${a}`;
+      } else {
+        bg.style.background = `linear-gradient(135deg, ${hex(body)} 0 60%, ${hex(panel)} 60% 100%)`;
+      }
       sw.querySelector(".hbl-accent").style.background = hex(lv.accent);
       sw.classList.toggle("selected", lv.id === cur);
     }

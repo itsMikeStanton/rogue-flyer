@@ -228,8 +228,96 @@ export const LIVERIES = [
   { id: "orange",   name: "Sunburst",         kind: "Commercial", body: 0xe2701f, panel: 0xf1eee8, accent: 0x2a2a2a },
   { id: "skyblue",  name: "Sky Blue",         kind: "Commercial", body: 0x6fb7e0, panel: 0xeef4f8, accent: 0x1c4a6b },
   { id: "carbon",   name: "Carbon & Gold",    kind: "Commercial", body: 0x1a1c20, panel: 0x2b2e34, accent: 0xd4af37 },
+  // — Camouflage (procedural object-space patterns, not decals) —
+  { id: "cm_desert",   name: "Desert Camo",   kind: "Camo", pattern: "camo",     body: 0xcab488, panel: 0x9a7d4f, accent: 0x6f5a39 },
+  { id: "cm_woodland", name: "Woodland Camo", kind: "Camo", pattern: "camo",     body: 0x5d6a43, panel: 0x3a4628, accent: 0x4a3c27 },
+  { id: "cm_winter",   name: "Winter Camo",   kind: "Camo", pattern: "camo",     body: 0xe7ecef, panel: 0x9fb0bb, accent: 0x55636e },
+  { id: "cm_naval",    name: "Naval Splinter",kind: "Camo", pattern: "splinter", body: 0x8fa0ad, panel: 0x4f5e6b, accent: 0x2c3742 },
+  { id: "cm_digital",  name: "Digital Grey",  kind: "Camo", pattern: "digital",  body: 0x9aa2a8, panel: 0x6b727a, accent: 0x474d54 },
+  { id: "cm_tiger",    name: "Tiger Meat",    kind: "Camo", pattern: "tiger",    body: 0xd98a2b, panel: 0x241f1b, accent: 0x7a4a18 },
 ];
 export function resolveLivery(id) { return LIVERIES.find((l) => l.id === id) || LIVERIES[0]; }
+
+// --- Procedural camouflage --------------------------------------------------
+// Patterns are computed from each vertex's position in the AIRCRAFT'S OWN frame
+// (baked into an `aPos` attribute by bakeModelPositions), not from UVs. Because
+// every primitive samples the same 3D field, the camo flows seamlessly across
+// the whole airframe — no UV unwrap, no decal alignment. Body + spine share one
+// pattern + palette so the skin reads as a single continuous surface.
+const NOISE_GLSL = `
+  float hash13(vec3 p){ p = fract(p*0.1031); p += dot(p, p.yzx+33.33); return fract((p.x+p.y)*p.z); }
+  float vnoise(vec3 x){
+    vec3 i=floor(x), f=fract(x); f=f*f*(3.0-2.0*f);
+    float a=mix(mix(hash13(i+vec3(0,0,0)),hash13(i+vec3(1,0,0)),f.x), mix(hash13(i+vec3(0,1,0)),hash13(i+vec3(1,1,0)),f.x), f.y);
+    float b=mix(mix(hash13(i+vec3(0,0,1)),hash13(i+vec3(1,0,1)),f.x), mix(hash13(i+vec3(0,1,1)),hash13(i+vec3(1,1,1)),f.x), f.y);
+    return mix(a,b,f.z);
+  }
+  float fbm(vec3 p){ return vnoise(p)*0.6 + vnoise(p*2.1+5.2)*0.3 + vnoise(p*4.3+9.1)*0.1; }
+`;
+const PATTERN_GLSL = {
+  camo: `
+    float n = fbm(vPos*0.95);
+    float m = fbm(vPos*0.8 + 13.7);
+    vec3 cc = mix(uColA, uColB, smoothstep(0.44, 0.56, n));
+    cc = mix(cc, uColC, smoothstep(0.58, 0.70, m));
+    diffuseColor.rgb = cc;`,
+  digital: `
+    vec3 cell = floor(vPos*3.1);
+    float h = hash13(cell + fbm(vPos*0.6));
+    vec3 cc = mix(uColA, uColB, step(0.4, h));
+    cc = mix(cc, uColC, step(0.74, h));
+    diffuseColor.rgb = cc;`,
+  splinter: `
+    float d = vPos.z*0.8 + vPos.x*0.55;
+    vec3 cell = floor(vec3(vPos.x*1.5, d*1.9, vPos.y*1.3));
+    float h = hash13(cell);
+    vec3 cc = mix(uColA, uColB, step(0.42, h));
+    cc = mix(cc, uColC, step(0.78, h));
+    diffuseColor.rgb = cc;`,
+  tiger: `
+    float n = fbm(vPos*1.3);
+    float s = sin(vPos.z*3.1 + n*4.5);
+    vec3 cc = mix(uColA, uColB, smoothstep(0.05, 0.35, s));
+    diffuseColor.rgb = cc;`,
+};
+
+// Inject a camo pattern into a MeshStandardMaterial. `cols` are 3 THREE.Colors.
+function applyPattern(material, type, cols) {
+  material.onBeforeCompile = (sh) => {
+    sh.uniforms.uColA = { value: cols[0] };
+    sh.uniforms.uColB = { value: cols[1] };
+    sh.uniforms.uColC = { value: cols[2] };
+    sh.vertexShader = "attribute vec3 aPos;\nvarying vec3 vPos;\n" +
+      sh.vertexShader.replace("#include <begin_vertex>", "#include <begin_vertex>\n  vPos = aPos;");
+    sh.fragmentShader = NOISE_GLSL + "\nuniform vec3 uColA, uColB, uColC;\nvarying vec3 vPos;\n" +
+      sh.fragmentShader.replace("#include <color_fragment>", "#include <color_fragment>\n" + (PATTERN_GLSL[type] || PATTERN_GLSL.camo));
+  };
+  material.customProgramCacheKey = () => "camo-" + type;
+  material.needsUpdate = true;
+}
+
+// Bake every solid mesh's vertex positions, expressed in the group's frame, into
+// an `aPos` attribute so the camo shader samples a coherent 3D field. Skips
+// decals and additive flames; clones geometry shared at two transforms.
+const _bmInv = new THREE.Matrix4(), _bmRel = new THREE.Matrix4(), _bmV = new THREE.Vector3();
+function bakeModelPositions(group) {
+  group.updateMatrixWorld(true);
+  _bmInv.copy(group.matrixWorld).invert();
+  group.traverse((o) => {
+    if (!o.isMesh || o.userData.decal) return;
+    if (o.material && o.material.blending === THREE.AdditiveBlending) return; // flames
+    _bmRel.multiplyMatrices(_bmInv, o.matrixWorld);
+    let geo = o.geometry;
+    if (geo.userData._aposBaked) { geo = o.geometry = geo.clone(); } // shared geom at a 2nd transform
+    const pos = geo.attributes.position, arr = new Float32Array(pos.count * 3);
+    for (let i = 0; i < pos.count; i++) {
+      _bmV.fromBufferAttribute(pos, i).applyMatrix4(_bmRel);
+      arr[i * 3] = _bmV.x; arr[i * 3 + 1] = _bmV.y; arr[i * 3 + 2] = _bmV.z;
+    }
+    geo.setAttribute("aPos", new THREE.BufferAttribute(arr, 3));
+    geo.userData._aposBaked = true;
+  });
+}
 
 function makeMaterials(def) {
   const lv = def._livery || null;
@@ -237,9 +325,17 @@ function makeMaterials(def) {
   const panelCol = lv && lv.panel != null ? lv.panel : new THREE.Color(bodyCol).multiplyScalar(0.66).getHex();
   const accentCol = lv && lv.accent != null ? lv.accent : 0x2b3138;
   const bare = !!(lv && lv.bare);
+  const pattern = lv && lv.pattern;
+  const body = new THREE.MeshStandardMaterial({ color: bodyCol, flatShading: true, metalness: pattern ? 0.05 : (bare ? 0.85 : 0.3), roughness: pattern ? 0.92 : (bare ? 0.26 : 0.62) });
+  const panel = new THREE.MeshStandardMaterial({ color: panelCol, flatShading: true, metalness: pattern ? 0.05 : (bare ? 0.6 : 0.35), roughness: pattern ? 0.92 : (bare ? 0.34 : 0.6) });
+  if (pattern) {
+    // One pattern + palette on body and spine so the whole skin is one camo.
+    const pal = [new THREE.Color(bodyCol), new THREE.Color(panelCol), new THREE.Color(accentCol)];
+    applyPattern(body, pattern, pal);
+    applyPattern(panel, pattern, pal);
+  }
   return {
-    body: new THREE.MeshStandardMaterial({ color: bodyCol, flatShading: true, metalness: bare ? 0.85 : 0.3, roughness: bare ? 0.26 : 0.62 }),
-    panel: new THREE.MeshStandardMaterial({ color: panelCol, flatShading: true, metalness: bare ? 0.6 : 0.35, roughness: bare ? 0.34 : 0.6 }), // two-tone spine/accent
+    body, panel,
     accent: new THREE.MeshStandardMaterial({ color: accentCol, flatShading: true, metalness: 0.4, roughness: 0.6 }),
     metal: new THREE.MeshStandardMaterial({ color: 0x6a7077, flatShading: true, metalness: 0.75, roughness: 0.38 }), // nozzles/gun
     ord: new THREE.MeshStandardMaterial({ color: 0xccd1d6, flatShading: true, metalness: 0.2, roughness: 0.7 }),    // missiles/tanks
@@ -952,6 +1048,7 @@ export function buildAircraftMesh(type, colorOverride, liveryId, markings) {
   if (!base.rotor) addGearFlaps(g, def); // helis carry skids/wheels in their own builders
   if (!g.userData.rotors) g.userData.rotors = [];
   if (markings) applyMarkings(g, def, markings); // national/squadron decals (player only)
+  if (def._livery && def._livery.pattern) bakeModelPositions(g); // camo needs per-vertex model-space coords
   g.traverse((o) => { if (o.isMesh && !o.userData.decal) o.castShadow = true; }); // decals are flat stickers — no shadow
   return g;
 }
