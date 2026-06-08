@@ -10,6 +10,7 @@ import { TiltControls } from "./tilt.js";
 import { Weapons } from "./weapons.js";
 import { Enemies } from "./enemies.js";
 import { GroundTargets } from "./ground.js";
+import { Traffic } from "./traffic.js";
 import { Explosions } from "./fx.js";
 import { SoundEngine } from "./audio.js";
 import { Editor } from "./editor.js";
@@ -44,10 +45,14 @@ const fx = new Explosions(scene);
 const weapons = new Weapons(scene, fx);
 const enemies = new Enemies(scene, fx);
 const ground = new GroundTargets(scene, fx);
+// Ambient moving traffic (train, container ships, war zeppelin) — alive in
+// every mode as roaming targets that the player can also crash into.
+const traffic = new Traffic(scene, fx, { islands: world.islands, sea: SEA_LEVEL });
 const sound = new SoundEngine();
 fx.onAdd = (size, pos) => sound.explosion(size, pos); // positional booms
 enemies.onFire = (pos) => sound.enemyGun(pos);         // positional enemy guns
 ground.onFire = (pos) => sound.enemyGun(pos);          // carrier flak
+traffic.onFire = (pos) => sound.enemyGun(pos);         // ship / zeppelin flak
 let lastLocked = false;
 const hud = new Hud(document.getElementById("hud"));
 
@@ -1136,7 +1141,7 @@ function frame(now) {
     }
     checkRings();
 
-    // Crash if we fly into a building.
+    // Crash if we fly into a building — or into a ship / train / the zeppelin.
     if (!state.crashed) {
       const px = state.position.x, py = state.position.y, pz = state.position.z;
       for (const b of world.colliders) {
@@ -1145,16 +1150,22 @@ function frame(now) {
           break;
         }
       }
+      if (!state.crashed && traffic.collides(state.position)) state.crashed = true;
     }
 
     const isMission = gameMode === "mission";
-    const activeTargets = gameMode === "ffa" ? netTargets : (isMission ? ground.targets : enemies.targets);
+    // Mode targets + the always-on traffic (train/ships/zeppelin) the player can
+    // also engage. weapons.fire's first valid target in the list wins, so put
+    // the mode targets first and append traffic.
+    const baseTargets = gameMode === "ffa" ? netTargets : (isMission ? ground.targets : enemies.targets);
+    const activeTargets = baseTargets.concat(traffic.targets);
     if (controls.fire && weapons.fire(state.position, state.quaternion)) sound.gun();
     if (controls.missilePressed && weapons.fireMissile(state.position, state.quaternion, state.velocity)) sound.missile();
     if (controls.rocketPressed && weapons.fireRocket(state.position, state.quaternion, state.velocity)) sound.missile();
     if (controls.bombPressed && weapons.dropBomb(state.position, state.quaternion, state.velocity)) sound.missile();
     weapons.update(dt, state.position, state.quaternion, activeTargets);
     enemies.update(dt, player);
+    traffic.update(dt, player);
     if (isMission) ground.update(dt, player);
     fx.update(dt);
     sound.updateEngine(state.telemetry.throttle, state.telemetry.speed);
@@ -1359,6 +1370,8 @@ function frame(now) {
         far: dist > radar.range, color: opts.color,
       });
     };
+    // Ambient traffic shows as amber contacts in every mode.
+    for (const t of traffic.targets) if (t.alive) addContact(t.position, { color: "#ffc23c" });
     if (gameMode === "dogfight" || gameMode === "practice") {
       for (const t of enemies.targets) if (t.alive) addContact(t.position, { color: "#ff5b5b" });
     } else if (gameMode === "ffa") {
