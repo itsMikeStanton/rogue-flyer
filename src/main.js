@@ -264,7 +264,8 @@ const player = {
 function handleCrash(title) {
   if (crashHandled) return;
   crashHandled = true;
-  fx.add(state.position, 3.4);
+  fx.add(state.position, 3.4, 0xffa233, true); // silent: the dedicated crash sound plays instead
+  sound.crash(state.position);
   fx.shards(state.position, mesh, state.quaternion, 16); // fling actual pieces of the jet
   // Wreckage sits on the surface below the impact point — but only on land;
   // a crash into the sea just sinks (no burning wreck on the water).
@@ -1219,6 +1220,7 @@ function checkRings() {
       ring.userData.hit = true;
       ring.visible = false;
       ringsHit++;
+      sound.ring();
     }
   }
 }
@@ -1326,7 +1328,7 @@ function frame(now) {
     if (controls.fire && weapons.fire(state.position, state.quaternion)) sound.gun();
     if (controls.missilePressed && weapons.fireMissile(state.position, state.quaternion, state.velocity)) sound.missile();
     if (controls.rocketPressed && weapons.fireRocket(state.position, state.quaternion, state.velocity)) sound.missile();
-    if (controls.bombPressed && weapons.dropBomb(state.position, state.quaternion, state.velocity)) sound.missile();
+    if (controls.bombPressed && weapons.dropBomb(state.position, state.quaternion, state.velocity)) sound.bomb();
     weapons.update(dt, state.position, state.quaternion, activeTargets);
     enemies.update(dt, player);
     traffic.update(dt, player);
@@ -1340,6 +1342,7 @@ function frame(now) {
       const away = _v.clone().multiplyScalar(Math.max(50, state.velocity.length()));
       const tail = state.position.clone().addScaledVector(_v, 6);
       for (let i = 0; i < 6; i++) fx.flare(tail, away);
+      sound.flare();
       // In multiplayer, tell other pilots so their missiles tracking us can be
       // lured off (decoy logic runs on the shooter's machine).
       if (gameMode === "ffa" && net.connected) net.sendFire("flare", state.position, _v);

@@ -1,8 +1,12 @@
-// Synthesized sound via the Web Audio API — no audio files, works offline.
-// A continuous jet-engine drone (pitch/volume track throttle + speed) plus
-// one-shot effects: cannon, missile launch, explosion, lock tone, hull hit.
-// Browsers require a user gesture before audio starts, so call resume() from
-// a click/keypress (we do it on FLY and on first interaction).
+// Audio: real samples when present, synthesized fallback otherwise. Drop your
+// files into a top-level /sounds folder and list them in SOUNDS below. Each
+// entry is an array of variation files — a random one plays each time, and
+// one-shots get slight random pitch/volume so repeats (gunfire, explosions)
+// don't sound identical. mp3 OR wav both work. Any missing file silently falls
+// back to the built-in synth, so the game always has audio.
+//
+// A continuous jet engine (pitch/volume track throttle + speed, with an optional
+// high-power layer that fades in) plus positional one-shots.
 
 import * as THREE from "three";
 
@@ -12,12 +16,33 @@ const MASTER_VOL = 0.6;
 const _fwd = new THREE.Vector3();
 const _up = new THREE.Vector3();
 
+// ---- Sound manifest --------------------------------------------------------
+// name -> [variation files]. Add files and/or more variations freely, e.g.
+//   gun: ["sounds/gun_a.wav", "sounds/gun_b.wav", "sounds/gun_c.wav"]
+// To switch a sound to wav just change the extension here.
+const SOUNDS = {
+  gun:        ["sounds/gun.mp3"],
+  explosion:  ["sounds/explosion.mp3"],
+  missile:    ["sounds/missile.mp3"],
+  bomb:       ["sounds/bomb.mp3"],
+  flak:       ["sounds/flak.mp3"],     // enemy cannon / ship + zeppelin flak
+  lock:       ["sounds/lock.mp3"],     // lock-acquired chirp
+  hit:        ["sounds/hit.mp3"],      // taking damage
+  crash:      ["sounds/crash.mp3"],    // your aircraft going down
+  ring:       ["sounds/ring.mp3"],     // checkpoint pass
+  flare:      ["sounds/flare.mp3"],    // countermeasures
+  engine:     ["sounds/engine.mp3"],      // looping idle/cruise engine
+  engineHigh: ["sounds/engine_high.mp3"], // OPTIONAL looping high-power layer
+};
+
 export class SoundEngine {
   constructor() {
     this.ctx = null;
     this.master = null;
     this.noiseBuffer = null;
     this.engine = null;
+    this.buffers = {};        // name -> [AudioBuffer]
+    this._loaded = false;
     this.muted = localStorage.getItem(MUTE_KEY) === "1";
     this._lastEnemyGun = 0;
   }
@@ -77,6 +102,28 @@ export class SoundEngine {
     const d = buf.getChannelData(0);
     for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
     this.noiseBuffer = buf;
+
+    this._load(); // fire-and-forget; samples take over from synth as they arrive
+  }
+
+  // Fetch + decode every listed file. Missing/undecodable files are skipped
+  // (that sound stays on its synth fallback).
+  async _load() {
+    if (this._loaded || !this.ctx) return;
+    this._loaded = true;
+    for (const [name, urls] of Object.entries(SOUNDS)) {
+      for (const url of urls) {
+        try {
+          const res = await fetch(url);
+          if (!res.ok) continue;
+          const arr = await res.arrayBuffer();
+          const decoded = await this.ctx.decodeAudioData(arr);
+          (this.buffers[name] || (this.buffers[name] = [])).push(decoded);
+        } catch (_) { /* no file → synth fallback */ }
+      }
+    }
+    // If the engine started on the synth before its sample loaded, swap it in.
+    if (this.engine && !this.engine.sample && this.buffers.engine) this.startEngine();
   }
 
   resume() {
@@ -97,11 +144,49 @@ export class SoundEngine {
     return s;
   }
 
-  // ---- Continuous engine ----
+  // Play a loaded sample variation with slight random pitch/gain. Returns true
+  // if it played (so callers can fall back to synth when no sample exists).
+  // opts: { pos, gain=1, rate=1, rateVar=0, gainVar=0 }
+  _play(name, opts = {}) {
+    const bufs = this.buffers[name];
+    if (!bufs || !bufs.length || !this.ctx) return false;
+    const buf = bufs[(Math.random() * bufs.length) | 0];
+    const src = this.ctx.createBufferSource();
+    src.buffer = buf;
+    const rv = opts.rateVar || 0, gv = opts.gainVar || 0;
+    src.playbackRate.value = (opts.rate || 1) * (1 + (Math.random() * 2 - 1) * rv);
+    const g = this.ctx.createGain();
+    g.gain.value = Math.max(0, (opts.gain == null ? 1 : opts.gain) * (1 + (Math.random() * 2 - 1) * gv));
+    src.connect(g);
+    g.connect(opts.pos ? this._panner(opts.pos) : this.master);
+    src.start();
+    return true;
+  }
+
+  // ---- Continuous engine -----------------------------------------------------
   startEngine() {
     this._ensure();
     if (!this.ctx) return;
     this.stopEngine();
+    if (this.buffers.engine) this._startSampleEngine();
+    else this._startSynthEngine();
+  }
+
+  _startSampleEngine() {
+    const ctx = this.ctx;
+    const g = ctx.createGain(); g.gain.value = 0.0001; g.connect(this.master);
+    const src = ctx.createBufferSource(); src.buffer = this.buffers.engine[0]; src.loop = true; src.connect(g); src.start();
+    const e = { sample: true, g, src };
+    if (this.buffers.engineHigh) { // optional high-power layer, faded in by throttle
+      const gHigh = ctx.createGain(); gHigh.gain.value = 0.0001; gHigh.connect(this.master);
+      const srcHigh = ctx.createBufferSource(); srcHigh.buffer = this.buffers.engineHigh[0]; srcHigh.loop = true; srcHigh.connect(gHigh); srcHigh.start();
+      e.gHigh = gHigh; e.srcHigh = srcHigh;
+    }
+    g.gain.setTargetAtTime(0.22, ctx.currentTime, 0.25);
+    this.engine = e;
+  }
+
+  _startSynthEngine() {
     const ctx = this.ctx;
     const g = ctx.createGain();
     g.gain.value = 0.0001;
@@ -129,32 +214,67 @@ export class SoundEngine {
     noise.connect(nbp); nbp.connect(ng); ng.connect(g);
 
     low.start(); whine.start(); noise.start();
-    this.engine = { g, low, whine, lp, noise, ng };
+    this.engine = { synth: true, g, low, whine, lp, noise, ng };
   }
 
   stopEngine() {
     if (!this.engine) return;
-    const { g, low, whine, noise } = this.engine;
-    const t = this.ctx.currentTime;
-    g.gain.setTargetAtTime(0.0001, t, 0.1);
-    try { low.stop(t + 0.3); whine.stop(t + 0.3); noise.stop(t + 0.3); } catch (_) {}
+    const e = this.engine, t = this.ctx.currentTime;
+    e.g.gain.setTargetAtTime(0.0001, t, 0.1);
+    if (e.gHigh) e.gHigh.gain.setTargetAtTime(0.0001, t, 0.1);
+    try {
+      if (e.sample) { e.src.stop(t + 0.3); if (e.srcHigh) e.srcHigh.stop(t + 0.3); }
+      else { e.low.stop(t + 0.3); e.whine.stop(t + 0.3); e.noise.stop(t + 0.3); }
+    } catch (_) { /* ignore */ }
     this.engine = null;
   }
 
   updateEngine(throttle, speed) {
     if (!this.engine) return;
-    const e = this.engine;
-    const t = this.ctx.currentTime;
-    e.low.frequency.setTargetAtTime(45 + throttle * 70 + speed * 0.04, t, 0.08);
-    e.whine.frequency.setTargetAtTime(130 + throttle * 260, t, 0.08);
-    e.lp.frequency.setTargetAtTime(500 + throttle * 2600, t, 0.08);
-    e.ng.gain.setTargetAtTime(0.04 + throttle * 0.14, t, 0.08);
-    e.g.gain.setTargetAtTime(0.1 + throttle * 0.18, t, 0.08);
+    const e = this.engine, t = this.ctx.currentTime;
+    if (e.sample) {
+      // Pitch the loop up with throttle (+ a touch with speed); volume tracks
+      // throttle. The high layer crosses in past ~45% for the "ramp into power".
+      const rate = 0.82 + throttle * 0.55 + Math.min(0.25, speed * 0.0006);
+      e.src.playbackRate.setTargetAtTime(rate, t, 0.12);
+      e.g.gain.setTargetAtTime(0.18 + throttle * 0.26, t, 0.12);
+      if (e.srcHigh) {
+        e.srcHigh.playbackRate.setTargetAtTime(0.9 + throttle * 0.5, t, 0.12);
+        const hi = Math.max(0, (throttle - 0.45) / 0.55); // 0 below ~45%, ramps to 1 at full
+        e.gHigh.gain.setTargetAtTime(hi * hi * 0.32, t, 0.15);
+      }
+    } else {
+      e.low.frequency.setTargetAtTime(45 + throttle * 70 + speed * 0.04, t, 0.08);
+      e.whine.frequency.setTargetAtTime(130 + throttle * 260, t, 0.08);
+      e.lp.frequency.setTargetAtTime(500 + throttle * 2600, t, 0.08);
+      e.ng.gain.setTargetAtTime(0.04 + throttle * 0.14, t, 0.08);
+      e.g.gain.setTargetAtTime(0.1 + throttle * 0.18, t, 0.08);
+    }
   }
 
-  // ---- One-shots ----
-  gun() {
+  // ---- One-shots (sample if present, else synth) -----------------------------
+  gun() { if (this._play("gun", { gain: 0.9, rateVar: 0.10, gainVar: 0.15 })) return; this._synthGun(); }
+  missile() { if (this._play("missile", { gain: 0.9, rateVar: 0.06 })) return; this._synthMissile(); }
+  bomb() { if (this._play("bomb", { gain: 1.0, rateVar: 0.05 })) return; if (this._play("missile", { gain: 1.0 })) return; this._synthMissile(); }
+  explosion(size = 1, pos = null) {
+    if (this._play("explosion", { pos, gain: Math.min(1.1, 0.45 + size * 0.18), rate: 1 / (0.82 + size * 0.12), rateVar: 0.12, gainVar: 0.15 })) return;
+    this._synthExplosion(size, pos);
+  }
+  enemyGun(pos) {
     if (!this.ctx) return;
+    if (this.ctx.currentTime - this._lastEnemyGun < 0.05) return; // rate-limit a swarm
+    this._lastEnemyGun = this.ctx.currentTime;
+    if (this._play("flak", { pos, gain: 0.7, rateVar: 0.12, gainVar: 0.1 })) return;
+    this._synthEnemyGun(pos);
+  }
+  lock() { if (this._play("lock", { gain: 0.8 })) return; this._synthLock(); }
+  hit() { if (this._play("hit", { gain: 0.9, rateVar: 0.1 })) return; this._synthHit(); }
+  crash(pos = null) { if (this._play("crash", { pos, gain: 1.1, rateVar: 0.05 })) return; this._synthExplosion(2.6, pos); }
+  ring() { if (this._play("ring", { gain: 0.7 })) return; this._synthRing(); }
+  flare() { if (this._play("flare", { gain: 0.55, rateVar: 0.12 })) return; this._synthFlare(); }
+
+  // ---- Synthesized fallbacks -------------------------------------------------
+  _synthGun() {
     const ctx = this.ctx, t = ctx.currentTime;
     const n = this._noise();
     const bp = ctx.createBiquadFilter();
@@ -166,8 +286,7 @@ export class SoundEngine {
     n.start(t); n.stop(t + 0.07);
   }
 
-  missile() {
-    if (!this.ctx) return;
+  _synthMissile() {
     const ctx = this.ctx, t = ctx.currentTime;
     const n = this._noise();
     const lp = ctx.createBiquadFilter();
@@ -183,8 +302,7 @@ export class SoundEngine {
     n.start(t); n.stop(t + 0.75);
   }
 
-  explosion(size = 1, pos = null) {
-    if (!this.ctx) return;
+  _synthExplosion(size = 1, pos = null) {
     const ctx = this.ctx, t = ctx.currentTime;
     const amp = Math.min(0.7, 0.3 * size);
     const dest = pos ? this._panner(pos) : this.master;
@@ -211,12 +329,8 @@ export class SoundEngine {
     o.start(t); o.stop(t + 0.5);
   }
 
-  // Spatial enemy cannon, rate-limited so a swarm doesn't flood the mix.
-  enemyGun(pos) {
-    if (!this.ctx) return;
+  _synthEnemyGun(pos) {
     const ctx = this.ctx, t = ctx.currentTime;
-    if (t - this._lastEnemyGun < 0.05) return;
-    this._lastEnemyGun = t;
     const dest = pos ? this._panner(pos) : this.master;
     const n = this._noise();
     const bp = ctx.createBiquadFilter();
@@ -228,8 +342,7 @@ export class SoundEngine {
     n.start(t); n.stop(t + 0.07);
   }
 
-  lock() {
-    if (!this.ctx) return;
+  _synthLock() {
     const ctx = this.ctx, t = ctx.currentTime;
     for (let i = 0; i < 2; i++) {
       const o = ctx.createOscillator();
@@ -245,8 +358,47 @@ export class SoundEngine {
     }
   }
 
-  // Seeker "growl": a pulsing square tone that rises in pitch and pulse rate as
-  // the lock builds (call updateSeek every frame, stopSeek when not seeking).
+  _synthHit() {
+    const ctx = this.ctx, t = ctx.currentTime;
+    const n = this._noise();
+    const lp = ctx.createBiquadFilter();
+    lp.type = "lowpass"; lp.frequency.value = 500;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.28, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
+    n.connect(lp); lp.connect(g); g.connect(this.master);
+    n.start(t); n.stop(t + 0.22);
+  }
+
+  // A pleasant two-note rising chime for a checkpoint pass.
+  _synthRing() {
+    const ctx = this.ctx, t = ctx.currentTime;
+    for (const [i, f] of [[0, 740], [1, 1110]]) {
+      const o = ctx.createOscillator(); o.type = "triangle"; o.frequency.value = f;
+      const g = ctx.createGain(); const s = t + i * 0.08;
+      g.gain.setValueAtTime(0.0001, s);
+      g.gain.linearRampToValueAtTime(0.14, s + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.001, s + 0.22);
+      o.connect(g); g.connect(this.master);
+      o.start(s); o.stop(s + 0.24);
+    }
+  }
+
+  // A soft filtered "whoomp" for ejecting countermeasures.
+  _synthFlare() {
+    const ctx = this.ctx, t = ctx.currentTime;
+    const n = this._noise();
+    const bp = ctx.createBiquadFilter();
+    bp.type = "bandpass"; bp.frequency.setValueAtTime(2200, t);
+    bp.frequency.exponentialRampToValueAtTime(700, t + 0.3); bp.Q.value = 0.6;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.12, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
+    n.connect(bp); bp.connect(g); g.connect(this.master);
+    n.start(t); n.stop(t + 0.32);
+  }
+
+  // ---- Seeker growl (kept synth: it's a live parametric tone) -----------------
   startSeek() {
     if (!this.ctx || this._seek) return;
     const ctx = this.ctx;
@@ -270,18 +422,5 @@ export class SoundEngine {
     if (!this._seek) return;
     const s = this._seek; this._seek = null;
     try { s.o.stop(); s.lfo.stop(); s.base.stop(); } catch (_) { /* ignore */ }
-  }
-
-  hit() {
-    if (!this.ctx) return;
-    const ctx = this.ctx, t = ctx.currentTime;
-    const n = this._noise();
-    const lp = ctx.createBiquadFilter();
-    lp.type = "lowpass"; lp.frequency.value = 500;
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(0.28, t);
-    g.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
-    n.connect(lp); lp.connect(g); g.connect(this.master);
-    n.start(t); n.stop(t + 0.22);
   }
 }
