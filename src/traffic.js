@@ -669,25 +669,52 @@ function buildLoopPosts(p) {
   return im;
 }
 
-class LoopTrain {
-  constructor(mgr, cx, cz) {
-    this.mgr = mgr;
-    this.path = buildLoopPath(cx, cz);
-    this.track = new THREE.Group();
-    this.track.add(loopRibbon(this.path, 0, BED_HW, 0.4, 0x39342f, { r: 1 }));                      // ballast bed
-    this.track.add(loopRibbon(this.path, GAUGE, 0.9, RAIL_HY, 0x9aa0a6, { m: 0.4, r: 0.5 }));        // rails
-    this.track.add(loopRibbon(this.path, -GAUGE, 0.9, RAIL_HY, 0x9aa0a6, { m: 0.4, r: 0.5 }));
-    this.track.add(buildLoopPosts(this.path));                                                       // support bents
-    mgr.scene.add(this.track);
+// A simple raised platform with a shelter + lamps, beside the track at a stop.
+function buildStation(path, s) {
+  const g = new THREE.Group();
+  const sr = sampleLoop(path, s);
+  let dx = sr.dir.x, dz = sr.dir.z; const dl = Math.hypot(dx, dz) || 1; dx /= dl; dz /= dl;
+  const lpx = -dz, lpz = dx;                    // left-perpendicular (horizontal)
+  const side = GAUGE + 22;
+  g.position.set(sr.pos.x + lpx * side, sr.pos.y, sr.pos.z + lpz * side);
+  g.rotation.y = Math.atan2(dx, dz);            // align the platform along the track
+  const slab = new THREE.Mesh(new THREE.BoxGeometry(22, 3.5, 160), mat(0xb9c0c8, { r: 0.9 }));
+  slab.position.y = 0.6; g.add(slab);
+  const roof = new THREE.Mesh(new THREE.BoxGeometry(18, 1.4, 70), mat(0x6a7178, { m: 0.3, r: 0.5 }));
+  roof.position.set(-2, 16, 0); g.add(roof);
+  for (const zz of [-30, 0, 30]) for (const sx of [-8, 6]) {
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.7, 13, 6), mat(0x3a3f45));
+    post.position.set(sx, 8, zz); g.add(post);
+  }
+  for (const zz of [-55, -20, 20, 55]) { // platform lamps that glow at night
+    const lamp = new THREE.Mesh(new THREE.SphereGeometry(1.4, 8, 6), glow(0xffe0a0, 3.0));
+    lamp.position.set(9, 10, zz); g.add(lamp);
+  }
+  g.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  return g;
+}
 
-    this.spacing = (CAR_LEN + 8) * CAR_SCALE; this.speed = 184; // ~80% of the old pace
-    const accent = 0xff5a3c; // warm stripe that pops against blue water + green land
+const LOOP_BRAKE = 850; // distance before a station the train starts easing to a stop
+
+class LoopTrain {
+  constructor(mgr, path, opts) {
+    this.mgr = mgr;
+    this.path = path;
+    this.stations = opts.stations || [];
+    this.startS = opts.startS || 0;
+    this.spacing = (CAR_LEN + 8) * CAR_SCALE;
+    this.cruise = opts.speed || 184; this.speed = this.cruise;
+    const accent = opts.accent;
     this.cars = [new RailCar(mgr.scene, mgr.fx, this, "loco", accent, true)];
     for (let i = 0; i < 9; i++) this.cars.push(new RailCar(mgr.scene, mgr.fx, this, "coach", accent, false)); // loco + 9
     for (const c of this.cars) { c.group.scale.setScalar(CAR_SCALE); c.radius *= CAR_SCALE; } // bigger cars + hit boxes
     this.spawn();
   }
-  spawn() { this.s = 0; this.respawnT = 0; this.destroyed = false; for (const c of this.cars) c.reset(); this.place(); }
+  spawn() {
+    this.s = this.startS; this.respawnT = 0; this.destroyed = false;
+    this.speed = this.cruise; this.stMode = "run"; this.dwellT = 0; this.tgtSt = -1;
+    for (const c of this.cars) c.reset(); this.place();
+  }
   _forward(out) { const sr = sampleLoop(this.path, this.s); return out.copy(sr.dir).setY(0).normalize(); }
   place() {
     for (let i = 0; i < this.cars.length; i++) {
@@ -700,13 +727,35 @@ class LoopTrain {
       c.group.rotation.x = -Math.asin(THREE.MathUtils.clamp(sr.dir.y, -1, 1)); // pitch up/down slopes
     }
   }
+  // Ease to a stop at each station, dwell, then accelerate back to cruise.
+  _station(dt, L) {
+    const fdist = (a, b) => (((b - a) % L) + L) % L; // forward arc distance a -> b
+    if (this.stMode === "run") {
+      for (let i = 0; i < this.stations.length; i++) {
+        const d = fdist(this.s, this.stations[i].s);
+        if (d > 0.5 && d < LOOP_BRAKE) { this.tgtSt = i; this.stMode = "brake"; break; }
+      }
+    } else if (this.stMode === "brake") {
+      const st = this.stations[this.tgtSt], d = fdist(this.s, st.s);
+      const target = this.cruise * Math.min(1, d / LOOP_BRAKE);
+      this.speed += (target - this.speed) * Math.min(1, dt * 2.4);
+      if (d < 3 || this.speed < 3) { this.s = st.s; this.speed = 0; this.dwellT = st.dwell; this.stMode = "dwell"; }
+    } else if (this.stMode === "dwell") {
+      this.dwellT -= dt;
+      if (this.dwellT <= 0) this.stMode = "accel";
+    } else if (this.stMode === "accel") {
+      this.speed += (this.cruise - this.speed) * Math.min(1, dt * 1.4);
+      if (this.speed > this.cruise * 0.96) { this.speed = this.cruise; this.stMode = "run"; this.tgtSt = -1; }
+    }
+  }
   update(dt) {
     if (this.destroyed) { // derailing wreckage, then respawn the consist
       for (const c of this.cars) if (c.alive) c.updateDerail(dt);
       this.respawnT -= dt; if (this.respawnT <= 0) this.spawn();
       return;
     }
-    this.s += this.speed * dt;  // continuous — sampleLoop wraps it around the circuit
+    this.s += this.speed * dt;
+    this._station(dt, this.path.L);
     this.place();
   }
   hullHit(pos) {
@@ -755,9 +804,21 @@ export class Traffic {
     scene.add(this.viaduct.group);
     this.trains.push(new Train(this, { xLane, zFar, zNear, len: zNear - zFar, y: vy, speed: 60 }));
 
-    // A second train running a continuous terrain-hugging loop on the home
-    // island — bridges across rivers/bays at sea level and back onto land.
-    this.trains.push(new LoopTrain(this, A.x, A.z));
+    // TWO trains running a continuous terrain-hugging loop on the home island,
+    // pausing 15–20s at a few stations. The path + track + platforms are built
+    // once and shared; the trains run half a lap apart so they never meet.
+    const loopPath = buildLoopPath(A.x, A.z);
+    const loopTrack = new THREE.Group();
+    loopTrack.add(loopRibbon(loopPath, 0, BED_HW, 0.4, 0x39342f, { r: 1 }));                    // ballast bed
+    loopTrack.add(loopRibbon(loopPath, GAUGE, 0.9, RAIL_HY, 0x9aa0a6, { m: 0.4, r: 0.5 }));      // rails
+    loopTrack.add(loopRibbon(loopPath, -GAUGE, 0.9, RAIL_HY, 0x9aa0a6, { m: 0.4, r: 0.5 }));
+    loopTrack.add(buildLoopPosts(loopPath));                                                     // support bents
+    const Lp = loopPath.L;
+    const stations = [{ s: Lp * 0.16, dwell: 16 }, { s: Lp * 0.50, dwell: 18 }, { s: Lp * 0.83, dwell: 20 }];
+    for (const st of stations) loopTrack.add(buildStation(loopPath, st.s));
+    scene.add(loopTrack);
+    this.trains.push(new LoopTrain(this, loopPath, { startS: 0, accent: 0xff5a3c, stations, speed: 184 }));
+    this.trains.push(new LoopTrain(this, loopPath, { startS: Lp * 0.5, accent: 0x2ea6c4, stations, speed: 184 }));
   }
 
   // Live target list (ships, zeppelin, every surviving rail car).
