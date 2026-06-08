@@ -139,7 +139,7 @@ class Entity {
     this.mesh.rotation.z += this.spinR * dt;   // tumble / spiral
     this.mesh.rotation.x += dt * 1.4;
     this.smokeT -= dt;
-    if (this.smokeT <= 0) { this.smokeT = 0.045; this.manager.fx.add(this.position, 0.8, 0x141414, true); } // smoke trail
+    if (this.smokeT <= 0) { this.smokeT = 0.05; this.manager.fx.ember(this.position, 1.4); } // burning trail
     const gy = groundHeightAt(this.position.x, this.position.z);
     if (this.position.y <= gy + 2 || this.dieT > 7) {
       this.position.y = gy;

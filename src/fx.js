@@ -71,6 +71,12 @@ export class Explosions {
     });
   }
 
+  // A single small flame lick (additive, glows) for a burning/damaged thing.
+  ember(pos, scale = 1) {
+    this._puff(pos, (1.0 + Math.random() * 0.7) * scale, Math.random() < 0.5 ? 0xff8a2a : 0xffb347,
+      { life: 0.3 + Math.random() * 0.22, grow: 3.0, rise: 11, additive: true, op: 0.8 });
+  }
+
   // One expanding/fading billboard puff. opt: { life, grow, rise, additive, op, delay }.
   _puff(pos, size, color, opt) {
     const mat = new THREE.MeshBasicMaterial({

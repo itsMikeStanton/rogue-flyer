@@ -1230,6 +1230,27 @@ const PHYS_DT = 1 / 120;
 let acc = 0;
 let last = performance.now();
 
+// Damage smoke / fire: any alive thing under ~55% health trails smoke (a rising
+// dynamic source fed to the Smokestacks system); below ~30% it also burns with
+// flame licks. `_dmgObj` wraps the player (whose position is a tail offset).
+const _dmgTmp = new THREE.Vector3();
+const _dmgWrap = { position: null, alive: true, health: 0, maxHealth: 100 };
+function _dmgObj(pos, health, maxHealth) { _dmgWrap.position = pos; _dmgWrap.health = health; _dmgWrap.maxHealth = maxHealth; return _dmgWrap; }
+function damageFx(obj, dyn) {
+  if (!obj || obj.alive === false || obj.maxHealth == null || obj.maxHealth <= 1 || !obj.position) return;
+  const frac = obj.health / obj.maxHealth;
+  if (frac >= 0.55) return;
+  const sev = Math.min(1, (0.55 - frac) / 0.55); // 0..1, how badly hurt
+  const p = obj.position;
+  dyn.push({
+    x: p.x, y: p.y + 1.5, z: p.z,
+    size: 2.5 + sev * 6, rate: 5 + sev * 12,
+    color: frac < 0.28 ? 0x161616 : 0x4a4a4a, // darker the worse it gets
+    rise: 16, drift: 6, life: 1.5, grow: 3.4, wind: 4,
+  });
+  if (frac < 0.3 && Math.random() < 0.5) fx.ember(_dmgTmp.copy(p).setY(p.y + 1), 1 + sev); // on fire
+}
+
 function frame(now) {
   let dt = (now - last) / 1000;
   last = now;
@@ -1428,6 +1449,20 @@ function frame(now) {
   // Smoke plumes: scenery sources + any still-alive power-plant strike targets.
   const dyn = smoke.dynamic; dyn.length = 0;
   for (const t of ground.targets) if (t.alive && t.smokeStacks) for (const s of t.smokeStacks) dyn.push(s);
+  // Damage smoke + fire: anything alive and hurt trails smoke (and burns badly).
+  if (flying && !paused && !hangarMode) {
+    if (!state.crashed && player.health < 55) {
+      _v.set(0, 0, 1).applyQuaternion(state.quaternion).multiplyScalar(4).add(state.position);
+      damageFx(_dmgObj(_v, player.health, 100), dyn);
+    }
+    for (const e of enemies.targets) damageFx(e, dyn);
+    for (const t of ground.targets) damageFx(t, dyn);
+    for (const t of traffic.targets) damageFx(t, dyn);
+    if (gameMode === "ffa") for (const [id, mesh] of netMeshes) { // hurt opponents smoke too
+      const pl = net.players.get(id);
+      if (pl && pl.alive !== false && pl.health < 55) damageFx(_dmgObj(mesh.position, pl.health, 100), dyn);
+    }
+  }
   smoke.update(simDt, _skyPos);
   wrecks.update(simDt, now / 1000); // crash wreckage fire flicker
   updateBurningTrees(simDt);         // burnt-down trees vanish
