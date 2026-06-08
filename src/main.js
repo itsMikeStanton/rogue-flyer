@@ -313,6 +313,14 @@ function playerColor(id) { return new THREE.Color().setHSL(((id * 47) % 360) / 3
 net.onEvent = (t, m) => {
   if (t === "leave") { const mesh = netMeshes.get(m.id); if (mesh) { scene.remove(mesh); netMeshes.delete(m.id); } }
   else if (t === "hit") { if (flying && gameMode === "ffa") player.applyDamage(m.dmg); } // someone hit us
+  else if (t === "fire" && m.kind === "flare" && m.p) {
+    // Another pilot popped flares: show them and add decoys so OUR missiles
+    // tracking that player can be lured off (the decoy runs on the shooter's side).
+    const fp = _v.set(m.p[0], m.p[1], m.p[2]).clone();
+    const away = (m.dir ? _v2.set(m.dir[0], m.dir[1], m.dir[2]) : _v2.set(0, 0, 1)).clone().multiplyScalar(120);
+    for (let i = 0; i < 6; i++) fx.flare(fp, away);
+    weapons.addFlares(fp);
+  }
 };
 function clearRemotePlayers() { for (const mesh of netMeshes.values()) scene.remove(mesh); netMeshes.clear(); netTargets.length = 0; }
 function updateRemotePlayers(dt) {
@@ -1313,6 +1321,9 @@ function frame(now) {
       const away = _v.clone().multiplyScalar(Math.max(50, state.velocity.length()));
       const tail = state.position.clone().addScaledVector(_v, 6);
       for (let i = 0; i < 6; i++) fx.flare(tail, away);
+      // In multiplayer, tell other pilots so their missiles tracking us can be
+      // lured off (decoy logic runs on the shooter's machine).
+      if (gameMode === "ffa" && net.connected) net.sendFire("flare", state.position, _v);
     }
 
     if (isMission && ground.total > 0 && ground.remaining === 0 && !missionDone) {

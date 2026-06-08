@@ -26,6 +26,13 @@ const MSL_DAMAGE = 120;
 const SMOKE_INTERVAL = 0.02; // seconds between smoke puffs
 const SMOKE_LIFE = 0.9;
 
+// Countermeasure flares: short-lived decoy points that can pull a guided missile
+// off its lock if one is close and roughly in the missile's seeker cone.
+const FLARE_LIFE = 2.6;     // seconds a decoy keeps tempting missiles
+const FLARE_SEEK = 280;     // a missile within this range of a flare may divert
+const FLARE_CONE = 0.3;     // flare must be loosely ahead of the missile (dot)
+const FLARE_DIVERT = 3.2;   // divert chance per second, per tempting flare
+
 // Dumb rockets: unguided, fired forward, faster/cheaper, less damage, more of
 // them. Bombs: dropped, fall under gravity, big area blast.
 const ROCKET_DAMAGE = 45;
@@ -128,6 +135,7 @@ export class Weapons {
     this.bullets = [];
     this.missiles = [];   // guided missiles AND dumb rockets share this list (rocket flag)
     this.bombs = [];
+    this.flares = [];     // active countermeasure decoys (positions missiles can be lured to)
     this.smoke = [];
     this.deadTrails = []; // orphaned ribbons finishing their fade after detonation
     this.cooldown = 0;
@@ -175,6 +183,7 @@ export class Weapons {
     this.lock = null;
     this.lockProgress = 0;
     this.locked = false;
+    this.flares.length = 0;
   }
 
   // Fire the aircraft's forward ordnance: a guided/dumb missile if it has any,
@@ -349,9 +358,27 @@ export class Weapons {
     this.locked = !!this.lock && this.lock.alive && this.lockProgress >= 1;
   }
 
+  // Drop a cluster of decoy flares at `pos` (e.g. when a player pops flares).
+  // Guided missiles near them, pointed their way, may break lock and chase one.
+  addFlares(pos) {
+    for (let i = 0; i < 4; i++) {
+      this.flares.push({
+        isFlare: true, alive: true, life: FLARE_LIFE * (0.7 + Math.random() * 0.6),
+        position: new THREE.Vector3(pos.x + (Math.random() - 0.5) * 12, pos.y + (Math.random() - 0.5) * 7, pos.z + (Math.random() - 0.5) * 12),
+      });
+    }
+  }
+
   update(dt, position, quaternion, targets) {
     if (this.cooldown > 0) this.cooldown -= dt;
     this._acquireLock(dt, position, quaternion, targets);
+
+    // Age out spent flares (marking them dead so any missile chasing one goes dumb).
+    for (let i = this.flares.length - 1; i >= 0; i--) {
+      const f = this.flares[i];
+      f.life -= dt;
+      if (f.life <= 0) { f.alive = false; this.flares.splice(i, 1); }
+    }
 
     // Cannon rounds.
     for (let i = this.bullets.length - 1; i >= 0; i--) {
@@ -390,6 +417,17 @@ export class Weapons {
       } else {
         if (!m.lit) { m.lit = true; this.fx.add(m.mesh.position, 0.7, 0xffd27d, true); } // ignition flash
         let sp = m.vel.length() || 1;
+        // Countermeasures: a flare close and in the seeker cone can break the lock.
+        if (!m.rocket && !m.decoyed && m.target && m.target.alive && this.flares.length) {
+          _mdir.copy(m.vel).multiplyScalar(1 / sp);
+          for (const f of this.flares) {
+            _to.copy(f.position).sub(m.mesh.position);
+            const d = _to.length();
+            if (d > 1 && d < FLARE_SEEK && _to.multiplyScalar(1 / d).dot(_mdir) > FLARE_CONE && Math.random() < FLARE_DIVERT * dt) {
+              m.target = f; m.decoyed = true; break; // chase the flare instead
+            }
+          }
+        }
         if (m.target && m.target.alive) {
           _mdir.copy(m.vel).multiplyScalar(1 / sp);
           _desired.copy(m.target.position).sub(m.mesh.position).normalize();
@@ -423,6 +461,11 @@ export class Weapons {
       if (mp.y <= surfaceAt(mp.x, mp.z)) {
         this.fx.add(mp, m.rocket ? 1.6 : 2.4);
         if (this.onGroundImpact && !m.rocket) this.onGroundImpact(mp); // missiles leave a burning patch
+        detonate = true;
+      }
+      // Decoyed by a flare: burn off harmlessly when it reaches the decoy.
+      if (!detonate && m.decoyed && m.target && m.target.isFlare && mp.distanceTo(m.target.position) < MSL_PROX) {
+        this.fx.add(mp, 1.8, 0xffd23f);
         detonate = true;
       }
       // Proximity-detonate near ANY target, so unguided rockets also score hits.
