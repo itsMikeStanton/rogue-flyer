@@ -82,10 +82,10 @@ const GradeShader = {
 
 // Per-look bloom + grade parameters.
 const LOOKS = {
-  cinematic: { bloom: [0.55, 0.7, 0.55], grade: { uVignette: 0.4, uGrain: 0.03, uScan: 0.0, uChroma: 0.014, uDistort: 0.38, uOverscan: 0.12, uRgbShift: 1.6, uWarm: 0.25, uTealOrange: 0.28, uContrast: 1.06, uSat: 1.05 } },
+  cinematic: { bloom: [0.7, 0.78, 0.46], grade: { uVignette: 0.4, uGrain: 0.03, uScan: 0.0, uChroma: 0.014, uDistort: 0.38, uOverscan: 0.12, uRgbShift: 1.6, uWarm: 0.25, uTealOrange: 0.28, uContrast: 1.06, uSat: 1.05 } },
   // Halfway between cinematic and retro: punchy bloom + mild scanline/grain/warp.
-  vivid:     { bloom: [0.68, 0.65, 0.52], grade: { uVignette: 0.47, uGrain: 0.07, uScan: 0.05, uChroma: 0.024, uDistort: 0.66, uOverscan: 0.19, uRgbShift: 3.5, uWarm: 0.07, uTealOrange: 0.30, uContrast: 1.10, uSat: 1.03 } },
-  retro:     { bloom: [0.8, 0.6, 0.5], grade: { uVignette: 0.54, uGrain: 0.12, uScan: 0.1, uChroma: 0.034, uDistort: 0.95, uOverscan: 0.26, uRgbShift: 5.5, uWarm: -0.12, uTealOrange: 0.32, uContrast: 1.14, uSat: 1.0 } },
+  vivid:     { bloom: [0.86, 0.72, 0.40], grade: { uVignette: 0.47, uGrain: 0.07, uScan: 0.05, uChroma: 0.024, uDistort: 0.66, uOverscan: 0.19, uRgbShift: 3.5, uWarm: 0.07, uTealOrange: 0.30, uContrast: 1.10, uSat: 1.03 } },
+  retro:     { bloom: [0.98, 0.66, 0.38], grade: { uVignette: 0.54, uGrain: 0.12, uScan: 0.1, uChroma: 0.034, uDistort: 0.95, uOverscan: 0.26, uRgbShift: 5.5, uWarm: -0.12, uTealOrange: 0.32, uContrast: 1.14, uSat: 1.0 } },
 };
 
 export class PostFX {

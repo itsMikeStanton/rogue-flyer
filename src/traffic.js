@@ -189,15 +189,15 @@ function buildCar(variant, color) {
   // Running lights so the train reads at night: amber markers down both sides
   // of every car, plus white headlights and a red tail-lamp on the loco.
   for (const sx of [-1, 1]) for (const z of [-8, 8]) {
-    const m = new THREE.Mesh(LAMP_GEO, glow(0xffc46a, 2.2));
+    const m = new THREE.Mesh(LAMP_GEO, glow(0xffc46a, 3.4));
     m.position.set(sx * 5.7, variant === "loco" ? 14 : 12, z); g.add(m);
   }
   if (variant === "loco") {
     for (const sx of [-1, 1]) {
-      const hl = new THREE.Mesh(LAMP_GEO, glow(0xfff4d6, 3.0)); hl.scale.setScalar(1.3);
+      const hl = new THREE.Mesh(LAMP_GEO, glow(0xfff4d6, 4.4)); hl.scale.setScalar(1.4);
       hl.position.set(sx * 3, 9.5, 12.4); g.add(hl);                 // headlights (front, +Z)
     }
-    const tail = new THREE.Mesh(LAMP_GEO, glow(0xff3b30, 2.6));
+    const tail = new THREE.Mesh(LAMP_GEO, glow(0xff3b30, 3.8));
     tail.position.set(0, 13, -11.2); g.add(tail);                    // red tail-lamp (rear)
   }
 

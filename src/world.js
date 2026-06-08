@@ -560,7 +560,7 @@ function buildLighthouse() {
   const dome = new THREE.Mesh(new THREE.ConeGeometry(lantR + 2.5, 16, 12), dark);
   dome.position.y = ly + lantH + 8; g.add(dome);
   // Red aircraft-warning light on the very top (brighter so it blooms at night).
-  const tipMat = new THREE.MeshStandardMaterial({ color: 0xff4030, emissive: 0xff2a20, emissiveIntensity: 2.6, roughness: 0.5 });
+  const tipMat = new THREE.MeshStandardMaterial({ color: 0xff4030, emissive: 0xff2a20, emissiveIntensity: 3.6, roughness: 0.5 });
   const tip = new THREE.Mesh(new THREE.SphereGeometry(2.6, 10, 8), tipMat);
   tip.position.y = ly + lantH + 18; g.add(tip);
 
@@ -568,7 +568,7 @@ function buildLighthouse() {
   // opposing additive beams sweep round as main.js rotates `userData.beacon`.
   const lampY = ly + lantH / 2;
   const core = new THREE.Mesh(new THREE.SphereGeometry(lantR * 0.5, 10, 8),
-    new THREE.MeshStandardMaterial({ color: 0xfff3cf, emissive: 0xfff0c0, emissiveIntensity: 3.2, roughness: 0.3 }));
+    new THREE.MeshStandardMaterial({ color: 0xfff3cf, emissive: 0xfff0c0, emissiveIntensity: 4.4, roughness: 0.3 }));
   core.position.y = lampY; g.add(core);
   const beamMat = new THREE.MeshBasicMaterial({ color: 0xfff0c0, transparent: true, opacity: 0.16, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, side: THREE.DoubleSide });
   const makeBeam = () => {
@@ -1045,7 +1045,7 @@ function buildIsland(scene, is, waveMats, colliders, smokeSources, trees, spinne
       const poles = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.5, 0.7, 15, 6),
         new THREE.MeshStandardMaterial({ color: 0x2e3236, flatShading: true, roughness: 0.8 }), n);
       const heads = new THREE.InstancedMesh(new THREE.SphereGeometry(1.4, 8, 6),
-        new THREE.MeshStandardMaterial({ color: 0xffd79a, emissive: 0xffc070, emissiveIntensity: 2.0, roughness: 0.4 }), n);
+        new THREE.MeshStandardMaterial({ color: 0xffd79a, emissive: 0xffc070, emissiveIntensity: 3.4, roughness: 0.4 }), n);
       const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), one = new THREE.Vector3(1, 1, 1), pp = new THREE.Vector3();
       for (let i = 0; i < n; i++) {
         const x = lampPos[i * 2], z = lampPos[i * 2 + 1], gy = H(x, z);

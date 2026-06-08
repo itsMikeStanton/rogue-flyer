@@ -9,8 +9,8 @@ import * as THREE from "three";
 const PRESETS = {
   day:   { sky: 0x8fc4e8, fog: 0x9fcbe6, near: 6000, far: 20000, hemi: 0.9,  hSky: 0xcfeaff, hGnd: 0x4a5a3a, sun: 1.4,  sunCol: 0xfff4e0, stars: 0,   rain: 0,   body: "sun" },
   sunset:{ sky: 0xf3a45b, fog: 0xe08a55, near: 5000, far: 18000, hemi: 0.7,  hSky: 0xffd0a0, hGnd: 0x4a3a2e, sun: 1.2,  sunCol: 0xffb066, stars: 0,   rain: 0,   body: "sun" },
-  // Moonlit night — bright enough to actually see the world by.
-  night: { sky: 0x101c33, fog: 0x16243f, near: 6000, far: 21000, hemi: 0.62, hSky: 0x4a6492, hGnd: 0x1c2636, sun: 0.85, sunCol: 0xc4d2f2, stars: 1,   rain: 0,   body: "moon" },
+  // Moonlit night — darker, but still readable by the moonlight (and the lights).
+  night: { sky: 0x0a1322, fog: 0x0d1828, near: 6000, far: 21000, hemi: 0.46, hSky: 0x3a4f78, hGnd: 0x141c2c, sun: 0.6, sunCol: 0xb9c6e8, stars: 1,   rain: 0,   body: "moon" },
   rain:  { sky: 0x6a727c, fog: 0x79818b, near: 2500, far: 11000, hemi: 0.6,  hSky: 0x9aa7b3, hGnd: 0x44504a, sun: 0.5,  sunCol: 0xb9c2cc, stars: 0,   rain: 1,   body: null },
   storm: { sky: 0x131b2c, fog: 0x182132, near: 2400, far: 11000, hemi: 0.42, hSky: 0x35435e, hGnd: 0x141c28, sun: 0.5, sunCol: 0x9fb0d6, stars: 0.4, rain: 1.3, body: "moon" },
 };

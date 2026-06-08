@@ -527,8 +527,8 @@ function populateBases() {
   // ---- Airfield lighting: floodlight masts, apron edge lights, runway lights.
   //      All emissive (no real lights) so they bloom warm at night, cheaply. ----
   const lampGeo = new THREE.SphereGeometry(0.9, 6, 5);
-  const amber = new THREE.MeshStandardMaterial({ color: 0xffd79a, emissive: 0xffbf66, emissiveIntensity: 2.2, roughness: 0.4 });
-  const whiteL = new THREE.MeshStandardMaterial({ color: 0xfff4d8, emissive: 0xffe8c0, emissiveIntensity: 2.6, roughness: 0.4 });
+  const amber = new THREE.MeshStandardMaterial({ color: 0xffd79a, emissive: 0xffbf66, emissiveIntensity: 3.6, roughness: 0.4 });
+  const whiteL = new THREE.MeshStandardMaterial({ color: 0xfff4d8, emissive: 0xffe8c0, emissiveIntensity: 4.0, roughness: 0.4 });
   const poleMat = new THREE.MeshStandardMaterial({ color: 0x2e3236, flatShading: true, roughness: 0.8 });
   const lights = new THREE.Group();
   // Floodlight masts at the apron corners (pole + cross-bar + lamp heads).
