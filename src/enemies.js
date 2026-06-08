@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { buildAircraftMesh } from "./aircraft.js";
+import { groundHeightAt } from "./world.js";
 
 // Enemy squadron manager. Two kinds of contact:
 //   "drone"   – passive target that drifts in a circle (Target Practice)
@@ -80,8 +81,10 @@ class Entity {
   // (Re)spawn somewhere out in front of the spawn area, at altitude.
   place() {
     this.alive = true;
+    this.dying = false;
     this.health = this.maxHealth;
     this.mesh.visible = true;
+    this.mesh.rotation.set(0, 0, 0); // clear any death-spiral tumble
     const cx = (Math.random() - 0.5) * 9000;
     const cz = -2500 - Math.random() * 7000;
     const cy = 900 + Math.random() * 1700;
@@ -108,11 +111,44 @@ class Entity {
 
   die() {
     this.alive = false;
-    this.mesh.visible = false;
-    this.respawn = 4 + Math.random() * 3;
     this.manager.kills++;
-    this.manager.fx.add(this.position, this.kind === "fighter" ? 2.4 : 1.4);
-    if (this.kind === "fighter") this.manager.fx.burst(this.position, 0xb84a4a, 12);
+    const gy = groundHeightAt(this.position.x, this.position.z);
+    // A fighter killed up high goes into a smoking death-spiral and craters on
+    // impact; low kills (and drones, and the occasional catastrophic hit) just
+    // fireball on the spot.
+    if (this.kind === "fighter" && this.position.y > gy + 70 && Math.random() < 0.82) {
+      this.dying = true; this.dieT = 0; this.smokeT = 0;
+      this.fallVel = this.dir.clone().multiplyScalar(this.speed * 0.45); this.fallVel.y = -16;
+      this.spinR = (Math.random() - 0.5) * 4;
+      this.manager.fx.burst(this.position, 0xb84a4a, 8); // hit flash
+    } else {
+      this.mesh.visible = false;
+      this.respawn = 4 + Math.random() * 3;
+      this.manager.fx.add(this.position, this.kind === "fighter" ? 2.4 : 1.4);
+      if (this.kind === "fighter") this.manager.fx.burst(this.position, 0xb84a4a, 12);
+    }
+  }
+
+  // A downed fighter falling out of the sky: tumble + smoke trail, then a big
+  // crater blast when it hits the ground (or after a safety timeout).
+  updateDying(dt) {
+    this.dieT += dt;
+    this.fallVel.y -= 34 * dt;                 // gravity
+    this.position.addScaledVector(this.fallVel, dt);
+    this.mesh.position.copy(this.position);
+    this.mesh.rotation.z += this.spinR * dt;   // tumble / spiral
+    this.mesh.rotation.x += dt * 1.4;
+    this.smokeT -= dt;
+    if (this.smokeT <= 0) { this.smokeT = 0.045; this.manager.fx.add(this.position, 0.8, 0x141414, true); } // smoke trail
+    const gy = groundHeightAt(this.position.x, this.position.z);
+    if (this.position.y <= gy + 2 || this.dieT > 7) {
+      this.position.y = gy;
+      this.manager.fx.add(this.position, 3.2);                 // crater blast (with sound)
+      this.manager.fx.burst(this.position, 0xb84a4a, 16);
+      this.dying = false;
+      this.mesh.visible = false;
+      this.respawn = 3 + Math.random() * 3;
+    }
   }
 
   update(dt, player) {
@@ -206,6 +242,7 @@ export class Enemies {
   update(dt, player) {
     for (const e of this.entities) {
       if (!e.alive) {
+        if (e.dying) { e.updateDying(dt); continue; } // falling wreck, not yet respawning
         e.respawn -= dt;
         if (e.respawn <= 0) e.place();
         continue;

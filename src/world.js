@@ -228,14 +228,7 @@ function islandHeight(is, x, z) {
     const t = THREE.MathUtils.clamp((d - 600) / 800, 0, 1);
     h = THREE.MathUtils.lerp(0, h, t);
   }
-  const rv = is.river;
-  if (d < rv.carveMax) {
-    const rd = Math.abs(x - riverCenterXLocal(is, z));
-    if (rd < rv.outer) {
-      const t = THREE.MathUtils.smoothstep(rd, rv.inner, rv.outer);
-      h = THREE.MathUtils.lerp(rv.bed, h, t);
-    }
-  }
+  // (River removed — carve water inlets by hand with the height-sculpt tool.)
   h += sculptHeightAt(is, x, z); // editor-sculpted height offset
   return h;
 }
@@ -777,8 +770,7 @@ function buildIsland(scene, is, waveMats, colliders, smokeSources, trees, spinne
   scene.add(grp);
   const cx0 = is.center.x, cz0 = is.center.z;
   const H = (x, z) => islandHeight(is, x, z);
-  const RC = (z) => riverCenterXLocal(is, z);
-  const onRiver = (x, z) => Math.abs(x - RC(z)) < is.river.outer + 60;
+  const onRiver = () => false; // river removed — nothing to avoid
   const rnd = mulberry32(is.seed || 0x1f2e3d);
   const m4 = new THREE.Matrix4();
   const noRot = new THREE.Quaternion();
@@ -826,23 +818,7 @@ function buildIsland(scene, is, waveMats, colliders, smokeSources, trees, spinne
   for (const ze of [-585, 585]) for (let i = -3; i <= 3; i++) { if (i === 0) continue; mark(4, 26, i * 8, ze); }
   for (const za of [-380, 380]) { mark(6, 42, -10, za); mark(6, 42, 10, za); }
 
-  // River ribbon (local)
-  {
-    const z0 = -is.river.extent, z1 = is.river.extent, step = 300, half = 150;
-    const surf = is.river.surface;
-    const positions = [], indices = [];
-    let rows = 0;
-    for (let z = z0; z <= z1; z += step) { const rc = RC(z); positions.push(rc - half, surf, z, rc + half, surf, z); rows++; }
-    for (let i = 0; i < rows - 1; i++) { const a = i * 2, b = i * 2 + 1, cc = (i + 1) * 2, d = (i + 1) * 2 + 1; indices.push(a, cc, b, b, cc, d); }
-    const rgeo = new THREE.BufferGeometry();
-    rgeo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
-    rgeo.setIndex(indices); rgeo.computeVertexNormals();
-    const riverMat = waveMaterial(0x2f6f8c, 0.85);
-    const river = new THREE.Mesh(rgeo, riverMat);
-    river.receiveShadow = true;
-    grp.add(river);
-    waveMats.push(riverMat);
-  }
+  // (River ribbon removed — the global ocean shows through any inlet you sculpt.)
 
   // ---- Forests: three species (Pine/Oak/Birch) grouped into stands by the
   //      forest-type grid; muted/desaturated greens. ----
@@ -939,29 +915,41 @@ function buildIsland(scene, is, waveMats, colliders, smokeSources, trees, spinne
   // Everything stays instanced so a whole city is still a handful of draw calls.
   {
     const MAX = 900;
-    const win = makeWindowTextures();
-    const wallMat = new THREE.MeshStandardMaterial({ map: win.map, emissive: 0xffcf86, emissiveMap: win.emissiveMap, emissiveIntensity: 0.7, roughness: 0.85 });
-    // Tile the window texture per-instance from each building's world size, so
-    // windows stay a constant size instead of stretching to the box dimensions.
+    // Windows are PROCEDURAL (computed per-window in the shader), not a tiling
+    // texture: a window's lit state comes from a hash of its integer cell index
+    // (which keeps increasing up the facade) + a per-building seed — so lit
+    // windows are scattered, never repeating into vertical columns.
+    const wallMat = new THREE.MeshStandardMaterial({ color: 0xffffff, emissive: 0xffcf86, emissiveIntensity: 0.85, roughness: 0.85 });
     wallMat.onBeforeCompile = (sh) => {
-      sh.vertexShader = sh.vertexShader.replace(
-        "#include <uv_vertex>",
-        `#include <uv_vertex>
+      sh.vertexShader = "varying vec2 vWUV;\nvarying float vBseed;\n" + sh.vertexShader.replace(
+        "#include <begin_vertex>",
+        `#include <begin_vertex>
 #ifdef USE_INSTANCING
-        {
-          vec3 isc = vec3(length(instanceMatrix[0].xyz), length(instanceMatrix[1].xyz), length(instanceMatrix[2].xyz));
-          vec3 an = abs(normal);
-          vec2 pUV, sz;
-          if (an.y > 0.5) { pUV = position.xz; sz = vec2(isc.x, isc.z); }
-          else if (an.x > 0.5) { pUV = position.zy; sz = vec2(isc.z, isc.y); }
-          else { pUV = position.xy; sz = vec2(isc.x, isc.y); }
-          // Per-building UV offset from its world position, so the lit-window
-          // pattern differs on every building instead of repeating identically.
-          vec2 woff = fract(vec2(instanceMatrix[3].x * 0.0173 + instanceMatrix[3].z * 0.0091,
-                                 instanceMatrix[3].z * 0.0151 + instanceMatrix[3].x * 0.0067));
-          vMapUv = (pUV + 0.5) * (sz / 30.0) + woff;
-        }
+        vec3 isc = vec3(length(instanceMatrix[0].xyz), length(instanceMatrix[1].xyz), length(instanceMatrix[2].xyz));
+        vec3 an = abs(normal);
+        vec2 pUV, sz;
+        if (an.y > 0.5) { pUV = position.xz; sz = vec2(isc.x, isc.z); }
+        else if (an.x > 0.5) { pUV = position.zy; sz = vec2(isc.z, isc.y); }
+        else { pUV = position.xy; sz = vec2(isc.x, isc.y); }
+        vWUV = (pUV + 0.5) * (sz / 7.5);   // one window cell every 7.5 world units
+        vBseed = fract(sin(dot(instanceMatrix[3].xz, vec2(12.9898, 78.233))) * 43758.5453);
+#else
+        vWUV = position.xy; vBseed = 0.0;
 #endif`
+      );
+      sh.fragmentShader = "varying vec2 vWUV;\nvarying float vBseed;\nfloat bhash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }\n" + sh.fragmentShader.replace(
+        "#include <emissivemap_fragment>",
+        `#include <emissivemap_fragment>
+        {
+          vec2 cell = floor(vWUV);
+          vec2 f = fract(vWUV);
+          vec2 d = abs(f - 0.5);
+          float glass = step(d.x, 0.34) * step(d.y, 0.40);   // window pane vs cement rim
+          float band = step(f.y, 0.06);                       // faint floor line
+          diffuseColor.rgb = mix(diffuseColor.rgb * (1.0 - band * 0.18), diffuseColor.rgb * 0.30, glass);
+          float lit = step(0.80, bhash(cell + vec2(vBseed * 53.0, vBseed * 19.0))); // ~20% of windows lit
+          totalEmissiveRadiance *= glass * lit;               // glow only on lit panes
+        }`
       );
     };
     const buildings = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), wallMat, MAX);
@@ -1098,65 +1086,7 @@ function buildIsland(scene, is, waveMats, colliders, smokeSources, trees, spinne
     }
   }
 
-  // ---- Bridges (suspension): deck + towers + sagging main cables + hangers ----
-  {
-    const deckMat = new THREE.MeshStandardMaterial({ color: 0x6b6f74, flatShading: true, roughness: 0.9 });
-    const railMat = new THREE.MeshStandardMaterial({ color: 0x484c50, flatShading: true });
-    const pierMat = new THREE.MeshStandardMaterial({ color: 0x55585d, flatShading: true });
-    const towerMat = new THREE.MeshStandardMaterial({ color: 0x8a6f63, flatShading: true, roughness: 0.9 });
-    const cableMat = new THREE.MeshStandardMaterial({ color: 0x30343a, metalness: 0.6, roughness: 0.5 });
-    const lineMat = new THREE.MeshStandardMaterial({ color: 0xeef0f2, roughness: 0.7 });
-    const deckY = 16, towerH = 34, halfW = 14;
-    for (const bz of is.bridges) {
-      const cx = RC(bz);
-      const span = (is.river.outer + 70) * 2;
-      const half = span / 2, inner = is.river.inner, top = deckY + towerH;
-      // roadway deck + painted centreline
-      const deck = new THREE.Mesh(new THREE.BoxGeometry(span, 3, 30), deckMat);
-      deck.position.set(cx, deckY, bz); deck.castShadow = deck.receiveShadow = true; grp.add(deck);
-      const line = new THREE.Mesh(new THREE.BoxGeometry(span, 0.2, 1.2), lineMat);
-      line.position.set(cx, deckY + 1.65, bz); grp.add(line);
-      for (const s of [-1, 1]) {
-        const rail = new THREE.Mesh(new THREE.BoxGeometry(span, 2, 1.2), railMat);
-        rail.position.set(cx, deckY + 2.4, bz + s * halfW); grp.add(rail);
-      }
-      // two towers (paired legs + crossbeam) standing on pier footings
-      for (const tx of [cx - inner, cx + inner]) {
-        for (const s of [-1, 1]) {
-          const leg = new THREE.Mesh(new THREE.BoxGeometry(4, towerH + 8, 4), towerMat);
-          leg.position.set(tx, deckY - 4 + (towerH + 8) / 2, bz + s * halfW);
-          leg.castShadow = true; grp.add(leg);
-        }
-        const beam = new THREE.Mesh(new THREE.BoxGeometry(5, 3, 2 * halfW + 4), towerMat);
-        beam.position.set(tx, top, bz); grp.add(beam);
-        const ph = deckY - is.river.bed + 6;
-        const pier = new THREE.Mesh(new THREE.BoxGeometry(10, ph, 2 * halfW + 6), pierMat);
-        pier.position.set(tx, deckY - ph / 2, bz); pier.castShadow = true; grp.add(pier);
-      }
-      // main cables (sag between the towers, anchored at the deck ends) + hangers
-      for (const s of [-1, 1]) {
-        const z = bz + s * halfW;
-        const curve = new THREE.CatmullRomCurve3([
-          new THREE.Vector3(cx - half, deckY + 2, z),
-          new THREE.Vector3(cx - inner, top, z),
-          new THREE.Vector3(cx, deckY + 6, z),
-          new THREE.Vector3(cx + inner, top, z),
-          new THREE.Vector3(cx + half, deckY + 2, z),
-        ]);
-        grp.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 40, 0.6, 6, false), cableMat));
-        const N = 9;
-        for (let i = 1; i < N; i++) {
-          const xx = cx - inner + (2 * inner) * (i / N);
-          const tn = (xx - cx) / inner;
-          const cy = top - (top - (deckY + 6)) * (1 - tn * tn); // parabola matching the cable
-          const hh = cy - (deckY + 1.6);
-          if (hh < 1) continue;
-          const hanger = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.18, hh, 5), cableMat);
-          hanger.position.set(xx, deckY + 1.6 + hh / 2, z); grp.add(hanger);
-        }
-      }
-    }
-  }
+  // (Suspension bridges removed along with the river.)
 
   // ---- Landmarks: a lattice radio tower on the cliff, a lighthouse on the
   //      far shore (opposite the cliff). Both big, low-poly. ----
