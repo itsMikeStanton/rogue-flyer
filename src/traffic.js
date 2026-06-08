@@ -146,59 +146,54 @@ function buildZeppelin() {
   return { group: g, guns, props, hull: { rx: 64, ry: 64, rz: 184 } };
 }
 
-// One rail car. variant picks loco / boxcar / tanker / hopper. Built facing +Z.
-function buildCar(variant, color) {
+// One rail car — a sleek, modern, light-coloured coach (or a streamlined power
+// car for the loco), so the train pops against the terrain/ocean. Built facing
+// +Z. CAR_LEN is the body length; the trains' car spacing derives from it.
+const CAR_LEN = 34;
+function buildCar(variant, accent) {
   const g = new THREE.Group();
-  const chassis = new THREE.Mesh(new THREE.BoxGeometry(11, 3, 24), mat(0x26282a));
-  chassis.position.y = 4; g.add(g.userData.chassis = chassis);
-  // Bogies / wheels (two axles each end) for a bit of running gear.
-  for (const z of [-8, 8]) for (const sx of [-1, 1]) {
-    const w = new THREE.Mesh(new THREE.CylinderGeometry(2.2, 2.2, 1.4, 10), mat(0x141518));
-    w.rotation.z = Math.PI / 2; w.position.set(sx * 5.5, 2.4, z); g.add(w);
+  const W = 11, L = CAR_LEN, isLoco = variant === "loco";
+  const bodyCol = 0xeef1f4, roofCol = 0xd2d8de, skirtCol = 0x8c95a0;
+
+  // Underframe skirt + bogies.
+  const skirt = new THREE.Mesh(new THREE.BoxGeometry(W - 0.5, 4.5, L - 1.5), mat(skirtCol)); skirt.position.y = 4.2; g.add(skirt);
+  for (const z of [-L * 0.32, L * 0.32]) for (const sx of [-1, 1]) {
+    const w = new THREE.Mesh(new THREE.CylinderGeometry(2.0, 2.0, 1.3, 10), mat(0x141518));
+    w.rotation.z = Math.PI / 2; w.position.set(sx * 5.4, 2.4, z); g.add(w);
   }
 
-  if (variant === "loco") {
-    const body = new THREE.Mesh(new THREE.BoxGeometry(10, 11, 18), mat(color));
-    body.position.set(0, 11, -2); g.add(body);
-    const nose = new THREE.Mesh(new THREE.BoxGeometry(10, 7, 6), mat(color));
-    nose.position.set(0, 9, 9); nose.rotation.x = -0.32; g.add(nose);          // sloped snout
-    const cab = new THREE.Mesh(new THREE.BoxGeometry(10.4, 7, 7), mat(0x2f3a30));
-    cab.position.set(0, 18, -7); g.add(cab);
-    const glass = new THREE.Mesh(new THREE.BoxGeometry(10.6, 3.4, 3), lit(0x223844));
-    glass.position.set(0, 19, -3.5); g.add(glass);
-    const stack = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 2, 4, 8), mat(0x1c1d20));
-    stack.position.set(0, 18, 5); g.add(stack);
-  } else if (variant === "tanker") {
-    const tank = new THREE.Mesh(new THREE.CylinderGeometry(6, 6, 22, 12), mat(color, { m: 0.3, r: 0.5 }));
-    tank.rotation.x = Math.PI / 2; tank.position.set(0, 12, 0); g.add(tank);
-    const dome = new THREE.Mesh(new THREE.CylinderGeometry(2, 2, 2, 8), mat(0x3a3d40));
-    dome.position.set(0, 18, 0); g.add(dome);
-  } else if (variant === "hopper") {
-    const body = new THREE.Mesh(new THREE.BoxGeometry(10, 9, 22), mat(color));
-    body.position.set(0, 11, 0); g.add(body);
-    // open coal/ore load
-    const load = new THREE.Mesh(new THREE.BoxGeometry(9, 3, 21), mat(0x2a2620));
-    load.position.set(0, 16.5, 0); g.add(load);
-  } else { // boxcar
-    const body = new THREE.Mesh(new THREE.BoxGeometry(10, 11, 23), mat(color));
-    body.position.set(0, 12, 0); g.add(body);
-    const roof = new THREE.Mesh(new THREE.BoxGeometry(10.6, 1.6, 23.4), mat(0x4a4d50));
-    roof.position.set(0, 18, 0); g.add(roof);
+  // Sleek body (the loco's is a bit shorter to leave room for the nose).
+  const bodyL = isLoco ? L - 8 : L - 1, bodyZ = isLoco ? -4 : 0;
+  const body = new THREE.Mesh(new THREE.BoxGeometry(W, 9, bodyL), mat(bodyCol, { r: 0.45, m: 0.2 }));
+  body.position.set(0, 11.5, bodyZ); g.add(body);
+  const roof = new THREE.Mesh(new THREE.BoxGeometry(W - 2.4, 2.4, bodyL - 0.6), mat(roofCol, { r: 0.4, m: 0.25 }));
+  roof.position.set(0, 16.6, bodyZ); g.add(roof);
+  const win = new THREE.Mesh(new THREE.BoxGeometry(W + 0.2, 3.2, bodyL - 6), lit(0x141c26)); // continuous glass band
+  win.position.set(0, 13.6, bodyZ); g.add(win);
+  const stripe = new THREE.Mesh(new THREE.BoxGeometry(W + 0.25, 1.5, bodyL - 2), mat(accent, { e: accent, ei: 0.25, r: 0.5 })); // accent stripe
+  stripe.position.set(0, 10.5, bodyZ); g.add(stripe);
+
+  if (isLoco) {
+    // Streamlined wedge nose at the front (+Z).
+    const nz = bodyZ + bodyL / 2;
+    const nose = new THREE.Mesh(new THREE.BoxGeometry(W, 8, 10), mat(bodyCol, { r: 0.4, m: 0.25 }));
+    nose.position.set(0, 11.0, nz + 4.2); nose.rotation.x = -0.5; g.add(nose);
+    const tip = new THREE.Mesh(new THREE.BoxGeometry(W - 2.4, 4.4, 4.5), mat(bodyCol, { r: 0.4, m: 0.25 }));
+    tip.position.set(0, 8.6, nz + 8.2); g.add(tip);
+    const ws = new THREE.Mesh(new THREE.BoxGeometry(W - 0.6, 3.8, 3), lit(0x18242e)); // wraparound windshield
+    ws.position.set(0, 14.2, nz + 1.6); ws.rotation.x = -0.42; g.add(ws);
+    const nstripe = new THREE.Mesh(new THREE.BoxGeometry(W + 0.2, 1.4, 7), mat(accent, { e: accent, ei: 0.25 }));
+    nstripe.position.set(0, 9.6, nz + 5); nstripe.rotation.x = -0.5; g.add(nstripe);
   }
 
-  // Running lights so the train reads at night: amber markers down both sides
-  // of every car, plus white headlights and a red tail-lamp on the loco.
-  for (const sx of [-1, 1]) for (const z of [-8, 8]) {
-    const m = new THREE.Mesh(LAMP_GEO, glow(0xffc46a, 3.4));
-    m.position.set(sx * 5.7, variant === "loco" ? 14 : 12, z); g.add(m);
+  // Running lights: amber side markers on every car + white headlights on the loco.
+  for (const sx of [-1, 1]) for (const z of [-L * 0.30, L * 0.30]) {
+    const m = new THREE.Mesh(LAMP_GEO, glow(0xffd9a0, 2.6));
+    m.position.set(sx * (W / 2 + 0.05), 13.6, z); g.add(m);
   }
-  if (variant === "loco") {
-    for (const sx of [-1, 1]) {
-      const hl = new THREE.Mesh(LAMP_GEO, glow(0xfff4d6, 4.4)); hl.scale.setScalar(1.4);
-      hl.position.set(sx * 3, 9.5, 12.4); g.add(hl);                 // headlights (front, +Z)
-    }
-    const tail = new THREE.Mesh(LAMP_GEO, glow(0xff3b30, 3.8));
-    tail.position.set(0, 13, -11.2); g.add(tail);                    // red tail-lamp (rear)
+  if (isLoco) for (const sx of [-1, 1]) {
+    const hl = new THREE.Mesh(LAMP_GEO, glow(0xfff4d6, 4.4)); hl.scale.setScalar(1.5);
+    hl.position.set(sx * 3.2, 9.2, bodyZ + bodyL / 2 + 9.5); g.add(hl);
   }
 
   g.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
@@ -442,12 +437,10 @@ class RailCar {
 class Train {
   constructor(mgr, lane) {
     this.mgr = mgr; this.lane = lane;
-    this.spacing = 30;
-    const palette = [0x8a4a3a, 0x415a6a, 0x5a6a45, 0x7a6a3a];
-    const variants = ["boxcar", "tanker", "hopper", "boxcar", "tanker"];
-    this.cars = [new RailCar(mgr.scene, mgr.fx, this, "loco", 0x2f6b3a, true)];
-    for (let i = 0; i < variants.length; i++)
-      this.cars.push(new RailCar(mgr.scene, mgr.fx, this, variants[i], palette[i % palette.length], false));
+    this.spacing = CAR_LEN + 8;     // back-to-back coaches with a small gap
+    const accent = 0x1f8fd6;        // cool blue stripe
+    this.cars = [new RailCar(mgr.scene, mgr.fx, this, "loco", accent, true)];
+    for (let i = 0; i < 5; i++) this.cars.push(new RailCar(mgr.scene, mgr.fx, this, "coach", accent, false));
     this.laneLen = lane.len - (this.cars.length - 1) * this.spacing - 40;
     this.spawn();
   }
@@ -612,12 +605,10 @@ class LoopTrain {
     this.track.add(buildLoopPosts(this.path));                                                       // support bents
     mgr.scene.add(this.track);
 
-    this.spacing = 30 * CAR_SCALE; this.speed = 230;
-    const palette = [0x6a4a3a, 0x40566a, 0x55663f, 0x7a6a3a, 0x4a4f55];
-    const variants = ["boxcar", "tanker", "hopper", "boxcar", "tanker"];
-    this.cars = [new RailCar(mgr.scene, mgr.fx, this, "loco", 0x394b3a, true)];
-    for (let i = 0; i < variants.length; i++)
-      this.cars.push(new RailCar(mgr.scene, mgr.fx, this, variants[i], palette[i % palette.length], false));
+    this.spacing = (CAR_LEN + 8) * CAR_SCALE; this.speed = 184; // ~80% of the old pace
+    const accent = 0xff5a3c; // warm stripe that pops against blue water + green land
+    this.cars = [new RailCar(mgr.scene, mgr.fx, this, "loco", accent, true)];
+    for (let i = 0; i < 7; i++) this.cars.push(new RailCar(mgr.scene, mgr.fx, this, "coach", accent, false)); // loco + 7 (was +5)
     for (const c of this.cars) { c.group.scale.setScalar(CAR_SCALE); c.radius *= CAR_SCALE; } // bigger cars + hit boxes
     this.spawn();
   }
