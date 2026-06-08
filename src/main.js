@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { AIRCRAFT, buildAircraftMesh } from "./aircraft.js";
 import { createState, step } from "./flight.js";
-import { buildWorld, terrainHeight, groundHeightAt, getCarriers, SEA_LEVEL } from "./world.js";
+import { buildWorld, terrainHeight, groundHeightAt, getCarriers, SEA_LEVEL, lightPoolTexture } from "./world.js";
 import { Input } from "./input.js";
 import { Hud } from "./hud.js";
 import { UI } from "./ui.js";
@@ -41,6 +41,13 @@ let inXR = false;
 let vrLevelHorizon = false, vrVignetteOn = false; // VR comfort options
 
 const world = buildWorld(scene);
+// Player landing light: a real spotlight that rakes the ground ahead at night
+// (the only player-attached cast light; gated off by day for performance/look).
+const landingLight = new THREE.SpotLight(0xfff0d0, 0, 2600, 0.6, 0.55, 0); // decay 0 so it reaches the ground from altitude
+landingLight.castShadow = false;
+const landingTarget = new THREE.Object3D();
+scene.add(landingLight); scene.add(landingTarget);
+landingLight.target = landingTarget;
 const fx = new Explosions(scene);
 const weapons = new Weapons(scene, fx);
 const enemies = new Enemies(scene, fx);
@@ -531,20 +538,25 @@ function populateBases() {
   const whiteL = new THREE.MeshStandardMaterial({ color: 0xfff4d8, emissive: 0xffe8c0, emissiveIntensity: 4.0, roughness: 0.4 });
   const poleMat = new THREE.MeshStandardMaterial({ color: 0x2e3236, flatShading: true, roughness: 0.8 });
   const lights = new THREE.Group();
-  // Floodlight masts at the apron corners (pole + cross-bar + lamp heads).
+  // Shared additive "light pool" disc cast on the ground (cloned per lamp).
+  const poolGeo = new THREE.PlaneGeometry(2, 2); poolGeo.rotateX(-Math.PI / 2);
+  const poolMat = new THREE.MeshBasicMaterial({ map: lightPoolTexture(), color: 0xffd28a, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
+  const pool = (x, z, gy, r) => { const m = new THREE.Mesh(poolGeo, poolMat); m.scale.set(r, r, r); m.position.set(x, gy + 0.5, z); m.renderOrder = 1; lights.add(m); };
+  // Floodlight masts at the apron corners (pole + cross-bar + lamp heads + big pool).
   for (const [fx, fz] of [[bx - 80, bz - 160], [bx + 80, bz - 160], [bx - 80, bz + 160], [bx + 80, bz + 160]]) {
     const fgy = terrainHeight(fx, fz);
     const pole = new THREE.Mesh(new THREE.CylinderGeometry(1, 1.4, 30, 6), poleMat); pole.position.set(fx, fgy + 15, fz); lights.add(pole);
     const bar = new THREE.Mesh(new THREE.BoxGeometry(12, 1.4, 2), poleMat); bar.position.set(fx, fgy + 30, fz); lights.add(bar);
     for (const ox of [-4, 0, 4]) { const head = new THREE.Mesh(new THREE.BoxGeometry(3, 2, 2.4), whiteL); head.position.set(fx + ox, fgy + 29, fz + 1.2); lights.add(head); }
+    pool(fx, bz, terrainHeight(fx, bz), 70); // washes the apron
   }
   // Apron edge lights down the two long kerbs.
   for (let zz = bz - 160; zz <= bz + 160; zz += 28) for (const xx of [bx - 85, bx + 85]) {
-    const d = new THREE.Mesh(lampGeo, amber); d.position.set(xx, terrainHeight(xx, zz) + 1.2, zz); lights.add(d);
+    const gy = terrainHeight(xx, zz); const d = new THREE.Mesh(lampGeo, amber); d.position.set(xx, gy + 1.2, zz); lights.add(d); pool(xx, zz, gy, 13);
   }
   // Runway edge lights + coloured thresholds (strip is 80 wide, 1200 long at the island origin).
   for (let zz = -560; zz <= 560; zz += 40) for (const xx of [-42, 42]) {
-    const d = new THREE.Mesh(lampGeo, whiteL); d.position.set(xx, terrainHeight(xx, zz) + 0.8, zz); lights.add(d);
+    const gy = terrainHeight(xx, zz); const d = new THREE.Mesh(lampGeo, whiteL); d.position.set(xx, gy + 0.8, zz); lights.add(d); pool(xx, zz, gy, 12);
   }
   for (const zz of [-600, 600]) for (let xx = -40; xx <= 40; xx += 10) {
     const d = new THREE.Mesh(lampGeo, amber); d.position.set(xx, terrainHeight(xx, zz) + 0.8, zz); lights.add(d);
@@ -1348,6 +1360,16 @@ function frame(now) {
   updateSky(camera, true); // ocean + clouds follow the active camera
   weather.update(simDt, _skyPos); // stars/rain follow the camera; storm lightning
   if (world.spinners) for (const s of world.spinners) s.obj.rotation.y += dt * s.speed; // lighthouse beacons sweep
+  // Landing light: follows the jet, rakes the ground ahead — only lit at night.
+  const nightish = weather.mode === "night" || weather.mode === "storm";
+  landingLight.intensity = (flying && !hangarMode && nightish) ? 5 : 0;
+  if (landingLight.intensity > 0) {
+    landingLight.position.copy(state.position);
+    _v.set(0, 0, -1).applyQuaternion(state.quaternion);          // jet forward
+    _v2.copy(state.position).addScaledVector(_v, 380);
+    _v2.y = Math.min(_v2.y, groundHeightAt(_v2.x, _v2.z) + 2);    // aim down onto the ground ahead
+    landingTarget.position.copy(_v2);
+  }
   // Smoke plumes: scenery sources + any still-alive power-plant strike targets.
   const dyn = smoke.dynamic; dyn.length = 0;
   for (const t of ground.targets) if (t.alive && t.smokeStacks) for (const s of t.smokeStacks) dyn.push(s);

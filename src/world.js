@@ -6,6 +6,28 @@ import { defaultWorldConfig } from "./worldConfig.js";
 const TERRAIN_SIZE = 24000;
 const SEGMENTS = 360; // landmass mesh resolution (higher = finer hills/coast/river)
 
+// Soft radial gradient used as an additive "light pool" cast on the ground
+// under lamps — a cheap fake for thrown light (real lights are too many).
+let _poolTex = null;
+export function lightPoolTexture() {
+  if (_poolTex) return _poolTex;
+  const c = document.createElement("canvas"); c.width = c.height = 128;
+  const g = c.getContext("2d");
+  const grd = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+  grd.addColorStop(0.0, "rgba(255,255,255,1)");
+  grd.addColorStop(0.45, "rgba(255,255,255,0.45)");
+  grd.addColorStop(1.0, "rgba(255,255,255,0)");
+  g.fillStyle = grd; g.fillRect(0, 0, 128, 128);
+  _poolTex = new THREE.CanvasTexture(c);
+  return _poolTex;
+}
+// A flat (XZ) disc geometry for ground pools (built once, instanced/cloned).
+let _poolGeo = null;
+function poolGeo() {
+  if (!_poolGeo) { _poolGeo = new THREE.PlaneGeometry(2, 2); _poolGeo.rotateX(-Math.PI / 2); }
+  return _poolGeo;
+}
+
 // Active world config: { seaLevel, islands:[ {center, faction, name, seed, terrain,
 // cliff, river, spawn, carriers, settlements, bridges, roads, missionBases,
 // forest, paint} ] }. Loaded from a localStorage override if present.
@@ -582,6 +604,11 @@ function buildLighthouse() {
   beacon.position.y = lampY;
   beacon.add(makeBeam());
   const wrap = new THREE.Group(); wrap.rotation.y = Math.PI; wrap.add(makeBeam()); beacon.add(wrap); // opposite beam
+  // A real spotlight that actually lights the terrain/fog as the beacon sweeps.
+  const spot = new THREE.SpotLight(0xfff0c0, 3.5, 4000, 0.30, 0.6, 0); // decay 0 = no distance falloff (lights the ground from the lantern)
+  spot.castShadow = false;
+  const spotTarget = new THREE.Object3D(); spotTarget.position.set(120, -26, 0); // out +X, raked down
+  beacon.add(spot); beacon.add(spotTarget); spot.target = spotTarget;
   g.add(beacon);
   g.userData.beacon = beacon;
 
@@ -1046,15 +1073,19 @@ function buildIsland(scene, is, waveMats, colliders, smokeSources, trees, spinne
         new THREE.MeshStandardMaterial({ color: 0x2e3236, flatShading: true, roughness: 0.8 }), n);
       const heads = new THREE.InstancedMesh(new THREE.SphereGeometry(1.4, 8, 6),
         new THREE.MeshStandardMaterial({ color: 0xffd79a, emissive: 0xffc070, emissiveIntensity: 3.4, roughness: 0.4 }), n);
-      const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), one = new THREE.Vector3(1, 1, 1), pp = new THREE.Vector3();
+      // Ground pool of cast light under each lamp (additive, brightest at night).
+      const pools = new THREE.InstancedMesh(poolGeo(),
+        new THREE.MeshBasicMaterial({ map: lightPoolTexture(), color: 0xffc070, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }), n);
+      const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), one = new THREE.Vector3(1, 1, 1), pool = new THREE.Vector3(11, 11, 11), pp = new THREE.Vector3();
       for (let i = 0; i < n; i++) {
         const x = lampPos[i * 2], z = lampPos[i * 2 + 1], gy = H(x, z);
         pp.set(x, gy + 7.5, z); poles.setMatrixAt(i, m4.compose(pp, q, one));
         pp.set(x, gy + 15, z); heads.setMatrixAt(i, m4.compose(pp, q, one));
+        pp.set(x, gy + 0.4, z); pools.setMatrixAt(i, m4.compose(pp, q, pool));
       }
-      poles.instanceMatrix.needsUpdate = heads.instanceMatrix.needsUpdate = true;
-      poles.castShadow = false; heads.castShadow = false;
-      grp.add(poles); grp.add(heads);
+      poles.instanceMatrix.needsUpdate = heads.instanceMatrix.needsUpdate = pools.instanceMatrix.needsUpdate = true;
+      poles.castShadow = false; heads.castShadow = false; pools.renderOrder = 1;
+      grp.add(poles); grp.add(heads); grp.add(pools);
     }
   }
 
