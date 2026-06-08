@@ -1,6 +1,6 @@
 // Menu, jet selection, and the joystick remap / live-monitor panel.
 
-import { AIRCRAFT } from "./aircraft.js";
+import { AIRCRAFT, LIVERIES } from "./aircraft.js";
 
 export class UI {
   constructor(input, callbacks, touch, tilt) {
@@ -24,6 +24,7 @@ export class UI {
     this.buildModeList();
     this.buildJetList();
     this.buildHangarList();
+    this.buildLiveryStrip();
     this.bindButtons();
     this.buildBindingControls();
     this.wireMobile();
@@ -166,7 +167,50 @@ export class UI {
     const list = document.getElementById("hangar-list");
     if (list) [...list.children].forEach((c) => c.classList.toggle("selected", c.dataset.key === key));
     this.updateHangarStats(key);
+    this.refreshLiverySwatches(); // Factory swatch follows the selected airframe's colour
     if (this.cb.onPreviewVehicle) this.cb.onPreviewVehicle(key); // swap the rotating preview
+  }
+
+  // Paint-scheme picker: a strip of two-tone swatches under the actions. Clicking
+  // one repaints the previewed vehicle (and persists via main.js).
+  buildLiveryStrip() {
+    const strip = document.getElementById("hangar-livery");
+    if (!strip) return;
+    strip.innerHTML = `<span class="hbl-label">PAINT</span>`;
+    for (const lv of LIVERIES) {
+      const sw = document.createElement("button");
+      sw.className = "hbl-sw";
+      sw.dataset.id = lv.id;
+      sw.title = `${lv.name} — ${lv.kind}`;
+      if (lv.bare) sw.classList.add("bare");
+      sw.innerHTML = `<i class="hbl-body"></i><i class="hbl-accent"></i>`;
+      sw.addEventListener("click", () => this._selectLivery(lv.id));
+      strip.appendChild(sw);
+    }
+    this.refreshLiverySwatches();
+  }
+
+  // Colour each swatch; the Factory swatch mirrors the current airframe's hue.
+  refreshLiverySwatches() {
+    const strip = document.getElementById("hangar-livery");
+    if (!strip) return;
+    const cur = this.cb.liveryId ? this.cb.liveryId() : "factory";
+    const hex = (c) => "#" + (c >>> 0).toString(16).padStart(6, "0").slice(-6);
+    const acDef = AIRCRAFT[this.hangarPick] || AIRCRAFT.f16;
+    for (const sw of strip.querySelectorAll(".hbl-sw")) {
+      const lv = LIVERIES.find((l) => l.id === sw.dataset.id);
+      if (!lv) continue;
+      const body = lv.body != null ? lv.body : acDef.color;
+      const panel = lv.panel != null ? lv.panel : 0x3a4048;
+      sw.querySelector(".hbl-body").style.background = `linear-gradient(135deg, ${hex(body)} 0 60%, ${hex(panel)} 60% 100%)`;
+      sw.querySelector(".hbl-accent").style.background = hex(lv.accent);
+      sw.classList.toggle("selected", lv.id === cur);
+    }
+  }
+
+  _selectLivery(id) {
+    if (this.cb.onPreviewLivery) this.cb.onPreviewLivery(id);
+    this.refreshLiverySwatches();
   }
 
   updateHangarStats(key) {
@@ -244,6 +288,7 @@ export class UI {
       if (sel) sel.scrollIntoView({ inline: "center", block: "nearest" });
     }
     this.updateHangarStats(this.hangarPick);
+    this.refreshLiverySwatches();
     const stay = document.getElementById("hangar-stay");
     if (stay) stay.classList.toggle("hidden", !canStay);
     this.hangar.classList.remove("hidden");

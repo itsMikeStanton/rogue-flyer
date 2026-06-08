@@ -163,6 +163,8 @@ const tilt = new TiltControls(input.touchState);
 let state = createState();
 let def = AIRCRAFT.f16;
 let jetType = "f16";
+let liveryId = "factory"; // selected paint scheme (persisted)
+try { liveryId = localStorage.getItem("rf.livery") || "factory"; } catch (_) { /* ignore */ }
 let mesh = null;
 let flying = false;
 let gameMode = "dogfight";
@@ -266,6 +268,8 @@ const ui = new UI(input, {
   onSelectJet: (type) => { if (!flying) setAircraft(type); }, // live hero swap on the menu
   onPickVehicle: (type) => pickVehicle(type),   // in-game vehicle bay: spawn this ride
   onPreviewVehicle: (type) => previewVehicle(type), // live-swap the rotating preview model
+  onPreviewLivery: (id) => setLivery(id),       // repaint the previewed vehicle
+  liveryId: () => liveryId,                     // current paint, so the bay can highlight it
   onHangarStay: () => exitHangar(),             // keep the current vehicle, close the bay
   onPauseResume: () => closePause(),
   onPauseMenu: () => exitToMenu(),
@@ -419,8 +423,24 @@ function setAircraft(type) {
   vtolMode = false; // start with nozzles aft
   touch.setVtol(false);
   if (mesh) scene.remove(mesh);
-  mesh = buildAircraftMesh(type);
+  mesh = buildAircraftMesh(type, null, liveryId);
   scene.add(mesh);
+}
+
+// Repaint the current aircraft with a new livery (live-swaps the mesh, keeps
+// position/orientation; re-frames it in the showroom when the bay is open).
+function setLivery(id) {
+  liveryId = id;
+  try { localStorage.setItem("rf.livery", id); } catch (_) { /* ignore */ }
+  if (mesh) {
+    const keepRot = mesh.quaternion.clone();
+    scene.remove(mesh);
+    mesh = buildAircraftMesh(jetType, null, liveryId);
+    mesh.position.copy(state.position);
+    mesh.quaternion.copy(keepRot);
+    scene.add(mesh);
+    if (hangarMode) measureHangarVehicle();
+  }
 }
 
 // Decorative airbase beside the runway + a few aircraft parked on the deck, so

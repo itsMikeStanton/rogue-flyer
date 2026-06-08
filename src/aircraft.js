@@ -202,12 +202,44 @@ export const AIRCRAFT = {
   },
 };
 
+// Named paint schemes ("liveries"). A livery recolours the airframe's three
+// tones — body, the darker spine/panel, and the trim accent — and can flag a
+// polished bare-metal finish (retro airliners, racers). They're airframe-
+// agnostic: the same scheme reads correctly on any jet or helicopter because
+// every builder paints from makeMaterials(). `body:null` (Factory) keeps each
+// aircraft's own designed colour.
+export const LIVERIES = [
+  { id: "factory",  name: "Factory",          kind: "Standard",   body: null,    panel: null,    accent: 0x2b3138 },
+  // — Military —
+  { id: "airsup",   name: "Air Superiority",  kind: "Military",   body: 0xb6bdc6, panel: 0x848d97, accent: 0x2b3138 },
+  { id: "ghost",    name: "Ghost Grey",       kind: "Military",   body: 0xc9ced3, panel: 0xb0b6bc, accent: 0x6a7178 },
+  { id: "desert",   name: "Desert Tan",       kind: "Military",   body: 0xc2a878, panel: 0x94794f, accent: 0x4a3f2c },
+  { id: "jungle",   name: "Jungle Green",     kind: "Military",   body: 0x5f6b45, panel: 0x3a4628, accent: 0x232c19 },
+  { id: "arctic",   name: "Arctic White",     kind: "Military",   body: 0xe9edf0, panel: 0xbfc9d0, accent: 0x3a6ea5 },
+  { id: "navy",     name: "Navy Gull Grey",   kind: "Military",   body: 0x9aa6b0, panel: 0x5e6e7c, accent: 0x1b2a36 },
+  { id: "splinter", name: "Aggressor Blue",   kind: "Military",   body: 0x8a98a6, panel: 0x54616e, accent: 0x33414e },
+  { id: "nighthawk",name: "Nighthawk",        kind: "Military",   body: 0x26292e, panel: 0x16181c, accent: 0x0c0d10 },
+  { id: "redair",   name: "Red Squadron",     kind: "Military",   body: 0xb23b34, panel: 0x7c2925, accent: 0x241f1d },
+  // — Commercial —
+  { id: "airliner", name: "Airliner White",   kind: "Commercial", body: 0xeef2f5, panel: 0x1b3a6b, accent: 0xc8202e },
+  { id: "baremetal",name: "Bare Metal",       kind: "Commercial", body: 0xc5cace, panel: 0x7a8087, accent: 0x2a2f34, bare: true },
+  { id: "gold",     name: "Racing Gold",      kind: "Commercial", body: 0xd4af37, panel: 0x1b1913, accent: 0x0e0d0a, bare: true },
+  { id: "orange",   name: "Sunburst",         kind: "Commercial", body: 0xe2701f, panel: 0xf1eee8, accent: 0x2a2a2a },
+  { id: "skyblue",  name: "Sky Blue",         kind: "Commercial", body: 0x6fb7e0, panel: 0xeef4f8, accent: 0x1c4a6b },
+  { id: "carbon",   name: "Carbon & Gold",    kind: "Commercial", body: 0x1a1c20, panel: 0x2b2e34, accent: 0xd4af37 },
+];
+export function resolveLivery(id) { return LIVERIES.find((l) => l.id === id) || LIVERIES[0]; }
+
 function makeMaterials(def) {
-  const dark = new THREE.Color(def.color).multiplyScalar(0.66).getHex();
+  const lv = def._livery || null;
+  const bodyCol = lv && lv.body != null ? lv.body : def.color;
+  const panelCol = lv && lv.panel != null ? lv.panel : new THREE.Color(bodyCol).multiplyScalar(0.66).getHex();
+  const accentCol = lv && lv.accent != null ? lv.accent : 0x2b3138;
+  const bare = !!(lv && lv.bare);
   return {
-    body: new THREE.MeshStandardMaterial({ color: def.color, flatShading: true, metalness: 0.3, roughness: 0.62 }),
-    panel: new THREE.MeshStandardMaterial({ color: dark, flatShading: true, metalness: 0.35, roughness: 0.6 }), // two-tone spine/accent
-    accent: new THREE.MeshStandardMaterial({ color: 0x2b3138, flatShading: true, metalness: 0.4, roughness: 0.6 }),
+    body: new THREE.MeshStandardMaterial({ color: bodyCol, flatShading: true, metalness: bare ? 0.85 : 0.3, roughness: bare ? 0.26 : 0.62 }),
+    panel: new THREE.MeshStandardMaterial({ color: panelCol, flatShading: true, metalness: bare ? 0.6 : 0.35, roughness: bare ? 0.34 : 0.6 }), // two-tone spine/accent
+    accent: new THREE.MeshStandardMaterial({ color: accentCol, flatShading: true, metalness: 0.4, roughness: 0.6 }),
     metal: new THREE.MeshStandardMaterial({ color: 0x6a7077, flatShading: true, metalness: 0.75, roughness: 0.38 }), // nozzles/gun
     ord: new THREE.MeshStandardMaterial({ color: 0xccd1d6, flatShading: true, metalness: 0.2, roughness: 0.7 }),    // missiles/tanks
     glass: new THREE.MeshStandardMaterial({ color: 0x111a22, flatShading: true, metalness: 0.1, roughness: 0.2, emissive: 0x0a1a24, transparent: true, opacity: 0.9 }),
@@ -894,10 +926,13 @@ function addGearFlaps(g, def) {
 }
 
 // Build the distinct low-poly mesh for a given aircraft type.
-// `colorOverride` (optional) repaints the airframe — used for enemy jets.
-export function buildAircraftMesh(type, colorOverride) {
+// `colorOverride` (optional) repaints the airframe a single colour — used for
+// enemy jets. `liveryId` (optional) applies a named paint scheme instead.
+export function buildAircraftMesh(type, colorOverride, liveryId) {
   const base = AIRCRAFT[type] || AIRCRAFT.f16;
-  const def = colorOverride != null ? { ...base, color: colorOverride } : base;
+  const def = { ...base };
+  if (colorOverride != null) def.color = colorOverride;       // single-colour repaint (enemies)
+  else def._livery = resolveLivery(liveryId);                 // named livery (Factory if unset)
   let g;
   if (type === "a10") g = buildWarthog(def);
   else if (type === "fa18") g = buildHornet(def);
