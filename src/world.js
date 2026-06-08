@@ -596,21 +596,24 @@ function buildLighthouse() {
     fragmentShader: "varying float vT; uniform vec3 uColor; uniform float uOpacity; void main(){ float a = uOpacity * smoothstep(0.0, 0.04, vT) * pow(1.0 - vT, 1.8); gl_FragColor = vec4(uColor, a); }",
   });
   const makeBeam = () => {
-    const cone = new THREE.ConeGeometry(15, BEAM_LEN, 16, 1, true);
+    const cone = new THREE.ConeGeometry(24, BEAM_LEN, 16, 1, true); // a little wider
     cone.translate(0, -BEAM_LEN / 2, 0); // apex at the lamp, base out along -Y
     const m = new THREE.Mesh(cone, beamMat);
     m.rotation.z = Math.PI / 2;          // lay it flat: base points +X
     return m;
   };
+  // Each beam gets its own real spotlight (soft edge, long throw) so both shafts
+  // actually light the terrain/fog as the beacon sweeps.
+  const makeSpot = (parent) => {
+    const s = new THREE.SpotLight(0xfff0c0, 2.8, 8000, 0.15, 0.95, 0); // soft edge, far throw, no falloff
+    s.castShadow = false;
+    const tgt = new THREE.Object3D(); tgt.position.set(120, -22, 0); // out +X, raked down
+    parent.add(s); parent.add(tgt); s.target = tgt;
+  };
   const beacon = new THREE.Group();
   beacon.position.y = lampY;
-  beacon.add(makeBeam());
-  const wrap = new THREE.Group(); wrap.rotation.y = Math.PI; wrap.add(makeBeam()); beacon.add(wrap); // opposite beam
-  // A real spotlight that actually lights the terrain/fog as the beacon sweeps.
-  const spot = new THREE.SpotLight(0xfff0c0, 3.5, 5000, 0.16, 0.7, 0); // decay 0 = no distance falloff (lights the ground from the lantern)
-  spot.castShadow = false;
-  const spotTarget = new THREE.Object3D(); spotTarget.position.set(120, -26, 0); // out +X, raked down
-  beacon.add(spot); beacon.add(spotTarget); spot.target = spotTarget;
+  beacon.add(makeBeam()); makeSpot(beacon);
+  const wrap = new THREE.Group(); wrap.rotation.y = Math.PI; wrap.add(makeBeam()); makeSpot(wrap); beacon.add(wrap); // opposite beam + its light
   g.add(beacon);
   g.userData.beacon = beacon;
 
@@ -1025,10 +1028,12 @@ function buildIsland(scene, is, waveMats, colliders, smokeSources, trees, spinne
   // ---- Roads ----
   {
     const roadMat = new THREE.MeshStandardMaterial({ color: 0x3a3d42, roughness: 0.95, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+    const ctrLineMat = new THREE.MeshStandardMaterial({ color: 0xd9c046, roughness: 0.7, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 }); // yellow centre line
+    const edgeLineMat = new THREE.MeshStandardMaterial({ color: 0xe9e6da, roughness: 0.7, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -4 }); // white edge lines
     const lampPos = []; // [x,z,...] street-light positions accumulated along all roads
     const buildRoad = (waypoints) => {
       if (waypoints.length < 2) return;
-      const half = 9, step = 45;
+      const half = 14, step = 45; // wider roadway
       const cl = [];
       for (let s = 0; s < waypoints.length - 1; s++) {
         const [ax, az] = waypoints[s], [bx, bz] = waypoints[s + 1];
@@ -1036,22 +1041,28 @@ function buildIsland(scene, is, waveMats, colliders, smokeSources, trees, spinne
         const steps = Math.max(1, Math.floor(segLen / step));
         for (let k = (s > 0 ? 1 : 0); k <= steps; k++) { const tt = k / steps; cl.push([ax + (bx - ax) * tt, az + (bz - az) * tt]); }
       }
-      const positions = [], indices = [];
-      for (let i = 0; i < cl.length; i++) {
-        const p = cl[i], a = cl[Math.max(0, i - 1)], b = cl[Math.min(cl.length - 1, i + 1)];
-        let dx = b[0] - a[0], dz = b[1] - a[1];
-        const L = Math.hypot(dx, dz) || 1; dx /= L; dz /= L;
-        const px = -dz, pz = dx;
-        const lx = p[0] + px * half, lz = p[1] + pz * half;
-        const rx = p[0] - px * half, rz = p[1] - pz * half;
-        positions.push(lx, H(lx, lz) + 0.15, lz, rx, H(rx, rz) + 0.15, rz);
-      }
-      for (let i = 0; i < cl.length - 1; i++) { const a = i * 2, b = i * 2 + 1, cc = (i + 1) * 2, d = (i + 1) * 2 + 1; indices.push(a, cc, b, b, cc, d); }
-      const g = new THREE.BufferGeometry();
-      g.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
-      g.setIndex(indices); g.computeVertexNormals();
-      const road = new THREE.Mesh(g, roadMat);
-      road.receiveShadow = true; grp.add(road);
+      // A ribbon along the centreline, offset sideways by `off`, half-width `hw`.
+      const ribbon = (off, hw, mat, yLift) => {
+        const positions = [], indices = [];
+        for (let i = 0; i < cl.length; i++) {
+          const p = cl[i], a = cl[Math.max(0, i - 1)], b = cl[Math.min(cl.length - 1, i + 1)];
+          let dx = b[0] - a[0], dz = b[1] - a[1];
+          const L = Math.hypot(dx, dz) || 1; dx /= L; dz /= L;
+          const pxn = -dz, pzn = dx;
+          const ox = p[0] + pxn * off, oz = p[1] + pzn * off;
+          const lx = ox + pxn * hw, lz = oz + pzn * hw, rx = ox - pxn * hw, rz = oz - pzn * hw;
+          positions.push(lx, H(lx, lz) + yLift, lz, rx, H(rx, rz) + yLift, rz);
+        }
+        for (let i = 0; i < cl.length - 1; i++) { const a = i * 2, b = i * 2 + 1, cc = (i + 1) * 2, d = (i + 1) * 2 + 1; indices.push(a, cc, b, b, cc, d); }
+        const g = new THREE.BufferGeometry();
+        g.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+        g.setIndex(indices); g.computeVertexNormals();
+        const m = new THREE.Mesh(g, mat); m.receiveShadow = true; grp.add(m); return m;
+      };
+      ribbon(0, half, roadMat, 0.15);                 // roadway
+      ribbon(0, 0.55, ctrLineMat, 0.22);              // centre line
+      ribbon(half - 1.6, 0.4, edgeLineMat, 0.22);     // edge lines
+      ribbon(-(half - 1.6), 0.4, edgeLineMat, 0.22);
       // Street lights: staggered down alternating kerbs of the centreline.
       for (let i = 2; i < cl.length - 2; i += 3) {
         const p = cl[i], a = cl[i - 1], b = cl[i + 1];
@@ -1066,7 +1077,7 @@ function buildIsland(scene, is, waveMats, colliders, smokeSources, trees, spinne
     // lamp heads that bloom warm at night (no real lights — cheap at any count).
     if (lampPos.length) {
       const n = lampPos.length / 2;
-      const poles = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.5, 0.7, 15, 6),
+      const poles = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.5, 0.8, 24, 6),
         new THREE.MeshStandardMaterial({ color: 0x2e3236, flatShading: true, roughness: 0.8 }), n);
       const heads = new THREE.InstancedMesh(new THREE.SphereGeometry(1.4, 8, 6),
         new THREE.MeshStandardMaterial({ color: 0xffd79a, emissive: 0xffc070, emissiveIntensity: 3.4, roughness: 0.4 }), n);
@@ -1076,8 +1087,8 @@ function buildIsland(scene, is, waveMats, colliders, smokeSources, trees, spinne
       const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), one = new THREE.Vector3(1, 1, 1), pool = new THREE.Vector3(13.5, 13.5, 13.5), pp = new THREE.Vector3();
       for (let i = 0; i < n; i++) {
         const x = lampPos[i * 2], z = lampPos[i * 2 + 1], gy = H(x, z);
-        pp.set(x, gy + 7.5, z); poles.setMatrixAt(i, m4.compose(pp, q, one));
-        pp.set(x, gy + 15, z); heads.setMatrixAt(i, m4.compose(pp, q, one));
+        pp.set(x, gy + 12, z); poles.setMatrixAt(i, m4.compose(pp, q, one));
+        pp.set(x, gy + 24, z); heads.setMatrixAt(i, m4.compose(pp, q, one));
         pp.set(x, gy + 0.4, z); pools.setMatrixAt(i, m4.compose(pp, q, pool));
       }
       poles.instanceMatrix.needsUpdate = heads.instanceMatrix.needsUpdate = pools.instanceMatrix.needsUpdate = true;
@@ -1099,7 +1110,7 @@ function buildIsland(scene, is, waveMats, colliders, smokeSources, trees, spinne
     const cd = Math.hypot(cf.x, cf.z) || 1;
     const lx = (-cf.x / cd) * 6900, lz = (-cf.z / cd) * 6900; // opposite side, near the coast
     const lh = buildLighthouse();
-    lh.scale.setScalar(3); // three times as large all around
+    lh.scale.set(3.4, 4.4, 3.4); // big, and noticeably taller than wide
     lh.position.set(lx, Math.max(H(lx, lz), SEA_LEVEL + 2), lz);
     grp.add(lh);
     if (spinners && lh.userData.beacon) spinners.push({ obj: lh.userData.beacon, speed: 0.35 });
@@ -1117,6 +1128,18 @@ function buildIsland(scene, is, waveMats, colliders, smokeSources, trees, spinne
         x: cx0 + px + s.lx, y: gy + s.ly, z: cz0 + pz + s.lz,
         size: s.size, rate: s.rate, color: s.color, rise: s.rise, drift: s.drift, life: s.life, grow: s.grow, wind: s.wind,
       });
+      // Floodlights ringing the plant so the whole site is lit up at night.
+      const ppHead = new THREE.MeshStandardMaterial({ color: 0xfff4d8, emissive: 0xffe6b0, emissiveIntensity: 4.0, roughness: 0.4 });
+      const ppPole = new THREE.MeshStandardMaterial({ color: 0x2e3236, flatShading: true, roughness: 0.8 });
+      const ppPool = new THREE.MeshBasicMaterial({ map: lightPoolTexture(), color: 0xffdca0, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false });
+      for (let a = 0; a < 12; a++) {
+        const ang = (a / 12) * Math.PI * 2;
+        const lx = px + Math.cos(ang) * 125, lz = pz + Math.sin(ang) * 140, lgy = H(lx, lz);
+        if (lgy < SEA_LEVEL + 2) continue;
+        const pole = new THREE.Mesh(new THREE.CylinderGeometry(1, 1.4, 34, 6), ppPole); pole.position.set(lx, lgy + 17, lz); pole.castShadow = true; grp.add(pole);
+        const head = new THREE.Mesh(new THREE.BoxGeometry(4.5, 2.6, 3), ppHead); head.position.set(lx, lgy + 33, lz + Math.sin(-ang) * 0.5); grp.add(head);
+        const pool = new THREE.Mesh(poolGeo(), ppPool); pool.scale.set(44, 44, 44); pool.position.set(lx, lgy + 0.5, lz); pool.renderOrder = 1; grp.add(pool);
+      }
     }
   }
 

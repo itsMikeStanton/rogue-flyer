@@ -833,14 +833,12 @@ function updateCamera(dt) {
   // Rear View: a little above and in front, looking back down over the tail —
   // so you can watch your bombs / rockets land behind you after a pass.
   if (mode === "Rear View") {
+    // Rigid (no smoothing) so a fast jet doesn't make it shudder: park the
+    // camera a little above and ahead, looking back and down over the tail.
     _v2.set(0, 0, -1).applyQuaternion(q); // jet forward
-    const eye = _v.copy(pos).addScaledVector(_v2, 16); eye.y += 7;
-    const lerp = 1 - Math.pow(0.0009, dt);
-    camPos.lerp(eye, lerp);
-    if (camPos.lengthSq() === 0) camPos.copy(eye);
+    camPos.copy(pos).addScaledVector(_v2, 16); camPos.y += 7;
     camera.position.copy(camPos);
     camera.up.set(0, 1, 0);
-    // Look back over the jet and down toward the ground behind it.
     camTarget.copy(pos).addScaledVector(_v2, -55); camTarget.y -= 26;
     camera.lookAt(camTarget);
     return;
