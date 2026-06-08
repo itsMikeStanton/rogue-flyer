@@ -165,6 +165,23 @@ let missionDone = false;
 let startPos = "air"; // "air" | "runway" | "carrier"
 // In-game vehicle bay: sim paused, camera orbits the parked vehicle at the spawn.
 let hangarMode = false, hangarAngle = 0;
+let hangarSpin = 0, hangarRadius = 8; // showroom preview: spin + auto-frame by size
+const _hbBox = new THREE.Box3(), _hbTmp = new THREE.Box3(), _hbSph = new THREE.Sphere();
+function measureHangarVehicle() {
+  if (!mesh) { hangarRadius = 8; return; }
+  mesh.updateWorldMatrix(true, true);
+  _hbBox.makeEmpty();
+  const skip = new Set(mesh.userData.flames || []);
+  mesh.traverse((o) => {
+    if (o.isMesh && o.geometry && !skip.has(o)) {
+      if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+      _hbTmp.copy(o.geometry.boundingBox).applyMatrix4(o.matrixWorld);
+      _hbBox.union(_hbTmp);
+    }
+  });
+  _hbBox.getBoundingSphere(_hbSph);
+  hangarRadius = Math.max(3, _hbSph.radius);
+}
 let paused = false;                 // Esc pause menu (sim frozen)
 let crashHandled = false, respawnTimer = 0; // crash → wreckage → soft respawn
 
@@ -243,6 +260,7 @@ const ui = new UI(input, {
   onVR: (type, mode, start) => enterVR(type, mode, start),
   onSelectJet: (type) => { if (!flying) setAircraft(type); }, // live hero swap on the menu
   onPickVehicle: (type) => pickVehicle(type),   // in-game vehicle bay: spawn this ride
+  onPreviewVehicle: (type) => previewVehicle(type), // live-swap the rotating preview model
   onHangarStay: () => exitHangar(),             // keep the current vehicle, close the bay
   onPauseResume: () => closePause(),
   onPauseMenu: () => exitToMenu(),
@@ -555,13 +573,20 @@ function startFlight(type, mode, start, vr) {
 // game": reopening it returns you to base in whatever you choose.
 function enterHangar(canStay) {
   hangarMode = true;
-  hangarAngle = 0;
+  hangarAngle = 0; hangarSpin = 0;
   placePlayer();                 // soft: park a fresh vehicle, world untouched
+  gearDown = true; gearAnim = 1; flapsDown = false; // wheels down for the showroom
+  measureHangarVehicle();        // frame the current vehicle in the showroom
   armActive = false;             // no throttle-gate prompt while choosing
   const fab = document.getElementById("btn-hangar");
   if (fab) fab.classList.add("hidden");
   touch.setVisible(false);
   ui.showHangar(jetType, !!canStay);
+}
+// Swap the previewed (rotating) vehicle without leaving the bay.
+function previewVehicle(type) {
+  setAircraft(type);
+  measureHangarVehicle();
 }
 function exitHangar() {
   hangarMode = false;
@@ -630,16 +655,16 @@ function updateCamera(dt) {
   const q = state.quaternion;
   bombMarker.visible = false; // only shown in Bomb Sight (set below)
 
-  // Vehicle bay: slow orbit of the parked vehicle at the spawn point so the base
-  // / carrier tower drifts through frame while you choose.
+  // Vehicle bay showroom: a fixed 3/4 view auto-framed to the vehicle's size,
+  // which rotates in place (the spin is applied to the mesh in the sync block).
+  // The look target is shifted right so the vehicle sits left of the stats panel.
   if (hangarMode) {
-    hangarAngle += dt * 0.22;
-    const r = 26, h = 9;
-    const a = hangarAngle + 0.7;
-    camera.position.set(pos.x + Math.cos(a) * r, pos.y + h, pos.z + Math.sin(a) * r);
+    hangarSpin += dt * 0.5; // medium rotation
+    const r = hangarRadius;
+    camera.position.set(pos.x + r * 1.5, pos.y + r * 1.0, pos.z - r * 2.4);
     camera.up.set(0, 1, 0);
-    camera.lookAt(pos.x, pos.y + 2.2, pos.z);
-    camera.fov += (60 - camera.fov) * Math.min(1, dt * 3);
+    camera.lookAt(pos.x + r * 0.55, pos.y + r * 0.1, pos.z);
+    camera.fov += (42 - camera.fov) * Math.min(1, dt * 3);
     camera.updateProjectionMatrix();
     return;
   }
@@ -1164,9 +1189,15 @@ function frame(now) {
 
   // Sync mesh to physics state
   if (mesh) {
-    mesh.position.copy(state.position);
-    mesh.quaternion.copy(state.quaternion);
-    mesh.visible = !state.crashed && (inXR ? false : currentCam() !== "Cockpit"); // gone on crash; hidden in VR cockpit
+    if (hangarMode) {
+      // Showroom: park the model at the spawn pivot and spin it in place.
+      mesh.position.copy(state.position);
+      mesh.rotation.set(0, hangarSpin, 0);
+    } else {
+      mesh.position.copy(state.position);
+      mesh.quaternion.copy(state.quaternion);
+    }
+    mesh.visible = hangarMode ? true : (!state.crashed && (inXR ? false : currentCam() !== "Cockpit")); // gone on crash; hidden in VR cockpit
     const flames = mesh.userData.flames;
     if (flames) {
       const t = state.telemetry.throttle;

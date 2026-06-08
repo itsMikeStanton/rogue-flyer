@@ -143,35 +143,61 @@ export class UI {
     }
   }
 
-  // The in-game vehicle bay: same cards, but selecting one just highlights it;
-  // the SPAWN button commits (so you can browse without launching by accident).
+  // The in-game vehicle bay: a horizontal chip list along the bottom. Selecting
+  // one live-previews it (rotating 3D model); the SPAWN button commits.
   buildHangarList() {
     const list = document.getElementById("hangar-list");
     if (!list) return;
     list.innerHTML = "";
     for (const [key, def] of Object.entries(AIRCRAFT)) {
-      const card = document.createElement("div");
-      card.className = "jet-card";
-      card.dataset.key = key;
-      const bar = (label, v) => `<div class="stat"><span>${label}</span></div><div class="bar"><i style="width:${Math.round(v * 100)}%"></i></div>`;
-      card.innerHTML = `
-        <div class="name">${def.name}</div>
-        <div class="role">${def.role}</div>
-        ${bar("Speed", def.stats.speed)}
-        ${bar("Agility", def.stats.agility)}
-        ${bar("Toughness", def.stats.toughness)}`;
-      card.addEventListener("click", () => {
-        this.hangarPick = key;
-        [...list.children].forEach((c) => c.classList.toggle("selected", c.dataset.key === key));
-      });
-      list.appendChild(card);
+      const lo = def.loadout || {};
+      const mini = lo.bombs ? "BOMBER" : lo.rockets ? "ROCKETS" : lo.missiles ? "MISSILES" : "GUNS";
+      const chip = document.createElement("div");
+      chip.className = "hb-chip";
+      chip.dataset.key = key;
+      chip.innerHTML = `<div class="nm">${def.name}</div><div class="rl">${def.role}</div><div class="mini">${mini}</div>`;
+      chip.addEventListener("click", () => this._selectHangar(key));
+      list.appendChild(chip);
     }
+  }
+
+  _selectHangar(key) {
+    this.hangarPick = key;
+    const list = document.getElementById("hangar-list");
+    if (list) [...list.children].forEach((c) => c.classList.toggle("selected", c.dataset.key === key));
+    this.updateHangarStats(key);
+    if (this.cb.onPreviewVehicle) this.cb.onPreviewVehicle(key); // swap the rotating preview
+  }
+
+  updateHangarStats(key) {
+    const el = document.getElementById("hangar-stats");
+    const def = AIRCRAFT[key];
+    if (!el || !def) return;
+    const bar = (label, v) => `<div class="stat">${label}</div><div class="bar"><i style="width:${Math.round(v * 100)}%"></i></div>`;
+    const lo = def.loadout || {};
+    const arms = [];
+    if (lo.missiles) arms.push(`MSL ×${lo.missiles}`);
+    if (lo.rockets) arms.push(`RKT ×${lo.rockets}`);
+    if (lo.bombs) arms.push(`BMB ×${lo.bombs}`);
+    arms.push("GUN");
+    el.innerHTML = `
+      <div class="hb-name">${def.name}</div>
+      <div class="hb-role">${def.role}</div>
+      ${bar("Speed", def.stats.speed)}
+      ${bar("Agility", def.stats.agility)}
+      ${bar("Toughness", def.stats.toughness)}
+      <div class="hb-arms">${arms.join("  ·  ")}</div>`;
   }
 
   showHangar(current, canStay) {
     this.hangarPick = current || this.hangarPick;
     const list = document.getElementById("hangar-list");
-    if (list) [...list.children].forEach((c) => c.classList.toggle("selected", c.dataset.key === this.hangarPick));
+    if (list) {
+      [...list.children].forEach((c) => c.classList.toggle("selected", c.dataset.key === this.hangarPick));
+      const sel = list.querySelector(`[data-key="${this.hangarPick}"]`);
+      if (sel) sel.scrollIntoView({ inline: "center", block: "nearest" });
+    }
+    this.updateHangarStats(this.hangarPick);
     const stay = document.getElementById("hangar-stay");
     if (stay) stay.classList.toggle("hidden", !canStay);
     this.hangar.classList.remove("hidden");

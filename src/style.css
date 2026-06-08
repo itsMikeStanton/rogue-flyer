@@ -518,6 +518,41 @@ button.vr:hover { background: rgba(46,230,166,0.26); }
 /* Picker modals sit above the menu */
 .overlay.picker { z-index: 20; }
 
+/* ---- Vehicle Bay: a showroom over the live 3D preview ---- */
+.hangar-bay { position: fixed; inset: 0; z-index: 20; pointer-events: none; font-family: inherit; }
+.hangar-bay.hidden { display: none; }
+.hb-title { position: fixed; top: 18px; left: 26px; font-size: 16px; letter-spacing: 4px; font-weight: 700; color: #cfeef6; opacity: 0.85; text-shadow: 0 2px 8px rgba(0,0,0,0.6); }
+.hb-stats {
+  position: fixed; right: 16px; top: 64px; width: 300px;
+  max-height: calc(100vh - 230px); overflow: auto;
+  background: rgba(8,16,22,0.78); border: 1px solid rgba(46,230,166,0.35);
+  border-radius: 12px; padding: 16px 18px; pointer-events: auto; backdrop-filter: blur(4px);
+}
+.hb-name { font-size: 24px; font-weight: 800; color: #eaf4ee; line-height: 1.1; }
+.hb-role { font-size: 13px; color: #8fa3b4; margin: 2px 0 14px; }
+.hb-stats .stat { margin-top: 8px; font-size: 11px; letter-spacing: 1px; color: #9fb3c4; text-transform: uppercase; }
+.hb-stats .bar { height: 7px; border-radius: 4px; background: rgba(255,255,255,0.08); overflow: hidden; margin-top: 3px; }
+.hb-stats .bar i { display: block; height: 100%; background: var(--accent); }
+.hb-arms { margin-top: 16px; padding-top: 12px; border-top: 1px solid rgba(120,150,180,0.2); font-size: 13px; font-weight: 700; color: #ffd27d; letter-spacing: 0.5px; }
+.hb-actions { position: fixed; right: 16px; bottom: 150px; display: flex; gap: 10px; pointer-events: auto; }
+.hb-actions .primary { font-size: 16px; padding: 12px 22px; }
+.hb-list {
+  position: fixed; left: 0; right: 0; bottom: 0; height: 132px;
+  display: flex; gap: 8px; overflow-x: auto; overflow-y: hidden; align-items: stretch;
+  padding: 12px 14px; background: rgba(6,12,18,0.85); border-top: 1px solid rgba(46,230,166,0.25);
+  pointer-events: auto; scrollbar-width: thin;
+}
+.hb-chip {
+  flex: 0 0 auto; width: 128px; padding: 10px 12px; border-radius: 10px;
+  background: rgba(255,255,255,0.04); border: 1px solid rgba(120,150,180,0.25);
+  cursor: pointer; display: flex; flex-direction: column; gap: 4px; transition: border-color .12s, background .12s;
+}
+.hb-chip:hover { border-color: rgba(46,230,166,0.6); }
+.hb-chip.selected { border-color: var(--accent); background: rgba(46,230,166,0.14); }
+.hb-chip .nm { font-weight: 700; font-size: 13px; color: #eaf4ee; }
+.hb-chip .rl { font-size: 10px; color: #8fa3b4; line-height: 1.2; }
+.hb-chip .mini { margin-top: auto; font-size: 10px; color: #ffd27d; opacity: 0.85; }
+
 /* Floating in-flight "change vehicle" button (above the HUD) */
 .hangar-fab {
   position: fixed; left: 50%; bottom: 12px; transform: translateX(-50%); z-index: 12;
