@@ -10,7 +10,7 @@ export class UI {
     this.touch = touch;
     this.tilt = tilt;
     this.selected = "f16";
-    this.mode = "dogfight";
+    this.mode = "free";
     this.startPos = "air";
 
     this.menu = document.getElementById("menu");

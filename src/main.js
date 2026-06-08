@@ -175,7 +175,7 @@ try {
 const currentMarkings = () => ({ insignia: insigniaId, number: tailNumber });
 let mesh = null;
 let flying = false;
-let gameMode = "dogfight";
+let gameMode = "free";
 let missionDone = false;
 let startPos = "air"; // "air" | "runway" | "carrier"
 // In-game vehicle bay: sim paused, camera orbits the parked vehicle at the spawn.
@@ -204,11 +204,24 @@ let crashHandled = false, respawnTimer = 0; // crash → wreckage → soft respa
 let armActive = false, armUp = false, armOpposite = false, armInit = false, armHint = "";
 const ARM_HI = 0.9, ARM_LO = 0.08;
 
-const CAMS = ["Chase", "Far Chase", "Cockpit"];
-// Bomb-carrying aircraft also get a "Bomb Sight" view (look-down bombardier mode).
-function camList() { return (def && def.loadout && def.loadout.bombs > 0) ? [...CAMS, "Bomb Sight"] : CAMS; }
-function currentCam() { const l = camList(); return l[camIndex % l.length]; }
+const CAMS = ["Chase", "Far Chase", "Cockpit", "Rear View", "Flyby"];
+function camList() { return CAMS; }
+function currentCam() { return CAMS[camIndex % CAMS.length]; }
 let camIndex = 0;
+try { camIndex = Math.max(0, parseInt(localStorage.getItem("rf.cam") || "0", 10)) % CAMS.length; } catch (_) { /* ignore */ }
+function setCamIndex(i) {
+  camIndex = ((i % CAMS.length) + CAMS.length) % CAMS.length;
+  try { localStorage.setItem("rf.cam", String(camIndex)); } catch (_) { /* ignore */ }
+}
+// Bomb Sight (bombardier look-down) is a separate toggle, only on bombers — not
+// part of the camera rotation. It overrides whatever chase view is selected.
+let bombSightOn = false;
+function bombSightActive() { return bombSightOn && def && def.loadout && def.loadout.bombs > 0; }
+function activeCamName() { return bombSightActive() ? "Bomb Sight" : currentCam(); }
+// Flyby cam: a world-anchored point ahead on the flight path you zoom past, then
+// it re-anchors ahead again for continuous heroic passes.
+let flybyAnchor = null;
+const _flyFwd = new THREE.Vector3(), _flySide = new THREE.Vector3();
 let ringsHit = 0;
 
 // Ground reticle showing the predicted bomb impact (shown in Bomb Sight).
@@ -431,7 +444,7 @@ if (fsBtn) {
 function setAircraft(type) {
   jetType = type;
   def = AIRCRAFT[type];
-  camIndex = 0; // a new airframe may not have the Bomb Sight view
+  bombSightOn = false; // bomb sight is bomber-only; reset it on a new airframe (camera choice is kept)
   vtolMode = false; // start with nozzles aft
   touch.setVtol(false);
   if (mesh) scene.remove(mesh);
@@ -578,6 +591,7 @@ function populateBases() {
 // the world (enemies, ground targets, rings, score, wreckage) exactly as it is.
 function placePlayer() {
   state = createState();
+  flybyAnchor = null; // re-anchor the flyby cam after a (re)spawn/teleport
   if (startPos === "runway") {
     // Park at the start of the runway, level, stopped, throttle idle.
     const z = 520;
@@ -731,7 +745,7 @@ function updateCamera(dt) {
   freeLook.yaw += (lookInput.x * 2.6 - freeLook.yaw) * Math.min(1, dt * 9);
   freeLook.pitch += (lookInput.y * 0.7 - freeLook.pitch) * Math.min(1, dt * 9);
   _lookE.set(freeLook.pitch, freeLook.yaw, 0, "YXZ");
-  const mode = currentCam();
+  const mode = bombSightActive() ? "Bomb Sight" : currentCam();
   const pos = state.position;
   const q = state.quaternion;
   bombMarker.visible = false; // only shown in Bomb Sight (set below)
@@ -808,15 +822,61 @@ function updateCamera(dt) {
     return;
   }
 
-  // Far Chase = the old close chase; close Chase now sits right on the tail.
-  const dist = mode === "Far Chase" ? 24 : 9.5;
-  const height = mode === "Far Chase" ? 8 : 3.6;
+  // Rear View: a little above and in front, looking back down over the tail —
+  // so you can watch your bombs / rockets land behind you after a pass.
+  if (mode === "Rear View") {
+    _v2.set(0, 0, -1).applyQuaternion(q); // jet forward
+    const eye = _v.copy(pos).addScaledVector(_v2, 16); eye.y += 7;
+    const lerp = 1 - Math.pow(0.0009, dt);
+    camPos.lerp(eye, lerp);
+    if (camPos.lengthSq() === 0) camPos.copy(eye);
+    camera.position.copy(camPos);
+    camera.up.set(0, 1, 0);
+    // Look back over the jet and down toward the ground behind it.
+    camTarget.copy(pos).addScaledVector(_v2, -55); camTarget.y -= 26;
+    camera.lookAt(camTarget);
+    return;
+  }
+
+  // Flyby: a fixed point ahead on the flight path. You scream past it, then it
+  // re-anchors further ahead for the next pass — continuous cinematic flybys.
+  if (mode === "Flyby") {
+    _flyFwd.copy(state.velocity); _flyFwd.y = 0;
+    if (_flyFwd.lengthSq() < 1) { _flyFwd.set(0, 0, -1).applyQuaternion(q); _flyFwd.y = 0; }
+    _flyFwd.normalize();
+    // Re-anchor when we have no anchor, have flown past it, or strayed far (turns).
+    const past = flybyAnchor && _v.copy(pos).sub(flybyAnchor).dot(_flyFwd) > 8;
+    const far = flybyAnchor && pos.distanceTo(flybyAnchor) > 520;
+    if (!flybyAnchor || past || far) {
+      if (!flybyAnchor) flybyAnchor = new THREE.Vector3();
+      _flySide.set(-_flyFwd.z, 0, _flyFwd.x).multiplyScalar((Math.random() < 0.5 ? -1 : 1) * (55 + Math.random() * 35));
+      flybyAnchor.copy(pos).addScaledVector(_flyFwd, 200 + Math.random() * 90).add(_flySide);
+      flybyAnchor.y = pos.y + 6 + Math.random() * 26;
+      flybyAnchor.y = Math.max(flybyAnchor.y, groundHeightAt(flybyAnchor.x, flybyAnchor.z) + 14);
+    }
+    camera.position.copy(flybyAnchor); // world-locked; the jet streaks past
+    camera.up.set(0, 1, 0);
+    camTarget.lerp(pos, 1 - Math.pow(0.0006, dt));
+    if (camTarget.lengthSq() === 0) camTarget.copy(pos);
+    camera.lookAt(camTarget);
+    return;
+  }
+
+  // Chase / Far Chase. The close chase is rigid — it stays glued exactly on the
+  // tail so a fast jet can never outrun it; Far Chase sits back and eases.
+  const isFar = mode === "Far Chase";
+  const dist = isFar ? 24 : 7;
+  const height = isFar ? 8 : 2.7;
   // Free-look orbits the camera around the jet (so you can look to the sides /
   // behind). With the hat centred this is exactly the normal chase view.
   const behind = _v.set(0, height, dist).applyEuler(_lookE).applyQuaternion(q).add(pos);
-  const lerp = 1 - Math.pow(0.0008, dt);
-  camPos.lerp(behind, lerp);
-  if (camPos.lengthSq() === 0) camPos.copy(behind);
+  if (isFar) {
+    const lerp = 1 - Math.pow(0.0008, dt);
+    camPos.lerp(behind, lerp);
+    if (camPos.lengthSq() === 0) camPos.copy(behind);
+  } else {
+    camPos.copy(behind); // rigid close chase — no lag at any speed
+  }
   camera.position.copy(camPos);
   camera.up.set(0, 1, 0);
   // Look ahead normally; pan toward the jet itself as you swing the view around.
@@ -1194,7 +1254,8 @@ function frame(now) {
   if (flying && !hangarMode && !paused && !state.crashed && armActive) updateArming(controls);
 
   if (flying && !hangarMode && !paused && !state.crashed && !armActive) {
-    if (controls.viewPressed) camIndex = (camIndex + 1) % camList().length;
+    if (controls.viewPressed) setCamIndex(camIndex + 1);
+    if (controls.bombsightPressed && def.loadout && def.loadout.bombs > 0) bombSightOn = !bombSightOn; // bomber-only sight toggle
 
     // Gear + flaps are manual now (G / V keys, or on-screen GEAR / FLAPS).
     if (controls.gearPressed) gearDown = !gearDown;
@@ -1284,7 +1345,7 @@ function frame(now) {
       mesh.position.copy(state.position);
       mesh.quaternion.copy(state.quaternion);
     }
-    mesh.visible = hangarMode ? true : (!state.crashed && (inXR ? false : currentCam() !== "Cockpit")); // gone on crash; hidden in VR cockpit
+    mesh.visible = hangarMode ? true : (!state.crashed && (inXR ? false : activeCamName() !== "Cockpit")); // gone on crash; hidden in VR cockpit
     const flames = mesh.userData.flames;
     if (flames) {
       const t = state.telemetry.throttle;
@@ -1471,7 +1532,7 @@ function frame(now) {
       pitch: pitchAng,
       roll: rollAng,
       jetName: def.name,
-      camName: currentCam(),
+      camName: activeCamName(),
       mode: gameMode,
       onGround: state.onGround,
       checkpoints: world.rings.length,
