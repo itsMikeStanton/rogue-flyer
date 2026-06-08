@@ -1068,7 +1068,8 @@ function frame(now) {
     const isMission = gameMode === "mission";
     const activeTargets = gameMode === "ffa" ? netTargets : (isMission ? ground.targets : enemies.targets);
     if (controls.fire && weapons.fire(state.position, state.quaternion)) sound.gun();
-    if (controls.missilePressed && weapons.fireOrdnance(state.position, state.quaternion, state.velocity)) sound.missile();
+    if (controls.missilePressed && weapons.fireMissile(state.position, state.quaternion, state.velocity)) sound.missile();
+    if (controls.rocketPressed && weapons.fireRocket(state.position, state.quaternion, state.velocity)) sound.missile();
     if (controls.bombPressed && weapons.dropBomb(state.position, state.quaternion, state.velocity)) sound.missile();
     weapons.update(dt, state.position, state.quaternion, activeTargets);
     enemies.update(dt, player);

@@ -20,7 +20,7 @@ const DEFAULTS = {
   yaw: { axis: 5, invert: true, deadzone: 0.16 },
   throttle: { axis: 6, invert: true, deadzone: 0.0 },
   // button indices for actions (standard mapping-ish; remappable later)
-  buttons: { fire: 0, missile: 1, flare: 2, view: 3, reset: 9, gear: 4, flaps: 5, brake: 6, vtol: 7, hangar: 8, bomb: 10 },
+  buttons: { fire: 0, missile: 1, flare: 2, view: 3, reset: 9, gear: 4, flaps: 5, brake: 6, vtol: 7, hangar: 8, bomb: 10, rocket: 11 },
 };
 
 // Expo response curve: e in [0,1], higher = gentler near centre, full at edge.
@@ -133,7 +133,7 @@ export class Input {
     const pad = this.getPad();
     let pitch = 0, roll = 0, yaw = 0, throttle = 0;
     let viewPressed = false, pausePressed = false, fire = false, missilePressed = false, flarePressed = false;
-    let gearPressed = false, flapsPressed = false, brake = false, vtolPressed = false, hangarPressed = false, bombPressed = false;
+    let gearPressed = false, flapsPressed = false, brake = false, vtolPressed = false, hangarPressed = false, bombPressed = false, rocketPressed = false;
 
     if (pad) {
       const btn = (i) => pad.buttons[i] && pad.buttons[i].pressed;
@@ -159,6 +159,7 @@ export class Input {
         flapsPressed = this.pressed("gp-flap", btn(12));  // D-pad up
         vtolPressed = this.pressed("gp-vtol", btn(13));   // D-pad down (Harrier nozzles)
         bombPressed = this.pressed("gp-bomb", btn(14));   // D-pad left (drop bomb)
+        rocketPressed = this.pressed("gp-rkt", btn(15)); // D-pad right (rockets)
         hangarPressed = this.pressed("gp-bay", btn(8));   // Back/Select (vehicle bay)
         pausePressed = this.pressed("gp-rst", btn(9));    // Start → pause menu
       } else {
@@ -180,6 +181,7 @@ export class Input {
         flapsPressed = this.pressed("pad-flaps", btn(b.flaps));
         vtolPressed = this.pressed("pad-vtol", btn(b.vtol));
         bombPressed = this.pressed("pad-bomb", btn(b.bomb));
+        rocketPressed = this.pressed("pad-rkt", btn(b.rocket));
         hangarPressed = this.pressed("pad-bay", btn(b.hangar));
         if (btn(b.brake)) brake = true; // airbrake / wheel brake (held)
       }
@@ -213,6 +215,7 @@ export class Input {
     if (this.pressed("key-flaps", k.has("KeyV"))) flapsPressed = true; // V = flaps toggle
     if (this.pressed("key-vtol", k.has("KeyT"))) vtolPressed = true;   // T = VTOL nozzle toggle
     if (this.pressed("key-bomb", k.has("KeyN"))) bombPressed = true;   // N = drop bomb
+    if (this.pressed("key-rkt", k.has("KeyR"))) rocketPressed = true;  // R = fire rockets
     if (k.has("KeyZ")) brake = true;   // Z = airbrake / wheel brake (held)
     if (k.has("Space")) fire = true;
 
@@ -230,13 +233,14 @@ export class Input {
     if (this.pressed("touch-flaps", ts.flaps)) flapsPressed = true;
     if (this.pressed("touch-vtol", ts.vtol)) vtolPressed = true;
     if (this.pressed("touch-bomb", ts.bomb)) bombPressed = true;
+    if (this.pressed("touch-rkt", ts.rocket)) rocketPressed = true;
     if (ts.brake) brake = true;
 
     return {
       pitch: clamp(pitch), roll: clamp(roll), yaw: clamp(yaw),
       throttle: Math.min(1, Math.max(0, throttle)),
       viewPressed, pausePressed, fire, missilePressed, flarePressed,
-      gearPressed, flapsPressed, brake, vtolPressed, hangarPressed, bombPressed,
+      gearPressed, flapsPressed, brake, vtolPressed, hangarPressed, bombPressed, rocketPressed,
     };
   }
 }
