@@ -36,6 +36,9 @@ function mat(c, o = {}) {
   });
 }
 function lit(c) { return mat(c, { e: c, ei: 0.9, r: 0.5 }); }
+// A bright self-lit lamp that blooms at night (running lights, headlights).
+function glow(c, i = 2.4) { return new THREE.MeshStandardMaterial({ color: c, emissive: c, emissiveIntensity: i, roughness: 0.4 }); }
+const LAMP_GEO = new THREE.SphereGeometry(0.7, 6, 5);
 
 // ---------------------------------------------------------------------------
 // Models
@@ -181,6 +184,21 @@ function buildCar(variant, color) {
     body.position.set(0, 12, 0); g.add(body);
     const roof = new THREE.Mesh(new THREE.BoxGeometry(10.6, 1.6, 23.4), mat(0x4a4d50));
     roof.position.set(0, 18, 0); g.add(roof);
+  }
+
+  // Running lights so the train reads at night: amber markers down both sides
+  // of every car, plus white headlights and a red tail-lamp on the loco.
+  for (const sx of [-1, 1]) for (const z of [-8, 8]) {
+    const m = new THREE.Mesh(LAMP_GEO, glow(0xffc46a, 2.2));
+    m.position.set(sx * 5.7, variant === "loco" ? 14 : 12, z); g.add(m);
+  }
+  if (variant === "loco") {
+    for (const sx of [-1, 1]) {
+      const hl = new THREE.Mesh(LAMP_GEO, glow(0xfff4d6, 3.0)); hl.scale.setScalar(1.3);
+      hl.position.set(sx * 3, 9.5, 12.4); g.add(hl);                 // headlights (front, +Z)
+    }
+    const tail = new THREE.Mesh(LAMP_GEO, glow(0xff3b30, 2.6));
+    tail.position.set(0, 13, -11.2); g.add(tail);                    // red tail-lamp (rear)
   }
 
   g.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });

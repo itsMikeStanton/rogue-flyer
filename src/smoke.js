@@ -19,7 +19,9 @@ export class Smokestacks {
   _emit(s) {
     if (this.puffs.length >= this.max) return;
     const size = (s.size || 5) * (0.65 + Math.random() * 0.7);
-    const mesh = new THREE.Mesh(this.geo, new THREE.MeshBasicMaterial({
+    // Lit (Lambert) material, not unlit Basic: the smoke is shaded by the scene
+    // lights so it dims at night instead of glowing bright white.
+    const mesh = new THREE.Mesh(this.geo, new THREE.MeshLambertMaterial({
       color: s.color != null ? s.color : 0x46464a, transparent: true, opacity: 0, depthWrite: false,
     }));
     mesh.position.set(s.x + (Math.random() - 0.5) * size, s.y, s.z + (Math.random() - 0.5) * size);

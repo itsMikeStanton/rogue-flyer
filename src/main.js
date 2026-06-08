@@ -523,6 +523,33 @@ function populateBases() {
   }
 
   base.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+
+  // ---- Airfield lighting: floodlight masts, apron edge lights, runway lights.
+  //      All emissive (no real lights) so they bloom warm at night, cheaply. ----
+  const lampGeo = new THREE.SphereGeometry(0.9, 6, 5);
+  const amber = new THREE.MeshStandardMaterial({ color: 0xffd79a, emissive: 0xffbf66, emissiveIntensity: 2.2, roughness: 0.4 });
+  const whiteL = new THREE.MeshStandardMaterial({ color: 0xfff4d8, emissive: 0xffe8c0, emissiveIntensity: 2.6, roughness: 0.4 });
+  const poleMat = new THREE.MeshStandardMaterial({ color: 0x2e3236, flatShading: true, roughness: 0.8 });
+  const lights = new THREE.Group();
+  // Floodlight masts at the apron corners (pole + cross-bar + lamp heads).
+  for (const [fx, fz] of [[bx - 80, bz - 160], [bx + 80, bz - 160], [bx - 80, bz + 160], [bx + 80, bz + 160]]) {
+    const fgy = terrainHeight(fx, fz);
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(1, 1.4, 30, 6), poleMat); pole.position.set(fx, fgy + 15, fz); lights.add(pole);
+    const bar = new THREE.Mesh(new THREE.BoxGeometry(12, 1.4, 2), poleMat); bar.position.set(fx, fgy + 30, fz); lights.add(bar);
+    for (const ox of [-4, 0, 4]) { const head = new THREE.Mesh(new THREE.BoxGeometry(3, 2, 2.4), whiteL); head.position.set(fx + ox, fgy + 29, fz + 1.2); lights.add(head); }
+  }
+  // Apron edge lights down the two long kerbs.
+  for (let zz = bz - 160; zz <= bz + 160; zz += 28) for (const xx of [bx - 85, bx + 85]) {
+    const d = new THREE.Mesh(lampGeo, amber); d.position.set(xx, terrainHeight(xx, zz) + 1.2, zz); lights.add(d);
+  }
+  // Runway edge lights + coloured thresholds (strip is 80 wide, 1200 long at the island origin).
+  for (let zz = -560; zz <= 560; zz += 40) for (const xx of [-42, 42]) {
+    const d = new THREE.Mesh(lampGeo, whiteL); d.position.set(xx, terrainHeight(xx, zz) + 0.8, zz); lights.add(d);
+  }
+  for (const zz of [-600, 600]) for (let xx = -40; xx <= 40; xx += 10) {
+    const d = new THREE.Mesh(lampGeo, amber); d.position.set(xx, terrainHeight(xx, zz) + 0.8, zz); lights.add(d);
+  }
+  scene.add(lights);
   scene.add(base);
 
   // Parked aircraft on the apron — a static line-up of the fleet.
@@ -1320,6 +1347,7 @@ function frame(now) {
   else { menuCinematic(dt); sound.setListener(camera); }
   updateSky(camera, true); // ocean + clouds follow the active camera
   weather.update(simDt, _skyPos); // stars/rain follow the camera; storm lightning
+  if (world.spinners) for (const s of world.spinners) s.obj.rotation.y += dt * s.speed; // lighthouse beacons sweep
   // Smoke plumes: scenery sources + any still-alive power-plant strike targets.
   const dyn = smoke.dynamic; dyn.length = 0;
   for (const t of ground.targets) if (t.alive && t.smokeStacks) for (const s of t.smokeStacks) dyn.push(s);

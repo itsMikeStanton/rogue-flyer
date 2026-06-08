@@ -434,9 +434,10 @@ export function buildWorld(scene) {
   const islands = [];
   const smokeSources = [];
   const trees = []; // subsample of tree handles, for igniting + removing trees near blasts
+  const spinners = []; // scenery to rotate each frame (lighthouse beacons)
   let firstTerrain = null;
   for (const is of CFG.islands) {
-    const built = buildIsland(scene, is, waveMats, colliders, smokeSources, trees);
+    const built = buildIsland(scene, is, waveMats, colliders, smokeSources, trees, spinners);
     if (!firstTerrain) firstTerrain = built.terrain;
     islands.push({ group: built.group, center: is.center, name: is.name, faction: is.faction, terrain: built.terrain });
   }
@@ -448,7 +449,7 @@ export function buildWorld(scene) {
   const clouds = buildClouds(scene);
 
   const rings = [];
-  return { terrain: firstTerrain, rings, sun, hemi, clouds, ocean, carriers, colliders, waveMats, islands, smokeSources, trees };
+  return { terrain: firstTerrain, rings, sun, hemi, clouds, ocean, carriers, colliders, waveMats, islands, smokeSources, trees, spinners };
 }
 
 // One big tiled cumulus field. Returned mesh carries userData.tile so main can
@@ -558,10 +559,33 @@ function buildLighthouse() {
   }
   const dome = new THREE.Mesh(new THREE.ConeGeometry(lantR + 2.5, 16, 12), dark);
   dome.position.y = ly + lantH + 8; g.add(dome);
-  const tip = new THREE.Mesh(new THREE.SphereGeometry(2.2, 8, 6), redLight);
+  // Red aircraft-warning light on the very top (brighter so it blooms at night).
+  const tipMat = new THREE.MeshStandardMaterial({ color: 0xff4030, emissive: 0xff2a20, emissiveIntensity: 2.6, roughness: 0.5 });
+  const tip = new THREE.Mesh(new THREE.SphereGeometry(2.6, 10, 8), tipMat);
   tip.position.y = ly + lantH + 18; g.add(tip);
 
-  g.traverse((o) => { if (o.isMesh) { o.castShadow = true; o.receiveShadow = true; } });
+  // Lantern lamp + spinning beacon. The bright core sits in the glass room; two
+  // opposing additive beams sweep round as main.js rotates `userData.beacon`.
+  const lampY = ly + lantH / 2;
+  const core = new THREE.Mesh(new THREE.SphereGeometry(lantR * 0.5, 10, 8),
+    new THREE.MeshStandardMaterial({ color: 0xfff3cf, emissive: 0xfff0c0, emissiveIntensity: 3.2, roughness: 0.3 }));
+  core.position.y = lampY; g.add(core);
+  const beamMat = new THREE.MeshBasicMaterial({ color: 0xfff0c0, transparent: true, opacity: 0.16, blending: THREE.AdditiveBlending, depthWrite: false, fog: false, side: THREE.DoubleSide });
+  const makeBeam = () => {
+    const cone = new THREE.ConeGeometry(7.5, 150, 14, 1, true);
+    cone.translate(0, -75, 0);           // apex at the lamp, base out along -Y
+    const m = new THREE.Mesh(cone, beamMat);
+    m.rotation.z = Math.PI / 2;          // lay it flat: base points +X
+    return m;
+  };
+  const beacon = new THREE.Group();
+  beacon.position.y = lampY;
+  beacon.add(makeBeam());
+  const wrap = new THREE.Group(); wrap.rotation.y = Math.PI; wrap.add(makeBeam()); beacon.add(wrap); // opposite beam
+  g.add(beacon);
+  g.userData.beacon = beacon;
+
+  g.traverse((o) => { if (o.isMesh && o.material !== beamMat) { o.castShadow = true; o.receiveShadow = true; } });
   return g;
 }
 
@@ -711,7 +735,7 @@ export function buildPowerPlant() {
   return { group: g, stacks };
 }
 
-function buildIsland(scene, is, waveMats, colliders, smokeSources, trees) {
+function buildIsland(scene, is, waveMats, colliders, smokeSources, trees, spinners) {
   const grp = new THREE.Group();
   grp.position.set(is.center.x, 0, is.center.z);
   scene.add(grp);
@@ -977,6 +1001,7 @@ function buildIsland(scene, is, waveMats, colliders, smokeSources, trees) {
   // ---- Roads ----
   {
     const roadMat = new THREE.MeshStandardMaterial({ color: 0x3a3d42, roughness: 0.95, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+    const lampPos = []; // [x,z,...] street-light positions accumulated along all roads
     const buildRoad = (waypoints) => {
       if (waypoints.length < 2) return;
       const half = 9, step = 45;
@@ -1003,8 +1028,34 @@ function buildIsland(scene, is, waveMats, colliders, smokeSources, trees) {
       g.setIndex(indices); g.computeVertexNormals();
       const road = new THREE.Mesh(g, roadMat);
       road.receiveShadow = true; grp.add(road);
+      // Street lights: staggered down alternating kerbs of the centreline.
+      for (let i = 2; i < cl.length - 2; i += 3) {
+        const p = cl[i], a = cl[i - 1], b = cl[i + 1];
+        let dx = b[0] - a[0], dz = b[1] - a[1]; const L = Math.hypot(dx, dz) || 1; dx /= L; dz /= L;
+        const side = (i % 6 < 3) ? 1 : -1;
+        lampPos.push(p[0] - dz * (half + 4) * side, p[1] + dx * (half + 4) * side);
+      }
     };
     for (const road of is.roads) buildRoad(road);
+
+    // Build all the street lights as two instanced meshes: dark poles + emissive
+    // lamp heads that bloom warm at night (no real lights — cheap at any count).
+    if (lampPos.length) {
+      const n = lampPos.length / 2;
+      const poles = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.5, 0.7, 15, 6),
+        new THREE.MeshStandardMaterial({ color: 0x2e3236, flatShading: true, roughness: 0.8 }), n);
+      const heads = new THREE.InstancedMesh(new THREE.SphereGeometry(1.4, 8, 6),
+        new THREE.MeshStandardMaterial({ color: 0xffd79a, emissive: 0xffc070, emissiveIntensity: 2.0, roughness: 0.4 }), n);
+      const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), one = new THREE.Vector3(1, 1, 1), pp = new THREE.Vector3();
+      for (let i = 0; i < n; i++) {
+        const x = lampPos[i * 2], z = lampPos[i * 2 + 1], gy = H(x, z);
+        pp.set(x, gy + 7.5, z); poles.setMatrixAt(i, m4.compose(pp, q, one));
+        pp.set(x, gy + 15, z); heads.setMatrixAt(i, m4.compose(pp, q, one));
+      }
+      poles.instanceMatrix.needsUpdate = heads.instanceMatrix.needsUpdate = true;
+      poles.castShadow = false; heads.castShadow = false;
+      grp.add(poles); grp.add(heads);
+    }
   }
 
   // ---- Bridges (suspension): deck + towers + sagging main cables + hangers ----
@@ -1081,6 +1132,7 @@ function buildIsland(scene, is, waveMats, colliders, smokeSources, trees) {
     lh.scale.setScalar(3); // three times as large all around
     lh.position.set(lx, Math.max(H(lx, lz), SEA_LEVEL + 2), lz);
     grp.add(lh);
+    if (spinners && lh.userData.beacon) spinners.push({ obj: lh.userData.beacon, speed: 0.7 });
   }
 
   // ---- Power plant near the city: big smoke plumes (and a strike target). ----
