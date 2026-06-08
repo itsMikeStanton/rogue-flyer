@@ -48,6 +48,7 @@ function migrate(cfg) {
       terrain: c.terrain, cliff: c.cliff, river: c.river, spawn: c.spawn,
       carriers: c.carriers || [], settlements: c.settlements || [], bridges: c.bridges || [],
       roads: c.roads || [], missionBases: c.missionBases || [], forest: c.forest, paint: c.paint,
+      landmarks: c.landmarks !== false, spire: !!c.spire,
     }],
   };
 }
@@ -200,6 +201,7 @@ function mulberry32(a) {
 // Winding river centerline (island-local): x as a function of local z.
 function riverCenterXLocal(is, z) {
   const r = is.river;
+  if (!r) return 0; // island has no river
   return r.a1 * Math.sin(z * r.f1) + r.a2 * Math.sin(z * r.f2 + r.phase);
 }
 // Editor convenience (operates on the active island, in its local coords).
@@ -677,6 +679,52 @@ function buildRadioTower() {
   return g;
 }
 
+// A glowing tapered obelisk monument: stacked frustums of dark stone banded
+// with emissive cyan light, a glowing crystalline apex, and a base ring of
+// light pylons (returned as userData.ring so it can be spun).
+function buildSpire() {
+  const g = new THREE.Group();
+  const stone = new THREE.MeshStandardMaterial({ color: 0x2a3038, flatShading: true, metalness: 0.4, roughness: 0.6 });
+  const band = new THREE.MeshStandardMaterial({ color: 0x39e6ff, emissive: 0x18c4e6, emissiveIntensity: 3.2, roughness: 0.4 });
+  const apexMat = new THREE.MeshStandardMaterial({ color: 0x8af6ff, emissive: 0x4fe3ff, emissiveIntensity: 4.0, roughness: 0.3 });
+
+  // Shaft: tapering stacked frustums with glowing seams between segments.
+  const segs = 7, total = 150, botR = 13, topR = 2.4;
+  let y = 0;
+  for (let i = 0; i < segs; i++) {
+    const t0 = i / segs, t1 = (i + 1) / segs;
+    const r0 = THREE.MathUtils.lerp(botR, topR, t0), r1 = THREE.MathUtils.lerp(botR, topR, t1);
+    const segH = total / segs;
+    const sm = new THREE.Mesh(new THREE.CylinderGeometry(r1, r0, segH, 6), stone);
+    sm.position.y = y + segH / 2; sm.castShadow = true; g.add(sm);
+    // Glowing band ring at each seam.
+    const br = (r0 + r1) * 0.5 + 0.6;
+    const ring = new THREE.Mesh(new THREE.CylinderGeometry(br, br, 2.4, 6), band);
+    ring.position.y = y + segH; g.add(ring);
+    y += segH;
+  }
+  // Crystalline glowing apex.
+  const apex = new THREE.Mesh(new THREE.OctahedronGeometry(7, 0), apexMat);
+  apex.position.y = total + 6; apex.castShadow = true; g.add(apex);
+
+  // Base ring of light pylons (spun each frame).
+  const ring = new THREE.Group();
+  const pylon = new THREE.MeshStandardMaterial({ color: 0x39e6ff, emissive: 0x18c4e6, emissiveIntensity: 2.6, roughness: 0.4 });
+  const pdark = new THREE.MeshStandardMaterial({ color: 0x23282e, flatShading: true, roughness: 0.7 });
+  const N = 8, rr = 26;
+  for (let a = 0; a < N; a++) {
+    const ang = (a / N) * Math.PI * 2;
+    const px = Math.cos(ang) * rr, pz = Math.sin(ang) * rr;
+    const base = new THREE.Mesh(new THREE.BoxGeometry(5, 4, 5), pdark);
+    base.position.set(px, 2, pz); base.castShadow = true; ring.add(base);
+    const light = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.8, 16, 5), pylon);
+    light.position.set(px, 12, pz); ring.add(light);
+  }
+  g.add(ring);
+  g.userData.ring = ring;
+  return g;
+}
+
 // ---- Editable height-sculpt grid (added on top of the base terrain) ----
 const SAND = new THREE.Color(0xcdbd87), LOW = new THREE.Color(0x3f6b3a), MID = new THREE.Color(0x6f7d4a);
 const HIGH = new THREE.Color(0x9a9a8e), SNOW = new THREE.Color(0xeef2f5);
@@ -1100,8 +1148,9 @@ function buildIsland(scene, is, waveMats, colliders, smokeSources, trees, spinne
   // (Suspension bridges removed along with the river.)
 
   // ---- Landmarks: a lattice radio tower on the cliff, a lighthouse on the
-  //      far shore (opposite the cliff). Both big, low-poly. ----
-  {
+  //      far shore (opposite the cliff). Both big, low-poly. Home's signature;
+  //      islands can opt out (landmarks:false). ----
+  if (is.landmarks !== false) {
     const cf = is.cliff;
     const rt = buildRadioTower();
     rt.scale.y = 2; // twice as tall
@@ -1114,6 +1163,17 @@ function buildIsland(scene, is, waveMats, colliders, smokeSources, trees, spinne
     lh.position.set(lx, Math.max(H(lx, lz), SEA_LEVEL + 2), lz);
     grp.add(lh);
     if (spinners && lh.userData.beacon) spinners.push({ obj: lh.userData.beacon, speed: 0.35 });
+  }
+
+  // ---- Spire monument: a glowing tapered obelisk crowning the cliff summit,
+  //      with a slowly rotating ring of light pylons at its base. ----
+  if (is.spire) {
+    const cf = is.cliff;
+    const sp = buildSpire();
+    sp.scale.setScalar(3);
+    sp.position.set(cf.x, H(cf.x, cf.z), cf.z);
+    grp.add(sp);
+    if (spinners && sp.userData.ring) spinners.push({ obj: sp.userData.ring, speed: 0.3 });
   }
 
   // ---- Power plant near the city: big smoke plumes (and a strike target). ----
