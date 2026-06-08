@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { terrainHeight, SEA_LEVEL } from "./world.js";
 
 // Ambient world traffic: large moving things that make the archipelago feel
 // alive and double as juicy targets. Three kinds, all sharing the standard
@@ -473,6 +474,122 @@ class Train {
 }
 
 // ---------------------------------------------------------------------------
+// Island loop train: a closed circuit that hugs the terrain, riding at sea
+// level wherever the loop crosses water — so one continuous loop can run over
+// land and bridge across rivers/bays and back.
+// ---------------------------------------------------------------------------
+
+const LOOP_N = 360;       // samples around the loop
+const LOOP_CLEAR = 1.0;   // how far the track sits above ground / sea
+const _lpPos = new THREE.Vector3(), _lpDir = new THREE.Vector3(), _lp = { pos: _lpPos, dir: _lpDir };
+
+// Sample the closed loop centreline + its terrain-clamped heights. The height
+// is max(terrain, sea), so the path never dips underwater — it bridges across.
+function buildLoopPath(cx, cz) {
+  const xs = new Float32Array(LOOP_N), zs = new Float32Array(LOOP_N), ys = new Float32Array(LOOP_N);
+  const A = 7600, B = 6200;
+  for (let i = 0; i < LOOP_N; i++) {
+    const t = (i / LOOP_N) * Math.PI * 2;
+    const x = cx + A * Math.cos(t) + 700 * Math.sin(2 * t);   // wobble off a plain ellipse
+    const z = cz + B * Math.sin(t) + 600 * Math.cos(3 * t);
+    xs[i] = x; zs[i] = z; ys[i] = Math.max(terrainHeight(x, z), SEA_LEVEL) + LOOP_CLEAR;
+  }
+  const cum = new Float32Array(LOOP_N + 1);
+  for (let i = 0; i < LOOP_N; i++) {
+    const j = (i + 1) % LOOP_N;
+    cum[i + 1] = cum[i] + Math.hypot(xs[j] - xs[i], zs[j] - zs[i]); // horizontal arc length, closed
+  }
+  return { xs, zs, ys, cum, L: cum[LOOP_N] };
+}
+
+// Position + 3D tangent at arc-length s (wraps around the loop).
+function sampleLoop(p, s) {
+  const L = p.L; s = ((s % L) + L) % L;
+  let lo = 0, hi = LOOP_N;
+  while (lo + 1 < hi) { const mid = (lo + hi) >> 1; if (p.cum[mid] <= s) lo = mid; else hi = mid; }
+  const i = lo, j = (i + 1) % LOOP_N, seg = (p.cum[i + 1] - p.cum[i]) || 1, t = (s - p.cum[i]) / seg;
+  _lpPos.set(p.xs[i] + (p.xs[j] - p.xs[i]) * t, p.ys[i] + (p.ys[j] - p.ys[i]) * t, p.zs[i] + (p.zs[j] - p.zs[i]) * t);
+  _lpDir.set(p.xs[j] - p.xs[i], p.ys[j] - p.ys[i], p.zs[j] - p.zs[i]);
+  if (_lpDir.lengthSq() < 1e-6) _lpDir.set(0, 0, 1); else _lpDir.normalize();
+  return _lp;
+}
+
+// A flat ribbon mesh following the loop, offset sideways by `off`, half-width
+// `hw`, raised `hy` over the path — used for the ballast bed and the two rails.
+function loopRibbon(p, off, hw, hy, color, opts = {}) {
+  const verts = new Float32Array(LOOP_N * 2 * 3), idx = [];
+  for (let i = 0; i < LOOP_N; i++) {
+    const ip = (i - 1 + LOOP_N) % LOOP_N, inx = (i + 1) % LOOP_N;
+    let dx = p.xs[inx] - p.xs[ip], dz = p.zs[inx] - p.zs[ip];
+    const len = Math.hypot(dx, dz) || 1; dx /= len; dz /= len;
+    const px = -dz, pz = dx;                       // left-perpendicular (horizontal)
+    const ccx = p.xs[i] + px * off, ccz = p.zs[i] + pz * off, y = p.ys[i] + hy;
+    const li = i * 6;
+    verts[li] = ccx + px * hw; verts[li + 1] = y; verts[li + 2] = ccz + pz * hw;
+    verts[li + 3] = ccx - px * hw; verts[li + 4] = y; verts[li + 5] = ccz - pz * hw;
+  }
+  for (let i = 0; i < LOOP_N; i++) {
+    const j = (i + 1) % LOOP_N, a = i * 2, b = i * 2 + 1, c = j * 2, d = j * 2 + 1;
+    idx.push(a, b, c, b, d, c);
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.BufferAttribute(verts, 3));
+  g.setIndex(idx); g.computeVertexNormals();
+  const material = mat(color, opts);
+  material.side = THREE.DoubleSide; // visible from above regardless of triangle winding
+  const m = new THREE.Mesh(g, material);
+  m.receiveShadow = true; m.castShadow = false;
+  return m;
+}
+
+class LoopTrain {
+  constructor(mgr, cx, cz) {
+    this.mgr = mgr;
+    this.path = buildLoopPath(cx, cz);
+    this.track = new THREE.Group();
+    this.track.add(loopRibbon(this.path, 0, 7.0, 0.35, 0x39342f, { r: 1 }));            // ballast bed
+    this.track.add(loopRibbon(this.path, 5.0, 0.6, 0.9, 0x9aa0a6, { m: 0.4, r: 0.5 }));  // rails (gauge ~ wheels)
+    this.track.add(loopRibbon(this.path, -5.0, 0.6, 0.9, 0x9aa0a6, { m: 0.4, r: 0.5 }));
+    mgr.scene.add(this.track);
+
+    this.spacing = 30; this.speed = 200;
+    const palette = [0x6a4a3a, 0x40566a, 0x55663f, 0x7a6a3a, 0x4a4f55];
+    const variants = ["boxcar", "tanker", "hopper", "boxcar", "tanker"];
+    this.cars = [new RailCar(mgr.scene, mgr.fx, this, "loco", 0x394b3a, true)];
+    for (let i = 0; i < variants.length; i++)
+      this.cars.push(new RailCar(mgr.scene, mgr.fx, this, variants[i], palette[i % palette.length], false));
+    this.spawn();
+  }
+  spawn() { this.s = 0; this.respawnT = 0; for (const c of this.cars) c.reset(); this.place(); }
+  onCarDestroyed() { if (this.cars.every((c) => !c.alive)) this.respawnT = 8 + Math.random() * 5; }
+  place() {
+    for (let i = 0; i < this.cars.length; i++) {
+      const c = this.cars[i];
+      const sr = sampleLoop(this.path, this.s - i * this.spacing); // loco (i=0) leads
+      c.position.copy(sr.pos); c.position.y += 0.8;                // wheels sit on the rails
+      c.group.position.copy(c.position);
+      c.group.rotation.order = "YXZ";
+      c.group.rotation.y = Math.atan2(sr.dir.x, sr.dir.z);         // yaw onto heading
+      c.group.rotation.x = -Math.asin(THREE.MathUtils.clamp(sr.dir.y, -1, 1)); // pitch up/down slopes
+    }
+  }
+  update(dt) {
+    if (this.respawnT > 0) { this.respawnT -= dt; if (this.respawnT <= 0) this.spawn(); return; }
+    if (this.cars.every((c) => !c.alive)) return;
+    this.s += this.speed * dt;  // continuous — sampleLoop wraps it around the circuit
+    this.place();
+  }
+  hullHit(pos) {
+    for (const c of this.cars) {
+      if (!c.alive) continue;
+      const dx = pos.x - c.position.x, dz = pos.z - c.position.z;
+      if (Math.abs(dx) < 8 && Math.abs(dz) < 14 && Math.abs(pos.y - (c.position.y + 10)) < 16) return true;
+    }
+    return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Manager
 // ---------------------------------------------------------------------------
 
@@ -507,6 +624,10 @@ export class Traffic {
     this.viaduct = buildViaduct(xLane, zFar, zNear, vy);
     scene.add(this.viaduct.group);
     this.trains.push(new Train(this, { xLane, zFar, zNear, len: zNear - zFar, y: vy, speed: 60 }));
+
+    // A second train running a continuous terrain-hugging loop on the home
+    // island — bridges across rivers/bays at sea level and back onto land.
+    this.trains.push(new LoopTrain(this, A.x, A.z));
   }
 
   // Live target list (ships, zeppelin, every surviving rail car).
