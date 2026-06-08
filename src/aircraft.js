@@ -228,23 +228,36 @@ function flatPoly(mat, pts, thick) {
   geo.translate(0, thick / 2, 0); // centre thickness on y=0
   return new THREE.Mesh(geo, mat);
 }
-// Full (both-sides) swept, tapered wing centred on the fuselage.
+// Full (both-sides) swept, tapered wing centred on the fuselage. `sweep` rakes
+// the TIPS aft (positive = swept back). flatPoly maps a point's 2nd coord to
+// world -Z, so the tip uses -sweep; we then re-centre the wing on its old
+// footprint (translate forward by sweep) so the planform doesn't shift.
 function wing(mat, halfSpan, root, tip, sweep, thick) {
-  return flatPoly(mat, [
-    [-halfSpan, sweep + tip / 2], [-halfSpan, sweep - tip / 2],
+  const m = flatPoly(mat, [
+    [-halfSpan, -sweep + tip / 2], [-halfSpan, -sweep - tip / 2],
     [0, -root / 2],
-    [halfSpan, sweep - tip / 2], [halfSpan, sweep + tip / 2],
+    [halfSpan, -sweep - tip / 2], [halfSpan, -sweep + tip / 2],
     [0, root / 2],
   ], thick);
+  m.geometry.translate(0, 0, -sweep);
+  return m;
 }
-// A single vertical fin (tapered, swept), standing up in Y.
+// A single vertical fin (tapered, swept aft), standing up in Y.
 function fin(mat, height, root, tip, sweep, thick) {
   const m = flatPoly(mat, [
     [0, -root / 2], [0, root / 2],
-    [height, sweep + tip / 2], [height, sweep - tip / 2],
+    [height, -sweep + tip / 2], [height, -sweep - tip / 2],
   ], thick);
+  m.geometry.translate(0, 0, -sweep);
   m.rotation.z = Math.PI / 2; // span -> height
   return m;
+}
+
+// A turkey-feather afterburner nozzle ring (dark petals) at an exhaust exit.
+function nozzleRing(m, x, y, z, r = 0.4) {
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(r, r * 0.24, 6, 14), m.accent);
+  ring.position.set(x, y, z); // torus lies in XY → faces aft, ringing the exhaust
+  return ring;
 }
 
 // Pylon + slung missile (low-poly). Origin at the wing underside attach point.
@@ -332,6 +345,9 @@ function buildF16(def) {
 
   const nozzle = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.36, 0.9, 12), m.metal);
   nozzle.rotation.x = Math.PI / 2; nozzle.position.z = 3.7; g.add(nozzle);
+  g.add(nozzleRing(m, 0, 0, 4.2, 0.42));
+  // ventral strakes under the tail
+  for (const s of [-1, 1]) { const vs = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.5, 1.1), m.panel); vs.position.set(s * 0.42, -0.5, 2.7); vs.rotation.z = s * 0.5; g.add(vs); }
 
   // underwing missiles + wingtip rails
   for (const s of [-1, 1]) {
@@ -395,11 +411,14 @@ function buildHornet(def) {
   const rl = navLight(m.red); rl.position.set(-5.0, 0.05, 1.0); g.add(rl);
   const gl = navLight(m.green); gl.position.set(5.0, 0.05, 1.0); g.add(gl);
 
-  // twin nozzles + layered flames
+  // LEX fences (small vertical plates that tame the vortex over the LERX)
+  for (const s of [-1, 1]) { const fnc = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.3, 0.5), m.panel); fnc.position.set(s * 0.95, 0.32, -1.2); g.add(fnc); }
+  // twin nozzles + rings + layered flames
   g.userData.flames = [];
   for (const s of [-1, 1]) {
     const nz = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.28, 0.9, 10), m.metal);
     nz.rotation.x = Math.PI / 2; nz.position.set(s * 0.5, 0, 3.4); g.add(nz);
+    g.add(nozzleRing(m, s * 0.5, 0, 3.85, 0.32));
     addAfterburner(g, s * 0.5, 0, 3.4, 0.8, g.userData.flames);
   }
   return g;
@@ -466,13 +485,17 @@ function buildEagle(def) {
   const probe = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.8, 5), m.metal); probe.rotation.x = Math.PI / 2; probe.position.z = -6.3; g.add(probe);
   const spine = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.3, 4.2), m.panel); spine.position.set(0, 0.55, 0.8); g.add(spine);
   g.add(makeCanopy(m.glass, -2.0, 1.0, 0.95, 2.2));
-  for (const s of [-1, 1]) { const intk = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.7, 2.2), m.accent); intk.position.set(s * 0.95, -0.1, -1.2); g.add(intk); }
+  // boxy variable-ramp intakes with a dark angled inlet face (F-15 signature)
+  for (const s of [-1, 1]) {
+    const intk = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.7, 2.2), m.accent); intk.position.set(s * 0.95, -0.1, -1.2); g.add(intk);
+    const ramp = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.72, 0.22), m.metal); ramp.position.set(s * 0.95, 0.0, -2.25); ramp.rotation.x = 0.2; g.add(ramp);
+  }
   const w = wing(m.body, 5.8, 3.0, 0.9, 0.9, 0.18); w.position.z = 0.7; g.add(w);
   for (const s of [-1, 1]) { const vt = fin(m.body, 2.0, 1.8, 0.7, 0.6, 0.14); vt.position.set(s * 1.0, 0.5, 2.6); vt.rotation.z = Math.PI / 2 + s * 0.08; g.add(vt); }
   const hs = wing(m.body, 3.0, 1.5, 0.6, 0.8, 0.14); hs.position.z = 3.4; g.add(hs);
   for (const s of [-1, 1]) { const o = ordnance(m); o.position.set(s * 2.6, -0.05, 0.9); g.add(o); const o2 = ordnance(m); o2.position.set(s * 4.2, 0, 0.9); o2.scale.setScalar(0.85); g.add(o2); }
   g.userData.flames = [];
-  for (const s of [-1, 1]) { const nz = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.32, 0.9, 10), m.metal); nz.rotation.x = Math.PI / 2; nz.position.set(s * 0.55, 0, 3.6); g.add(nz); addAfterburner(g, s * 0.55, 0, 3.6, 0.85, g.userData.flames); }
+  for (const s of [-1, 1]) { const nz = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.32, 0.9, 10), m.metal); nz.rotation.x = Math.PI / 2; nz.position.set(s * 0.55, 0, 3.6); g.add(nz); g.add(nozzleRing(m, s * 0.55, 0, 4.05, 0.36)); addAfterburner(g, s * 0.55, 0, 3.6, 0.85, g.userData.flames); }
   const rl = navLight(m.red); rl.position.set(-5.8, 0.05, 1.0); g.add(rl); const gl = navLight(m.green); gl.position.set(5.8, 0.05, 1.0); g.add(gl);
   return g;
 }
@@ -486,6 +509,7 @@ function buildTomcat(def) {
   for (const s of [-1, 1]) {
     const nac = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.5, 6.2, 12), m.body); nac.rotation.x = Math.PI / 2; nac.position.set(s * 1.05, 0, 0.6); g.add(nac);
     const noz = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.42, 0.8, 12), m.metal); noz.rotation.x = Math.PI / 2; noz.position.set(s * 1.05, 0, 3.8); g.add(noz);
+    g.add(nozzleRing(m, s * 1.05, 0, 4.25, 0.46));
     addAfterburner(g, s * 1.05, 0, 3.8, 0.85, g.userData.flames);
   }
   g.add(makeCanopy(m.glass, -1.8, 0.85, 0.8, 2.6));
@@ -531,7 +555,9 @@ function buildFulcrum(def) {
   for (const s of [-1, 1]) { const vt = fin(m.body, 1.6, 1.4, 0.6, 0.5, 0.14); vt.position.set(s * 1.1, 0.5, 2.3); vt.rotation.z = Math.PI / 2 + s * 0.12; g.add(vt); }
   const hs = wing(m.body, 2.6, 1.3, 0.5, 0.7, 0.14); hs.position.z = 3.1; g.add(hs);
   g.userData.flames = [];
-  for (const s of [-1, 1]) { const nz = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.28, 0.9, 10), m.metal); nz.rotation.x = Math.PI / 2; nz.position.set(s * 0.55, -0.05, 3.3); g.add(nz); addAfterburner(g, s * 0.55, -0.05, 3.3, 0.78, g.userData.flames); }
+  for (const s of [-1, 1]) { const nz = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.28, 0.9, 10), m.metal); nz.rotation.x = Math.PI / 2; nz.position.set(s * 0.55, -0.05, 3.3); g.add(nz); g.add(nozzleRing(m, s * 0.55, -0.05, 3.75, 0.32)); addAfterburner(g, s * 0.55, -0.05, 3.3, 0.78, g.userData.flames); }
+  // raised spine between the engines (Fulcrum's distinctive humped back)
+  const spine = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.34, 3.0), m.panel); spine.position.set(0, 0.5, 1.2); g.add(spine);
   for (const s of [-1, 1]) { const o = ordnance(m); o.position.set(s * 2.4, -0.05, 0.8); g.add(o); }
   const rl = navLight(m.red); rl.position.set(-5.0, 0.05, 1.0); g.add(rl); const gl = navLight(m.green); gl.position.set(5.0, 0.05, 1.0); g.add(gl);
   return g;
@@ -587,6 +613,7 @@ function buildStrato(def) {
     const pylon = new THREE.Mesh(new THREE.BoxGeometry(0.4, 1.2, 0.8), m.accent); pylon.position.set(s * wx, -0.3, -0.4); g.add(pylon);
     for (const e of [-0.55, 0.55]) {
       const nac = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.4, 2.2, 10), m.metal); nac.rotation.x = Math.PI / 2; nac.position.set(s * wx + e, -1.0, -0.2); g.add(nac);
+      const inlet = new THREE.Mesh(new THREE.CylinderGeometry(0.37, 0.37, 0.14, 10), m.accent); inlet.rotation.x = Math.PI / 2; inlet.position.set(s * wx + e, -1.0, -1.32); g.add(inlet);
     }
   }
   const vt = fin(m.body, 4.5, 2.6, 0.8, 1.0, 0.2); vt.position.set(0, 0.5, 8.0); g.add(vt);
@@ -627,6 +654,10 @@ function buildHarrier(def) {
   }
 
   for (const s of [-1, 1]) { const o = ordnance(m); o.position.set(s * 2.1, -0.05, 0.6); g.add(o); }
+  // reaction-control puffers (nose, tail, wingtips) used to hold attitude in a hover
+  const puff = (x, y, z) => { const p = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.3, 6), m.metal); p.rotation.z = Math.PI / 2; p.position.set(x, y, z); g.add(p); };
+  puff(0, -0.4, -5.6); puff(0, -0.3, 4.2);
+  for (const s of [-1, 1]) puff(s * 4.2, 0.4, 0.7);
   const rl = navLight(m.red); rl.position.set(-4.3, 0.5, 0.7); g.add(rl);
   const gl = navLight(m.green); gl.position.set(4.3, 0.5, 0.7); g.add(gl);
   g.userData.flames = []; // no afterburner on the Pegasus
