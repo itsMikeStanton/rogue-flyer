@@ -48,6 +48,7 @@ const _to = new THREE.Vector3();
 const _desired = new THREE.Vector3();
 const _look = new THREE.Vector3();
 const _mdir = new THREE.Vector3();
+const _pbV = new THREE.Vector3(), _pbP = new THREE.Vector3(); // bomb-impact prediction
 
 function steer(dir, desired, maxRad) {
   const d = _desired.copy(desired).normalize();
@@ -263,6 +264,22 @@ export class Weapons {
       target: null, age: MSL_DROP, lit: false, life: ROCKET_LIFE, smokeTimer: 0, smokeEvery: 0.05, dmg: ROCKET_DAMAGE, rocket: true,
     });
     return true;
+  }
+
+  // Where would a bomb dropped right now land? Simulates the same ballistics as
+  // a live bomb and returns the ground impact point (out), or null. Used by the
+  // bombardier sight to show the predicted impact.
+  predictBomb(position, jetVel, out) {
+    _pbV.copy(jetVel || _pbV.set(0, 0, 0));
+    _pbP.copy(position); _pbP.y -= 1.3;
+    const dt = 0.05;
+    for (let i = 0; i < 600; i++) {
+      _pbV.y -= BOMB_GRAVITY * dt;
+      _pbP.addScaledVector(_pbV, dt * 1.3);
+      const g = Math.max(groundHeightAt(_pbP.x, _pbP.z), SEA_LEVEL);
+      if (_pbP.y <= g) { _pbP.y = g; return out.copy(_pbP); }
+    }
+    return null;
   }
 
   // Bomb: drops off the belly, falls under gravity, big area blast on impact.

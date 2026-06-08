@@ -173,8 +173,27 @@ let armActive = false, armUp = false, armOpposite = false, armInit = false, armH
 const ARM_HI = 0.9, ARM_LO = 0.08;
 
 const CAMS = ["Chase", "Far Chase", "Cockpit"];
+// Bomb-carrying aircraft also get a "Bomb Sight" view (look-down bombardier mode).
+function camList() { return (def && def.loadout && def.loadout.bombs > 0) ? [...CAMS, "Bomb Sight"] : CAMS; }
+function currentCam() { const l = camList(); return l[camIndex % l.length]; }
 let camIndex = 0;
 let ringsHit = 0;
+
+// Ground reticle showing the predicted bomb impact (shown in Bomb Sight).
+const bombMarker = new THREE.Group();
+{
+  const mat = new THREE.MeshBasicMaterial({ color: 0xff3b30, transparent: true, opacity: 0.9, depthTest: false, depthWrite: false });
+  const ring = new THREE.Mesh(new THREE.RingGeometry(8, 11, 28), mat);
+  const ring2 = new THREE.Mesh(new THREE.RingGeometry(20, 22, 32), mat);
+  const cross = new THREE.Mesh(new THREE.BoxGeometry(28, 0.6, 1.4), mat);
+  const cross2 = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.6, 28), mat);
+  for (const m of [ring, ring2]) m.rotation.x = -Math.PI / 2;
+  bombMarker.add(ring, ring2, cross, cross2);
+  bombMarker.renderOrder = 997;
+  bombMarker.visible = false;
+  scene.add(bombMarker);
+}
+const _bombHit = new THREE.Vector3();
 let lastPad = false; // tracks gamepad presence to toggle touch controls
 // Manual gear/flaps state + animated gear-deploy fraction (0 up .. 1 down).
 let gearDown = true, flapsDown = false, gearAnim = 1;
@@ -373,6 +392,7 @@ if (fsBtn) {
 function setAircraft(type) {
   jetType = type;
   def = AIRCRAFT[type];
+  camIndex = 0; // a new airframe may not have the Bomb Sight view
   vtolMode = false; // start with nozzles aft
   touch.setVtol(false);
   if (mesh) scene.remove(mesh);
@@ -605,9 +625,10 @@ function updateCamera(dt) {
   freeLook.yaw += (lookInput.x * 2.6 - freeLook.yaw) * Math.min(1, dt * 9);
   freeLook.pitch += (lookInput.y * 0.7 - freeLook.pitch) * Math.min(1, dt * 9);
   _lookE.set(freeLook.pitch, freeLook.yaw, 0, "YXZ");
-  const mode = CAMS[camIndex];
+  const mode = currentCam();
   const pos = state.position;
   const q = state.quaternion;
+  bombMarker.visible = false; // only shown in Bomb Sight (set below)
 
   // Vehicle bay: slow orbit of the parked vehicle at the spawn point so the base
   // / carrier tower drifts through frame while you choose.
@@ -648,6 +669,28 @@ function updateCamera(dt) {
   const targetFov = 70 + THREE.MathUtils.clamp((state.velocity.length() - 140) * 0.06, 0, 18);
   camera.fov += (targetFov - camera.fov) * Math.min(1, dt * 3);
   camera.updateProjectionMatrix();
+
+  // Bombardier sight: the jet keeps flying while you look down at the ground and
+  // a reticle marks where a bomb dropped now would hit. Steer to walk it onto
+  // the target, then drop with N / the BOMB button.
+  if (mode === "Bomb Sight") {
+    const hit = weapons.predictBomb(pos, state.velocity, _bombHit);
+    if (hit) { bombMarker.position.copy(hit); bombMarker.position.y += 1.0; bombMarker.visible = true; }
+    // High and a little behind, angled down so the jet sits up-frame and the
+    // impact zone is below it. Look between the jet and the predicted impact.
+    _v2.set(0, 0, -1).applyQuaternion(q); _v2.y = 0;
+    const fl = Math.hypot(_v2.x, _v2.z) || 1; _v2.x /= fl; _v2.z /= fl; // horizontal heading
+    const behind = _v.copy(pos).addScaledVector(_v2, -26); behind.y = pos.y + 70;
+    const lerp = 1 - Math.pow(0.0015, dt);
+    camPos.lerp(behind, lerp);
+    if (camPos.lengthSq() === 0) camPos.copy(behind);
+    camera.position.copy(camPos);
+    camera.up.set(0, 1, 0);
+    if (hit) camTarget.lerp(_v3.set((pos.x + hit.x) / 2, (pos.y + hit.y) / 2 - 10, (pos.z + hit.z) / 2), 0.25);
+    else camTarget.copy(pos).addScaledVector(_v2, 200).setY(pos.y - 120);
+    camera.lookAt(camTarget);
+    return;
+  }
 
   if (mode === "Cockpit") {
     const eye = _v.set(0, 0.5, -1.5).applyQuaternion(q).add(pos);
@@ -1045,7 +1088,7 @@ function frame(now) {
   if (flying && !hangarMode && !paused && !state.crashed && armActive) updateArming(controls);
 
   if (flying && !hangarMode && !paused && !state.crashed && !armActive) {
-    if (controls.viewPressed) camIndex = (camIndex + 1) % CAMS.length;
+    if (controls.viewPressed) camIndex = (camIndex + 1) % camList().length;
 
     // Gear + flaps are manual now (G / V keys, or on-screen GEAR / FLAPS).
     if (controls.gearPressed) gearDown = !gearDown;
@@ -1123,7 +1166,7 @@ function frame(now) {
   if (mesh) {
     mesh.position.copy(state.position);
     mesh.quaternion.copy(state.quaternion);
-    mesh.visible = !state.crashed && (inXR ? false : CAMS[camIndex] !== "Cockpit"); // gone on crash; hidden in VR cockpit
+    mesh.visible = !state.crashed && (inXR ? false : currentCam() !== "Cockpit"); // gone on crash; hidden in VR cockpit
     const flames = mesh.userData.flames;
     if (flames) {
       const t = state.telemetry.throttle;
@@ -1307,7 +1350,7 @@ function frame(now) {
       pitch: pitchAng,
       roll: rollAng,
       jetName: def.name,
-      camName: CAMS[camIndex],
+      camName: currentCam(),
       mode: gameMode,
       onGround: state.onGround,
       checkpoints: world.rings.length,
