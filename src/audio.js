@@ -194,20 +194,20 @@ export class SoundEngine {
 
     const low = ctx.createOscillator();
     low.type = "sawtooth";
-    low.frequency.value = 50;
+    low.frequency.value = 45;
     const whine = ctx.createOscillator();
     whine.type = "triangle";
-    whine.frequency.value = 140;
+    whine.frequency.value = 90;
     const lp = ctx.createBiquadFilter();
     lp.type = "lowpass";
-    lp.frequency.value = 800;
+    lp.frequency.value = 480;
     low.connect(lp); whine.connect(lp); lp.connect(g);
 
     const noise = this._noise();
     noise.loop = true;
     const nbp = ctx.createBiquadFilter();
     nbp.type = "bandpass";
-    nbp.frequency.value = 1200;
+    nbp.frequency.value = 850;
     nbp.Q.value = 0.7;
     const ng = ctx.createGain();
     ng.gain.value = 0.05;
@@ -232,23 +232,27 @@ export class SoundEngine {
   updateEngine(throttle, speed) {
     if (!this.engine) return;
     const e = this.engine, t = this.ctx.currentTime;
+    // Pitch spools up to its MAX by ~20% throttle, then holds flat — past that
+    // only the volume swells a touch. Keeps the engine a steady rumble instead
+    // of a throttle-tracking whine that climbs higher the faster you go.
+    const p = Math.min(1, throttle / 0.2);
     if (e.sample) {
-      // Pitch the loop up with throttle (+ a touch with speed); volume tracks
-      // throttle. The high layer crosses in past ~45% for the "ramp into power".
-      const rate = 0.82 + throttle * 0.55 + Math.min(0.25, speed * 0.0006);
+      const rate = 0.82 + p * 0.30 + Math.min(0.12, speed * 0.0004);
       e.src.playbackRate.setTargetAtTime(rate, t, 0.12);
-      e.g.gain.setTargetAtTime(0.18 + throttle * 0.26, t, 0.12);
+      e.g.gain.setTargetAtTime(0.12 + throttle * 0.10, t, 0.12);
       if (e.srcHigh) {
-        e.srcHigh.playbackRate.setTargetAtTime(0.9 + throttle * 0.5, t, 0.12);
+        e.srcHigh.playbackRate.setTargetAtTime(0.9 + p * 0.4, t, 0.12);
         const hi = Math.max(0, (throttle - 0.45) / 0.55); // 0 below ~45%, ramps to 1 at full
-        e.gHigh.gain.setTargetAtTime(hi * hi * 0.32, t, 0.15);
+        e.gHigh.gain.setTargetAtTime(hi * hi * 0.2, t, 0.15);
       }
     } else {
-      e.low.frequency.setTargetAtTime(45 + throttle * 70 + speed * 0.04, t, 0.08);
-      e.whine.frequency.setTargetAtTime(130 + throttle * 260, t, 0.08);
-      e.lp.frequency.setTargetAtTime(500 + throttle * 2600, t, 0.08);
-      e.ng.gain.setTargetAtTime(0.04 + throttle * 0.14, t, 0.08);
-      e.g.gain.setTargetAtTime(0.1 + throttle * 0.18, t, 0.08);
+      // Low, throaty synth: a deep drone + a soft whine, both kept well down in
+      // pitch so it reads as a jet rumble rather than a dentist's drill.
+      e.low.frequency.setTargetAtTime(38 + p * 20 + speed * 0.02, t, 0.1);
+      e.whine.frequency.setTargetAtTime(85 + p * 55, t, 0.1);
+      e.lp.frequency.setTargetAtTime(380 + p * 720, t, 0.1);
+      e.ng.gain.setTargetAtTime(0.025 + throttle * 0.05, t, 0.1);
+      e.g.gain.setTargetAtTime(0.045 + throttle * 0.07, t, 0.1);
     }
   }
 
