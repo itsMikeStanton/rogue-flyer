@@ -434,6 +434,7 @@ export class UI {
       ["bombsight", "Bomb sight"], ["flare", "Flares"], ["view", "Camera"], ["flyby", "Flyby cam"],
       ["radar", "Radar / markers"], ["hud", "HUD on/off"], ["gear", "Gear"], ["flaps", "Flaps"],
       ["brake", "Airbrake"], ["vtol", "VTOL nozzles"], ["hangar", "Vehicle bay"], ["reset", "Pause menu"],
+      ["approach", "Approach mode"],
     ];
     root.innerHTML = "";
     for (const [key, label] of ACTIONS) {

@@ -19,6 +19,7 @@ import { Weather } from "./weather.js";
 import { Smokestacks } from "./smoke.js";
 import { Wrecks } from "./wreckage.js";
 import { Net } from "./net.js";
+import { Approach } from "./approach.js";
 
 // --- Renderer / scene / camera ---
 const canvas = document.getElementById("scene");
@@ -246,6 +247,10 @@ let radarOff = false, hudOff = false;
 try { radarOff = localStorage.getItem("rf.radarOff") === "1"; hudOff = localStorage.getItem("rf.hudOff") === "1"; } catch (_) { /* ignore */ }
 function setRadarOff(v) { radarOff = v; try { localStorage.setItem("rf.radarOff", v ? "1" : "0"); } catch (_) { /* ignore */ } }
 function setHudOff(v) { hudOff = v; try { localStorage.setItem("rf.hudOff", v ? "1" : "0"); } catch (_) { /* ignore */ } }
+// Landing-approach guidance (toggle with L / a joystick button). Targets the
+// home runway at the island origin.
+const approach = new Approach({ cx: 0, cz: 0 });
+let approachOn = false;
 let ringsHit = 0;
 
 // Ground reticle showing the predicted bomb impact (shown in Bomb Sight).
@@ -1296,6 +1301,7 @@ function frame(now) {
     if (controls.flybyPressed) triggerFlyby();            // one-shot cinematic flyby
     if (controls.radarPressed) setRadarOff(!radarOff);    // pure-flight: hide target/enemy markers + radar
     if (controls.hudPressed) setHudOff(!hudOff);          // blank the whole HUD
+    if (controls.approachPressed) approachOn = approach.toggle(state); // landing-approach guidance
 
     // Gear + flaps are manual now (G / V keys, or on-screen GEAR / FLAPS).
     if (controls.gearPressed) gearDown = !gearDown;
@@ -1580,6 +1586,24 @@ function frame(now) {
         addContact(m.position, { color: "#" + playerColor(id).toString(16).padStart(6, "0"), name: p.name, health: p.health });
       }
     }
+    // Landing-approach guidance (gates/ILS/cues). Survives "pure flight" since
+    // it's a navigation aid you deliberately turn on; hidden only when the whole
+    // HUD is off (this block already gates on !hudOff).
+    let approachHud = null;
+    if (approachOn) {
+      const project = (vec) => {
+        _v.copy(vec).project(camera);
+        return {
+          x: (_v.x * 0.5 + 0.5) * hud.w, y: (-_v.y * 0.5 + 0.5) * hud.h,
+          ndcx: _v.x, ndcy: _v.y, behind: _v.z > 1,
+          onscreen: _v.z < 1 && Math.abs(_v.x) <= 1 && Math.abs(_v.y) <= 1,
+        };
+      };
+      approachHud = approach.update(state, {
+        gearDown, flapsDown, speedKts: state.telemetry.speed * 1.94384, project,
+      });
+    }
+
     // Attitude for the HUD horizon ladder.
     _v.set(0, 0, -1).applyQuaternion(state.quaternion);
     const pitchAng = Math.asin(THREE.MathUtils.clamp(_v.y, -1, 1));
@@ -1613,6 +1637,7 @@ function frame(now) {
       netStatus,
       contacts: radarOff ? null : contacts,
       radar: radarOff ? null : radar,
+      approach: approachHud,
     });
   } else {
     hud.ctx.clearRect(0, 0, hud.w, hud.h);

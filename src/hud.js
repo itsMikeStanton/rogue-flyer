@@ -169,6 +169,126 @@ export class Hud {
     // Air contacts: markers over/around every aircraft + a radar scope.
     if (extra.contacts) for (const c of extra.contacts) this.contactMarker(c);
     if (extra.radar) this.radarScope(extra.radar);
+
+    // Landing-approach guidance (gates, ILS deviation cross, callouts).
+    if (extra.approach) this.approach(extra.approach);
+  }
+
+  // ILS-style approach guidance: a tunnel of gates to fly through, a localizer/
+  // glideslope deviation cross, a recommended-speed line, steering cues and
+  // altitude callouts. Drawn in cyan to set it apart from the green HUD.
+  approach(a) {
+    const ctx = this.ctx;
+    const cx = this.w / 2, cy = this.h / 2;
+    const CY = "#36c8ff", AM = "#ffd23f", GD = a.onPath ? "#36ff9a" : CY;
+    ctx.save();
+
+    // Aim point on the runway (small target cross).
+    if (a.aim && a.aim.onscreen && !a.aim.behind) {
+      ctx.strokeStyle = CY; ctx.lineWidth = 1.5; ctx.globalAlpha = 0.8;
+      ctx.beginPath();
+      ctx.moveTo(a.aim.x - 12, a.aim.y); ctx.lineTo(a.aim.x + 12, a.aim.y);
+      ctx.moveTo(a.aim.x, a.aim.y - 12); ctx.lineTo(a.aim.x, a.aim.y + 12);
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+
+    // Approach gates — a receding tunnel; nearer gates are bigger/brighter.
+    if (a.gates) {
+      for (let i = 0; i < a.gates.length; i++) {
+        const g = a.gates[i];
+        if (!g.onscreen || g.behind) continue;
+        const r = Math.max(12, 50 - i * 8);
+        ctx.strokeStyle = g.near ? CY : "rgba(54,200,255,0.55)";
+        ctx.lineWidth = g.near ? 2.4 : 1.4;
+        ctx.beginPath();
+        ctx.rect(g.x - r, g.y - r * 0.72, r * 2, r * 1.44); // squarish gate frame
+        ctx.stroke();
+      }
+    }
+
+    // Off-course: a waypoint diamond / edge arrow to the approach fix.
+    if (a.fix) {
+      ctx.fillStyle = CY; ctx.strokeStyle = CY;
+      if (a.fix.onscreen && !a.fix.behind) {
+        const x = a.fix.x, y = a.fix.y;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(x, y - 12); ctx.lineTo(x + 12, y); ctx.lineTo(x, y + 12); ctx.lineTo(x - 12, y);
+        ctx.closePath(); ctx.stroke();
+        ctx.font = "11px 'Consolas', monospace"; ctx.textAlign = "center";
+        ctx.fillText("APP FIX", x, y - 18);
+      } else {
+        let dx = a.fix.ndcx, dy = a.fix.ndcy;
+        if (a.fix.behind) { dx = -dx; dy = -dy; }
+        const ang = Math.atan2(-dy, dx);
+        const rx = this.w / 2 - 54, ry = this.h / 2 - 54;
+        const x = cx + Math.cos(ang) * rx, y = cy + Math.sin(ang) * ry;
+        ctx.save(); ctx.translate(x, y); ctx.rotate(ang);
+        ctx.beginPath(); ctx.moveTo(14, 0); ctx.lineTo(-7, -8); ctx.lineTo(-7, 8); ctx.closePath(); ctx.fill();
+        ctx.restore();
+      }
+    }
+
+    // ILS deviation cross (bottom-centre): steer toward the moving bars.
+    const bx = cx, by = cy + 168, half = 62;
+    ctx.globalAlpha = 0.85;
+    ctx.strokeStyle = "rgba(54,200,255,0.5)"; ctx.lineWidth = 1;
+    ctx.strokeRect(bx - half, by - half, half * 2, half * 2);
+    // scale dots
+    ctx.fillStyle = "rgba(54,200,255,0.6)";
+    for (const m of [-0.66, -0.33, 0.33, 0.66]) {
+      ctx.beginPath(); ctx.arc(bx + m * half, by, 2, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(bx, by + m * half, 2, 0, Math.PI * 2); ctx.fill();
+    }
+    // fixed aircraft reference
+    ctx.globalAlpha = 1; ctx.strokeStyle = "#cfe8ff"; ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(bx - 12, by); ctx.lineTo(bx - 4, by);
+    ctx.moveTo(bx + 4, by); ctx.lineTo(bx + 12, by);
+    ctx.moveTo(bx, by - 4); ctx.lineTo(bx, by - 8);
+    ctx.stroke();
+    // localizer (vertical bar — course left/right) + glideslope (horizontal bar)
+    const nx = bx + a.locDev * half, ny = by + a.gsDev * half;
+    ctx.strokeStyle = GD; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.moveTo(nx, by - half + 6); ctx.lineTo(nx, by + half - 6); ctx.stroke(); // localizer
+    ctx.beginPath(); ctx.moveTo(bx - half + 6, ny); ctx.lineTo(bx + half - 6, ny); ctx.stroke(); // glideslope
+    // labels under the box
+    ctx.fillStyle = CY; ctx.font = "10px 'Consolas', monospace"; ctx.textAlign = "center";
+    ctx.fillText("LOC", bx, by + half + 13);
+    ctx.textAlign = "right"; ctx.fillText("G/S", bx - half - 6, by + 4);
+
+    // Status + numbers (just above the cross).
+    ctx.textAlign = "center";
+    ctx.fillStyle = a.onPath ? "#36ff9a" : CY;
+    ctx.font = "bold 14px 'Consolas', monospace";
+    ctx.fillText(a.status, bx, by - half - 26);
+    ctx.fillStyle = CY; ctx.font = "12px 'Consolas', monospace";
+    ctx.fillText(`◎ APPROACH    DIST ${a.dist}m    HGT ${a.height}m`, bx, by - half - 10);
+
+    // Recommended vs actual speed (amber if outside the window).
+    const spdOff = Math.abs(a.vNow - a.vTarget) > 18;
+    ctx.fillStyle = spdOff ? AM : CY; ctx.textAlign = "right";
+    ctx.fillText(`SPD ${a.vNow}`, bx - 18, by + half + 28);
+    ctx.fillStyle = CY; ctx.textAlign = "left";
+    ctx.fillText(`tgt ${a.vTarget} KTS`, bx + 18, by + half + 28);
+
+    // Steering cues, stacked above the status line.
+    if (a.cues && a.cues.length) {
+      ctx.textAlign = "center"; ctx.font = "bold 13px 'Consolas', monospace";
+      ctx.fillStyle = AM;
+      let yy = by - half - 46;
+      for (const c of a.cues) { ctx.fillText(c, bx, yy); yy -= 17; }
+    }
+
+    // Big altitude callout in the flare.
+    if (a.callout) {
+      ctx.textAlign = "center";
+      ctx.fillStyle = a.callout === "FLARE" ? AM : "#cfe8ff";
+      ctx.font = "bold 30px 'Consolas', monospace";
+      ctx.fillText(a.callout, cx, cy - 96);
+    }
+    ctx.restore();
   }
 
   contactMarker(c) {

@@ -22,7 +22,7 @@ const DEFAULTS = {
   // button indices for actions (standard mapping-ish; remappable later)
   // Every action can be bound to any joystick button (remap in Settings). High
   // defaults for the niche actions are usually out of range (unbound) until set.
-  buttons: { fire: 0, missile: 1, flare: 2, view: 3, reset: 9, gear: 4, flaps: 5, brake: 6, vtol: 7, hangar: 8, bomb: 10, rocket: 11, bombsight: 16, flyby: 17, radar: 18, hud: 19 },
+  buttons: { fire: 0, missile: 1, flare: 2, view: 3, reset: 9, gear: 4, flaps: 5, brake: 6, vtol: 7, hangar: 8, bomb: 10, rocket: 11, bombsight: 16, flyby: 17, radar: 18, hud: 19, approach: 20 },
 };
 
 // Expo response curve: e in [0,1], higher = gentler near centre, full at edge.
@@ -136,7 +136,7 @@ export class Input {
     let pitch = 0, roll = 0, yaw = 0, throttle = 0;
     let viewPressed = false, pausePressed = false, fire = false, missilePressed = false, flarePressed = false;
     let gearPressed = false, flapsPressed = false, brake = false, vtolPressed = false, hangarPressed = false, bombPressed = false, rocketPressed = false, bombsightPressed = false;
-    let flybyPressed = false, radarPressed = false, hudPressed = false;
+    let flybyPressed = false, radarPressed = false, hudPressed = false, approachPressed = false;
     let lookX = 0, lookY = 0; // POV hat free-look (x = right, y = up)
 
     if (pad) {
@@ -192,6 +192,7 @@ export class Input {
         flybyPressed = this.pressed("pad-flyby", btn(b.flyby));
         radarPressed = this.pressed("pad-radar", btn(b.radar));
         hudPressed = this.pressed("pad-hud", btn(b.hud));
+        approachPressed = this.pressed("pad-approach", btn(b.approach));
         hangarPressed = this.pressed("pad-bay", btn(b.hangar));
         if (btn(b.brake)) brake = true; // airbrake / wheel brake (held)
         // POV hat → free-look. Many sticks report it as a "hat" axis whose value
@@ -242,6 +243,7 @@ export class Input {
     if (this.pressed("key-flyby", k.has("KeyY"))) flybyPressed = true;       // Y = one-shot flyby cam
     if (this.pressed("key-radar", k.has("KeyK"))) radarPressed = true;       // K = toggle radar / target markers
     if (this.pressed("key-hud", k.has("KeyJ"))) hudPressed = true;           // J = toggle the whole HUD
+    if (this.pressed("key-approach", k.has("KeyL"))) approachPressed = true;  // L = landing-approach guidance
     if (k.has("KeyZ")) brake = true;   // Z = airbrake / wheel brake (held)
     if (k.has("Space")) fire = true;
 
@@ -268,7 +270,7 @@ export class Input {
       throttle: Math.min(1, Math.max(0, throttle)),
       viewPressed, pausePressed, fire, missilePressed, flarePressed,
       gearPressed, flapsPressed, brake, vtolPressed, hangarPressed, bombPressed, rocketPressed, bombsightPressed,
-      flybyPressed, radarPressed, hudPressed,
+      flybyPressed, radarPressed, hudPressed, approachPressed,
       look: { x: lookX, y: lookY },
     };
   }
