@@ -251,12 +251,8 @@ export class Hud {
         ctx.font = "11px 'Consolas', monospace"; ctx.textAlign = "center";
         ctx.fillText("APP FIX", x, y - 18);
       } else {
-        let dx = a.fix.ndcx, dy = a.fix.ndcy;
-        if (a.fix.behind) { dx = -dx; dy = -dy; }
-        const ang = Math.atan2(-dy, dx);
-        const rx = this.w / 2 - 54, ry = this.h / 2 - 54;
-        const x = cx + Math.cos(ang) * rx, y = cy + Math.sin(ang) * ry;
-        ctx.save(); ctx.translate(x, y); ctx.rotate(ang);
+        const e = this._edgePoint(a.fix.dirx, a.fix.diry, 54);
+        ctx.save(); ctx.translate(e.x, e.y); ctx.rotate(e.ang);
         ctx.beginPath(); ctx.moveTo(14, 0); ctx.lineTo(-7, -8); ctx.lineTo(-7, 8); ctx.closePath(); ctx.fill();
         ctx.restore();
       }
@@ -323,6 +319,20 @@ export class Hud {
     ctx.restore();
   }
 
+  // Place an off-screen indicator on the inset screen-border in the target's
+  // direction. dirx/diry are clip-space (NDC-proportional, sign-corrected for
+  // behind) so the point doesn't swing wildly near the camera plane. Returns the
+  // pixel position + the outward angle for the arrow.
+  _edgePoint(dirx, diry, margin) {
+    const W = this.w, H = this.h, cx = W / 2, cy = H / 2;
+    // NDC x→right, y→up; screen y is down. Convert the clip direction to pixels.
+    let ex = (dirx || 0) * (W * 0.5), ey = -(diry || 0) * (H * 0.5);
+    if (Math.abs(ex) < 1e-4 && Math.abs(ey) < 1e-4) ey = 1;
+    const halfW = cx - margin, halfH = cy - margin;
+    const scale = 1 / Math.max(Math.abs(ex) / halfW, Math.abs(ey) / halfH);
+    return { x: cx + ex * scale, y: cy + ey * scale, ang: Math.atan2(ey, ex) };
+  }
+
   contactMarker(c) {
     const ctx = this.ctx;
     const cx = this.w / 2, cy = this.h / 2;
@@ -345,18 +355,14 @@ export class Hud {
         ctx.fillRect(x, y, w * hp, h);
       }
     } else {
-      let dx = c.ndcx, dy = c.ndcy;
-      if (c.behind) { dx = -dx; dy = -dy; }
-      const ang = Math.atan2(-dy, dx);
-      const rx = this.w / 2 - 50, ry = this.h / 2 - 50;
-      const x = cx + Math.cos(ang) * rx, y = cy + Math.sin(ang) * ry;
+      const e = this._edgePoint(c.dirx, c.diry, 50);
       ctx.save();
-      ctx.translate(x, y); ctx.rotate(ang);
+      ctx.translate(e.x, e.y); ctx.rotate(e.ang);
       ctx.globalAlpha = 0.95;
       ctx.beginPath(); ctx.moveTo(13, 0); ctx.lineTo(-7, -7); ctx.lineTo(-7, 7); ctx.closePath(); ctx.fill();
       ctx.restore();
       ctx.globalAlpha = 1; ctx.textAlign = "center";
-      ctx.fillText(label, x, y - 12);
+      ctx.fillText(label, e.x, e.y - 12);
     }
     ctx.restore();
   }
@@ -406,18 +412,14 @@ export class Hud {
       ctx.fillText(`${m.name}  ${km}km`, m.x, m.y - 18);
     } else {
       // off-screen / behind: arrow at the screen edge pointing toward it
-      let dx = m.ndcx, dy = m.ndcy;
-      if (m.behind) { dx = -dx; dy = -dy; }
-      const ang = Math.atan2(-dy, dx);
-      const rx = this.w / 2 - 64, ry = this.h / 2 - 64;
-      const x = cx + Math.cos(ang) * rx, y = cy + Math.sin(ang) * ry;
+      const e = this._edgePoint(m.dirx, m.diry, 64);
       ctx.save();
-      ctx.translate(x, y); ctx.rotate(ang);
+      ctx.translate(e.x, e.y); ctx.rotate(e.ang);
       ctx.globalAlpha = 0.9;
       ctx.beginPath(); ctx.moveTo(14, 0); ctx.lineTo(-7, -8); ctx.lineTo(-7, 8); ctx.closePath(); ctx.fill();
       ctx.restore();
       ctx.textAlign = "center";
-      ctx.fillText(`${m.name}  ${km}km`, x, y - 14);
+      ctx.fillText(`${m.name}  ${km}km`, e.x, e.y - 14);
     }
     ctx.restore();
   }
@@ -493,8 +495,8 @@ export class Hud {
     const ctx = this.ctx;
     const cx = this.w / 2, cy = this.h / 2;
     ctx.save();
-    ctx.fillStyle = "#ffb030";
-    ctx.strokeStyle = "#ffb030";
+    ctx.fillStyle = "#ffe14a";   // bright yellow — distinct from red air / orange ground
+    ctx.strokeStyle = "#ffe14a";
     if (o.onscreen && !o.behind) {
       const x = o.x, y = o.y;
       ctx.lineWidth = 2;
@@ -506,12 +508,8 @@ export class Hud {
       ctx.fillText(`TGT ${Math.round(o.dist)}m`, x, y + 26);
     } else {
       // off-screen / behind: arrow at the screen edge pointing toward it
-      let dx = o.ndcx, dy = o.ndcy;
-      if (o.behind) { dx = -dx; dy = -dy; }
-      const ang = Math.atan2(-dy, dx);
-      const rx = this.w / 2 - 46, ry = this.h / 2 - 46;
-      const x = cx + Math.cos(ang) * rx, y = cy + Math.sin(ang) * ry;
-      ctx.translate(x, y); ctx.rotate(ang);
+      const e = this._edgePoint(o.dirx, o.diry, 46);
+      ctx.translate(e.x, e.y); ctx.rotate(e.ang);
       ctx.beginPath();
       ctx.moveTo(14, 0); ctx.lineTo(-7, -8); ctx.lineTo(-7, 8);
       ctx.closePath(); ctx.fill();

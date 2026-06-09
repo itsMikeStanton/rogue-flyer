@@ -39,7 +39,7 @@ export class Approach {
   _chooseEnd(state) { this.end = (state.position.z - this.cz) >= 0 ? 1 : -1; }
 
   // Recompute guidance. opts: { gearDown, flapsDown, speedKts, project(v3) }.
-  // project(v3) -> { x, y, onscreen, behind, ndcx, ndcy } in HUD pixels/NDC.
+  // project(v3) -> { x, y, onscreen, behind, dirx, diry } (HUD pixels + clip dir).
   // Returns a HUD-ready object, or null when inactive.
   update(state, opts) {
     if (!this.active) return null;

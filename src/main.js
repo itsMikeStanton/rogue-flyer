@@ -486,8 +486,11 @@ const player = {
   },
 };
 
+const CRASH_DAMAGE = 130;   // ramming something hits it like a missile would
+const CRASH_CAM_TIME = 5.0; // death-cam length before the respawn switch
+
 // A crash: leave persistent burning wreckage at the site, hide the aircraft,
-// and start the short timer that respawns the player (the world is untouched).
+// and start the timer that respawns the player.
 function handleCrash(title) {
   if (crashHandled) return;
   crashHandled = true;
@@ -500,16 +503,22 @@ function handleCrash(title) {
   const solid = groundHeightAt(gx, gz);
   if (solid >= SEA_LEVEL) wrecks.spawn(new THREE.Vector3(gx, solid + 0.5, gz), def.color);
   else fx.add(new THREE.Vector3(gx, SEA_LEVEL, gz), 2.2, 0x9fb4c4); // splash on the water
-  // Kamikaze into the enemy carrier still counts.
-  for (const t of ground.targets) {
-    if (t.info && t.alive &&
-        Math.abs(gx - t.info.x) < t.info.halfW + 14 && Math.abs(gz - t.info.z) < t.info.halfL + 14) t.hit(99999);
-  }
+  // Whatever you slammed into takes a missile-grade hit (you take it with you).
+  const py = state.position.y;
+  const ramOne = (t) => {
+    if (!t.alive) return;
+    const r = (t.radius || 24) + 16;
+    const tp = t.position;
+    if (Math.abs(gx - tp.x) < r && Math.abs(gz - tp.z) < r && Math.abs(py - tp.y) < r + 30) t.hit(CRASH_DAMAGE);
+  };
+  for (const t of ground.targets) ramOne(t);
+  for (const e of enemies.targets) ramOne(e);
+  for (const t of traffic.targets) ramOne(t);
   sound.stopEngine(); sound.stopSeek();
   const sub = livesLeft === Infinity ? "Recovering a new aircraft…"
     : (livesLeft > 1 ? `Recovering a new aircraft…  (${livesLeft - 1} left)` : "Last aircraft down…");
   ui.showBanner(title || "AIRCRAFT DOWN", sub); bannerTimer = 0;
-  respawnTimer = 2.8;
+  respawnTimer = CRASH_CAM_TIME;
 }
 
 // No aircraft left (finite lives ran out). For now this ends the run and drops
@@ -1130,6 +1139,7 @@ const _q = new THREE.Quaternion();
 const _v = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
 const _v3 = new THREE.Vector3();
+const _v4 = new THREE.Vector4(); // clip-space projection (keeps w for stable HUD edge markers)
 const _lookE = new THREE.Euler(0, 0, 0, "YXZ");
 const freeLook = { yaw: 0, pitch: 0 };  // smoothed POV-hat look offset
 const lookInput = { x: 0, y: 0 };       // raw hat input this frame
@@ -1166,14 +1176,17 @@ function updateCamera(dt) {
     if (_v2.lengthSq() < 0.01) _v2.set(0, 0, 1);
     _v2.normalize();
     const gy0 = Math.max(groundHeightAt(pos.x, pos.z), SEA_LEVEL);
-    const behind = _v.copy(pos).addScaledVector(_v2, 130);
-    behind.y = Math.max(pos.y, gy0) + 48;
-    const lerp = 1 - Math.pow(0.02, dt);
-    camPos.lerp(behind, lerp);
+    // Slow dolly-back: distance + height grow as the death-cam plays out.
+    const elapsed = Math.max(0, CRASH_CAM_TIME - respawnTimer);
+    const dist = 70 + elapsed * 40;
+    const high = 32 + elapsed * 18;
+    const behind = _v.copy(pos).addScaledVector(_v2, dist);
+    behind.y = Math.max(pos.y, gy0) + high;
+    camPos.lerp(behind, Math.min(1, dt * 1.6)); // ease toward the receding target
     if (camPos.lengthSq() === 0) camPos.copy(behind);
     camera.position.copy(camPos);
     camera.up.set(0, 1, 0);
-    camera.fov += (64 - camera.fov) * Math.min(1, dt * 3);
+    camera.fov += (60 - camera.fov) * Math.min(1, dt * 2);
     camera.updateProjectionMatrix();
     camera.lookAt(pos.x, (pos.y + gy0) * 0.5 + 6, pos.z);
     return;
@@ -1692,7 +1705,8 @@ function frame(now) {
     }
     checkRings();
 
-    // Crash if we fly into a building — or into a ship / train / the zeppelin.
+    // Crash if we fly into a building — or into a ship / train / the zeppelin —
+    // or ram a ground emplacement or an enemy jet (which then takes the hit).
     if (!state.crashed) {
       const px = state.position.x, py = state.position.y, pz = state.position.z;
       for (const b of world.colliders) {
@@ -1702,6 +1716,16 @@ function frame(now) {
         }
       }
       if (!state.crashed && traffic.collides(state.position)) state.crashed = true;
+      // Ground targets (skip the landable carrier + the huge power plant footprint).
+      if (!state.crashed) for (const t of ground.targets) {
+        if (!t.alive || t.info || t.type === "powerplant") continue;
+        const r = Math.min(t.radius || 24, 26) + 4;
+        if (Math.abs(px - t.position.x) < r && Math.abs(pz - t.position.z) < r && Math.abs(py - t.position.y) < 40) { state.crashed = true; break; }
+      }
+      // Enemy jets — a mid-air collision downs you both.
+      if (!state.crashed) for (const e of enemies.targets) {
+        if (e.alive && state.position.distanceTo(e.position) < (e.radius || 30) + 4) { state.crashed = true; break; }
+      }
     }
 
     const isMission = gameMode === "mission" || gameMode === "campaign" || gameMode === "conquest"; // strike modes
@@ -1786,8 +1810,18 @@ function frame(now) {
 
     if (state.crashed) handleCrash("AIRCRAFT DOWN");
   } else if (flying && state.crashed && !paused) {
-    // Burning wreckage stays in the world; auto-respawn a fresh aircraft.
+    // The world carries on while the death-cam plays out — the battle doesn't
+    // freeze just because your jet went down.
     sound.stopSeek();
+    const cm = gameMode === "mission" || gameMode === "campaign" || gameMode === "conquest";
+    const tlist = (gameMode === "ffa" ? netTargets
+      : cm ? ground.targets.concat(enemies.targets) : enemies.targets).concat(traffic.targets);
+    weapons.update(dt, state.position, state.quaternion, tlist); // in-flight ordnance keeps flying
+    enemies.update(dt, player);
+    traffic.update(dt, player);
+    if (cm) ground.update(dt, player);
+    enemyOrdnance.update(dt, player);
+    if (cm) awareness.update(dt, player, { firing: false });
     fx.update(dt);
     if (respawnTimer > 0) {
       respawnTimer -= dt;
@@ -1940,22 +1974,30 @@ function frame(now) {
   // HUD
   if (flying && !hangarMode && !hudOff) {
     // Shared world→screen projection for HUD markers (objectives, approach, …).
+    // Project a world point to the HUD. Works in CLIP space (keeps w) so the
+    // off-screen edge direction stays stable even as a target crosses the camera
+    // plane — `dirx/diry` are the clip x/y, sign-flipped when behind, and never
+    // blow up the way perspective-divided NDC does.
     const projectHud = (vec) => {
-      _v.copy(vec).project(camera);
+      _v4.set(vec.x, vec.y, vec.z, 1).applyMatrix4(camera.matrixWorldInverse).applyMatrix4(camera.projectionMatrix);
+      const w = _v4.w;
+      const inv = 1 / (Math.abs(w) < 1e-6 ? (w < 0 ? -1e-6 : 1e-6) : w);
+      const ndcx = _v4.x * inv, ndcy = _v4.y * inv, ndcz = _v4.z * inv;
+      const s = w < 0 ? -1 : 1; // behind the camera: flip so the arrow points the right way
       return {
-        x: (_v.x * 0.5 + 0.5) * hud.w, y: (-_v.y * 0.5 + 0.5) * hud.h,
-        ndcx: _v.x, ndcy: _v.y, behind: _v.z > 1,
-        onscreen: _v.z < 1 && Math.abs(_v.x) <= 1 && Math.abs(_v.y) <= 1,
+        x: (ndcx * 0.5 + 0.5) * hud.w, y: (-ndcy * 0.5 + 0.5) * hud.h,
+        dirx: _v4.x * s, diry: _v4.y * s,
+        behind: w < 0,
+        onscreen: w > 0 && Math.abs(ndcx) <= 1 && Math.abs(ndcy) <= 1 && ndcz <= 1,
       };
     };
     // Project the locked target to screen space for the lock box.
     let lock = null;
     if (weapons.lock && weapons.lock.alive) {
-      _v.copy(weapons.lock.position).project(camera);
-      if (_v.z < 1) {
+      const pr = projectHud(weapons.lock.position);
+      if (!pr.behind) {
         lock = {
-          x: (_v.x * 0.5 + 0.5) * hud.w,
-          y: (-_v.y * 0.5 + 0.5) * hud.h,
+          x: pr.x, y: pr.y,
           dist: state.position.distanceTo(weapons.lock.position),
           progress: weapons.lockProgress,
           locked: weapons.locked,
@@ -1979,14 +2021,8 @@ function frame(now) {
         const dx = state.position.x - isl.center.x, dz = state.position.z - isl.center.z;
         const dist = Math.hypot(dx, dz);
         if (dist < 9000) continue; // don't mark the island you're over
-        _v.set(isl.center.x, SEA_LEVEL + 1500, isl.center.z).project(camera);
-        islandMarkers.push({
-          name: isl.name, faction: isl.faction, dist,
-          ndcx: _v.x, ndcy: _v.y, behind: _v.z > 1,
-          onscreen: _v.z < 1 && Math.abs(_v.x) <= 1 && Math.abs(_v.y) <= 1,
-          x: (_v.x * 0.5 + 0.5) * hud.w,
-          y: (-_v.y * 0.5 + 0.5) * hud.h,
-        });
+        const pr = projectHud(_v.set(isl.center.x, SEA_LEVEL + 1500, isl.center.z));
+        islandMarkers.push({ name: isl.name, faction: isl.faction, dist, ...pr });
       }
     }
     // Air contacts: mark every aircraft (enemy jets, drones, other players) on
@@ -2000,23 +2036,20 @@ function frame(now) {
     const addContact = (pos, opts) => {
       const dx = pos.x - state.position.x, dz = pos.z - state.position.z;
       const dist = Math.hypot(dx, dz);
-      _v.copy(pos); _v.y += 12; _v.project(camera);
-      contacts.push({
-        color: opts.color, name: opts.name, health: opts.health, dist,
-        ndcx: _v.x, ndcy: _v.y, behind: _v.z > 1,
-        onscreen: _v.z < 1 && Math.abs(_v.x) <= 1 && Math.abs(_v.y) <= 1,
-        x: (_v.x * 0.5 + 0.5) * hud.w, y: (-_v.y * 0.5 + 0.5) * hud.h,
-      });
+      _v.copy(pos); _v.y += 12;
+      const pr = projectHud(_v);
+      contacts.push({ color: opts.color, kind: opts.kind || "air", name: opts.name, health: opts.health, dist, ...pr });
       radar.blips.push({
         nx: THREE.MathUtils.clamp((dx * rgtX + dz * rgtZ) / radar.range, -1, 1),
         ny: THREE.MathUtils.clamp((dx * fwdX + dz * fwdZ) / radar.range, -1, 1),
-        far: dist > radar.range, color: opts.color,
+        far: dist > radar.range, color: opts.color, kind: opts.kind || "air",
       });
     };
-    // Ambient traffic shows as amber contacts in every mode.
-    for (const t of traffic.targets) if (t.alive && t.lockable !== false) addContact(t.position, { color: "#ffc23c" }); // one blip per train (loco), ships, zeppelin
+    // Per-type marker colours: neutral traffic = amber, enemy air = red, enemy
+    // ground = orange, friendly = green, MP = each player's hue.
+    for (const t of traffic.targets) if (t.alive && t.lockable !== false) addContact(t.position, { color: "#ffc23c", kind: "traffic" });
     if (gameMode === "dogfight" || gameMode === "practice") {
-      for (const t of enemies.targets) if (t.alive) addContact(t.position, { color: "#ff5b5b" });
+      for (const t of enemies.targets) if (t.alive) addContact(t.position, { color: "#ff5b5b", kind: "air" });
     } else if (gameMode === "ffa") {
       netStatus = net.status === "online" ? `LAN  ·  ${net.count() + 1} pilots` :
         net.status === "connecting" ? "Connecting…" :
@@ -2024,8 +2057,13 @@ function frame(now) {
       for (const [id, m] of netMeshes) {
         const p = net.players.get(id);
         if (!p || p.alive === false) continue;
-        addContact(m.position, { color: "#" + playerColor(id).toString(16).padStart(6, "0"), name: p.name, health: p.health });
+        addContact(m.position, { color: "#" + playerColor(id).toString(16).padStart(6, "0"), kind: "air", name: p.name, health: p.health });
       }
+    } else if (isMissionHud) {
+      // Strike modes: enemy fighters (red) + ground threats — SAMs & the carrier
+      // in orange (ambient AA / searchlights stay off the scope to avoid clutter).
+      for (const e of enemies.targets) if (e.alive) addContact(e.position, { color: "#ff5b5b", kind: "air" });
+      for (const t of ground.targets) if (t.alive && (t.type === "sam" || t.info)) addContact(t.position, { color: "#ff8a3c", kind: "ground" });
     }
     // Landing-approach guidance (gates/ILS/cues). Survives "pure flight" since
     // it's a navigation aid you deliberately turn on; hidden only when the whole
