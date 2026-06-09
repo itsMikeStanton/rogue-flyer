@@ -31,6 +31,10 @@ const SOUNDS = {
   crash:      ["sounds/crash.mp3"],    // your aircraft going down
   ring:       ["sounds/ring.mp3"],     // checkpoint pass
   flare:      ["sounds/flare.mp3"],    // countermeasures
+  gear:       ["sounds/gear.mp3"],     // OPTIONAL landing-gear servo
+  flaps:      ["sounds/flaps.mp3"],    // OPTIONAL flap servo
+  vtol:       ["sounds/vtol.mp3"],     // OPTIONAL VTOL nozzle servo
+  brake:      ["sounds/brake.mp3"],    // OPTIONAL speedbrake whoosh
   engine:     ["sounds/engine.mp3"],      // looping idle/cruise engine
   engineHigh: ["sounds/engine_high.mp3"], // OPTIONAL looping high-power layer
 };
@@ -232,10 +236,10 @@ export class SoundEngine {
   updateEngine(throttle, speed) {
     if (!this.engine) return;
     const e = this.engine, t = this.ctx.currentTime;
-    // Pitch spools up to its MAX by ~20% throttle, then holds flat — past that
-    // only the volume swells a touch. Keeps the engine a steady rumble instead
-    // of a throttle-tracking whine that climbs higher the faster you go.
-    const p = Math.min(1, throttle / 0.2);
+    // Pitch climbs across the whole throttle range, but the peak (at 100%) is
+    // kept low — it's the old, reined-in top end, so it tops out as a steady
+    // rumble rather than a drill.
+    const p = throttle;
     if (e.sample) {
       const rate = 0.82 + p * 0.30 + Math.min(0.12, speed * 0.0004);
       e.src.playbackRate.setTargetAtTime(rate, t, 0.12);
@@ -276,6 +280,23 @@ export class SoundEngine {
   crash(pos = null) { if (this._play("crash", { pos, gain: 1.1, rateVar: 0.05 })) return; this._synthExplosion(2.6, pos); }
   ring() { if (this._play("ring", { gain: 0.7 })) return; this._synthRing(); }
   flare() { if (this._play("flare", { gain: 0.55, rateVar: 0.12 })) return; this._synthFlare(); }
+  // Mechanical interactions (hydraulic servo whir + a clunk on lock).
+  gear(down = true) {
+    if (this._play("gear", { gain: 0.7 })) return;
+    this._synthServo({ f0: down ? 340 : 240, f1: down ? 210 : 360, dur: 0.7, gain: 0.085, clunk: true });
+  }
+  flaps(down = true) {
+    if (this._play("flaps", { gain: 0.6 })) return;
+    this._synthServo({ f0: down ? 430 : 300, f1: down ? 300 : 430, dur: 0.42, gain: 0.05, clunk: false });
+  }
+  vtol(down = true) {
+    if (this._play("vtol", { gain: 0.6 })) return;
+    this._synthServo({ f0: 280, f1: down ? 200 : 300, dur: 0.6, gain: 0.075, clunk: true });
+  }
+  brake() {
+    if (this._play("brake", { gain: 0.6 })) return;
+    this._synthBrake();
+  }
 
   // ---- Synthesized fallbacks -------------------------------------------------
   _synthGun() {
@@ -400,6 +421,50 @@ export class SoundEngine {
     g.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
     n.connect(bp); bp.connect(g); g.connect(this.master);
     n.start(t); n.stop(t + 0.32);
+  }
+
+  // A hydraulic servo whir (pitch sliding f0→f1) with an optional end clunk —
+  // shared by gear / flaps / VTOL nozzles.
+  _synthServo({ f0 = 320, f1 = 200, dur = 0.5, gain = 0.08, clunk = true } = {}) {
+    if (!this.ctx) return;
+    const ctx = this.ctx, t = ctx.currentTime;
+    const o = ctx.createOscillator(); o.type = "sawtooth";
+    o.frequency.setValueAtTime(f0, t);
+    o.frequency.linearRampToValueAtTime(f1, t + dur);
+    const bp = ctx.createBiquadFilter(); bp.type = "bandpass"; bp.frequency.value = 600; bp.Q.value = 1.4;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(gain, t + 0.05);
+    g.gain.setValueAtTime(gain, t + Math.max(0.06, dur - 0.08));
+    g.gain.exponentialRampToValueAtTime(0.0006, t + dur);
+    o.connect(bp); bp.connect(g); g.connect(this.master);
+    o.start(t); o.stop(t + dur + 0.02);
+    if (clunk) {
+      const ct = t + dur;
+      const n = this._noise();
+      const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 220;
+      const cg = ctx.createGain();
+      cg.gain.setValueAtTime(0.16, ct);
+      cg.gain.exponentialRampToValueAtTime(0.001, ct + 0.12);
+      n.connect(lp); lp.connect(cg); cg.connect(this.master);
+      n.start(ct); n.stop(ct + 0.14);
+    }
+  }
+
+  // A short airy whoosh as the speedbrake pops out.
+  _synthBrake() {
+    if (!this.ctx) return;
+    const ctx = this.ctx, t = ctx.currentTime;
+    const n = this._noise();
+    const bp = ctx.createBiquadFilter(); bp.type = "bandpass";
+    bp.frequency.setValueAtTime(500, t);
+    bp.frequency.exponentialRampToValueAtTime(1400, t + 0.18); bp.Q.value = 0.7;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(0.1, t + 0.04);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.32);
+    n.connect(bp); bp.connect(g); g.connect(this.master);
+    n.start(t); n.stop(t + 0.34);
   }
 
   // ---- Seeker growl (kept synth: it's a live parametric tone) -----------------

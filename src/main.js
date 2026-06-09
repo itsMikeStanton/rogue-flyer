@@ -1610,14 +1610,15 @@ function frame(now) {
     if (controls.approachPressed) approachOn = approach.toggle(state); // landing-approach guidance
 
     // Gear + flaps are manual now (G / V keys, or on-screen GEAR / FLAPS).
-    if (controls.gearPressed) gearDown = !gearDown;
-    if (controls.flapsPressed) flapsDown = !flapsDown;
+    if (controls.gearPressed) { gearDown = !gearDown; sound.gear(gearDown); }
+    if (controls.flapsPressed) { flapsDown = !flapsDown; sound.flaps(flapsDown); }
     if (controls.gearPressed || controls.flapsPressed) touch.setGearFlaps(gearDown, flapsDown);
     controls.gear = gearDown;
     controls.flaps = flapsDown;
     // Harrier: T / D-pad-down / VTOL button vectors the nozzles down for hover.
-    if (def.vtol && controls.vtolPressed) { vtolMode = !vtolMode; touch.setVtol(vtolMode); }
+    if (def.vtol && controls.vtolPressed) { vtolMode = !vtolMode; touch.setVtol(vtolMode); sound.vtol(vtolMode); }
     controls.vtol = def.vtol ? vtolMode : false;
+    if (controls.brake && !brakeActive) sound.brake(); // whoosh as the speedbrake pops
     brakeActive = !!controls.brake; // airbrake (air) / wheel brake (ground)
 
     // Afterburner: only on turbo jets, only at the firewall (full throttle).
