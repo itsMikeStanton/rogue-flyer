@@ -86,11 +86,15 @@ export class Approach {
     }
 
     if (!offCourse) {
-      for (const di of GATE_DISTS) {
-        if (di > d + 240) {                   // only gates still ahead of you
+      // Gates ahead are the ones BETWEEN you and the threshold (di < d). Iterate
+      // farthest-out first so gates[0] is the nearest one in front of you (drawn
+      // biggest), giving a receding tunnel toward the runway.
+      for (let i = GATE_DISTS.length - 1; i >= 0; i--) {
+        const di = GATE_DISTS[i];
+        if (di < d + 150) {                   // ahead of you (or the one you're at)
           const g = new THREE.Vector3(this.cx, this.elev + di * TAN_GLIDE, thZ + sgn * di);
           const pr = project(g);
-          gates.push({ near: di <= d + 900, ...pr });
+          gates.push({ near: (d - di) < 900, ...pr });
         }
       }
     }
