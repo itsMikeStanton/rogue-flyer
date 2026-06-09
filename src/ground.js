@@ -21,18 +21,15 @@ function easeDir(cur, desired, maxRad) {
   return ang;
 }
 
-// Night searchlights: a sweeping beam that hunts for the player and, once it
-// catches one, tries to hold them in the light — but a fast crosser can outrun
-// the beam's slew, and it randomly loses lock now and then, falling back to a
-// search. Caught in the light, the nearby flak shoots straighter.
+// Night searchlights, driven by the shared faction awareness: dark/idle when the
+// island is unaware, all converging on you the moment it's alerted. Catching you
+// in a beam reports the fix to the faction; being lit makes the flak shoot
+// straighter.
 const SL_RANGE = 3400;
 const SL_MIN_ALT = 60;                            // ignore a target on the deck
 const SL_CONE_COS = Math.cos(12 * Math.PI / 180); // beam half-angle for a "catch"
-const SL_CATCH_TIME = 0.35;   // dwell needed in the cone before it locks on
-const SL_LOSE_TIME = 0.9;     // grace out of the cone before lock is dropped
-const SL_TRACK_RATE = 1.1;    // rad/s the beam can slew while tracking
-const SL_DROP_RATE = 0.06;    // per-second chance to randomly lose a held target
 const SL_SWEEP_RATE = 1.4;    // how fast the beam glides to its sweep aim
+const SL_ACQUIRE_RATE = 2.6;  // fast slew to converge on a known target
 const SL_LAMP_Y = 6.5;
 const SL_BEAM_LEN = 2800;
 function makeSearchBeamMat() {
@@ -155,12 +152,11 @@ class GTarget {
       beam.position.y = 1.75; beam.frustumCulled = false; beam.visible = false;
       pivot.add(beam);
       this.pivot = pivot; this.beam = beam; this.beamMat = beamMat; this.lens = lens;
-      this.slState = "search";
       this.aimDir = new THREE.Vector3(0, 1, 0);
       this.az = Math.random() * Math.PI * 2;
       this.elPhase = Math.random() * Math.PI * 2;
       this.sweepSpeed = (0.45 + Math.random() * 0.5) * (Math.random() < 0.5 ? -1 : 1);
-      this.catchT = 0; this.loseT = 0;
+      this.idleOn = false; // a picket light that idles even when unaware (set in setActive)
       this.maxHealth = 26; this.radius = 22;
       this.ambient = true;
     } else { // sam
@@ -221,7 +217,8 @@ class GTarget {
     if (this.type === "searchlight") { this._updateSearchlight(dt, player, mgr); return; }
 
     // Light AA gun: hose tracer up at an airborne player — long reach, lousy aim.
-    if (this.type === "aa" && mgr && player && player.alive) {
+    // Cold until the island's faction knows you're there (awareness gate).
+    if (this.type === "aa" && mgr && player && player.alive && (!this.faction || this.faction.canFire())) {
       const p = this.group.position;
       const d = p.distanceTo(player.position);
       const airborne = player.position.y > terrainHeight(player.position.x, player.position.z) + AA_GUN_MIN_ALT;
@@ -256,8 +253,9 @@ class GTarget {
       return;
     }
 
-    // SAM engagement: track + launch at an airborne player in range.
-    if (this.type === "sam" && mgr && mgr.ordnance && player && player.alive) {
+    // SAM engagement: track + launch at an airborne player in range — but only
+    // once the faction is alerted and has a fix.
+    if (this.type === "sam" && mgr && mgr.ordnance && player && player.alive && (!this.faction || this.faction.canFire())) {
       const p = this.group.position;
       const d = p.distanceTo(player.position);
       // Slew the launch tubes to roughly face the threat (cosmetic).
@@ -278,14 +276,22 @@ class GTarget {
     }
   }
 
-  // Searchlight: dark by day. At night it sweeps; catching the player in the
-  // beam flips it to tracking, which slews toward them but can be outrun or
-  // randomly drops — then it goes back to searching.
+  // Searchlight — driven by the island's faction awareness:
+  //   UNAWARE  : dark, except the one or two "picket" lights that idly sweep.
+  //   ALERTED  : every light comes on. If the faction has a fix, they all slew
+  //              hard onto your last-known spot (you're really in the spotlight);
+  //              with only a stale fix they sweep that area hunting for you.
+  // Whenever a beam actually lands on you it tells the faction (illuminate),
+  // which keeps the fix fresh and trips the alert if they didn't already know.
   _updateSearchlight(dt, player, mgr) {
+    const f = this.faction;
+    const alerted = f ? f.alerted : true;
+    const knowsWhere = f ? f.knowsWhere : false;
     const night = mgr && mgr.night;
-    this.beam.visible = !!night;
-    this.lens.material.emissiveIntensity = night ? 2.8 : 0;
-    if (!night) return;
+    const lit = night && (alerted || this.idleOn); // pickets idle; the rest wait for the alert
+    this.beam.visible = !!lit;
+    this.lens.material.emissiveIntensity = lit ? 2.8 : 0;
+    if (!lit) return;
 
     const p = this.group.position;
     const lampY = p.y + SL_LAMP_Y;
@@ -298,48 +304,39 @@ class GTarget {
       if (dist > 1) { _dir.multiplyScalar(1 / dist); toPlayer = _dir; }
     }
 
-    if (this.slState === "search") {
-      // Glide the beam along a slow sweep: azimuth spins, elevation lolls.
+    let rate = SL_SWEEP_RATE * dt;
+    if (alerted && knowsWhere && f) {
+      // Converge: slam the beam onto where they reckon you are.
+      _sd.set(f.lastKnown.x - p.x, f.lastKnown.y - lampY, f.lastKnown.z - p.z).normalize();
+      rate = SL_ACQUIRE_RATE * dt;
+    } else if (alerted && f) {
+      // Hunting: probe a search pattern around the last-known bearing.
+      this.elPhase += dt * 0.85;
+      const baseAz = Math.atan2(f.lastKnown.x - p.x, f.lastKnown.z - p.z);
+      const az = baseAz + Math.sin(this.elPhase + this.az) * 0.7; // ±40° around last-known
+      const el = 0.7 + Math.sin(this.elPhase * 1.3) * 0.4;
+      const ce = Math.cos(el);
+      _sd.set(ce * Math.sin(az), Math.sin(el), ce * Math.cos(az));
+      rate = SL_SWEEP_RATE * 1.5 * dt;
+    } else {
+      // Idle picket: a lazy sweep of the night sky.
       this.az += this.sweepSpeed * dt;
       this.elPhase += dt * 0.5;
       const el = 0.8 + Math.sin(this.elPhase) * 0.5; // ~17°..74° above horizon
       const ce = Math.cos(el);
       _sd.set(ce * Math.sin(this.az), Math.sin(el), ce * Math.cos(this.az));
-      easeDir(this.aimDir, _sd, SL_SWEEP_RATE * dt);
-      // Caught? Need to dwell in the cone a moment before it locks on.
-      if (toPlayer && dist < SL_RANGE && this.aimDir.dot(toPlayer) > SL_CONE_COS) {
-        this.catchT += dt;
-        if (this.catchT >= SL_CATCH_TIME) { this.slState = "track"; this.loseT = 0; }
-      } else {
-        this.catchT = Math.max(0, this.catchT - dt * 2);
-      }
-    } else { // track
-      let lost = !toPlayer || dist > SL_RANGE * 1.1;
-      if (toPlayer) {
-        // Slew toward the player, rate-limited so a fast crosser can escape.
-        easeDir(this.aimDir, toPlayer, SL_TRACK_RATE * dt);
-        const onTarget = this.aimDir.dot(toPlayer) > SL_CONE_COS && dist < SL_RANGE;
-        if (onTarget) {
-          this.loseT = 0;
-          mgr.illumT = 0.3;                    // mark the player lit (flak shoots straighter)
-          if (Math.random() < SL_DROP_RATE * dt) lost = true; // occasional fumble
-        } else {
-          this.loseT += dt;
-          if (this.loseT > SL_LOSE_TIME) lost = true;
-        }
-      }
-      if (lost) {
-        this.slState = "search";
-        this.catchT = 0;
-        // Resume the sweep from where the beam is now (no snap).
-        this.az = Math.atan2(this.aimDir.x, this.aimDir.z);
-      }
+    }
+    easeDir(this.aimDir, _sd, rate);
+
+    // Beam on the player → report it up the chain (spots/keeps the fix fresh) and
+    // mark you lit so the nearby flak shoots straighter.
+    if (toPlayer && dist < SL_RANGE && this.aimDir.dot(toPlayer) > SL_CONE_COS) {
+      if (f) f.illuminate(player.position);
+      mgr.illumT = 0.3; // mark you lit so the nearby flak shoots straighter
     }
 
-    // Orient the lamp so its beam axis (+Y) points along the aim direction, and
-    // brighten the shaft while it's holding a target.
     this.pivot.quaternion.setFromUnitVectors(_up, this.aimDir);
-    const want = this.slState === "track" ? 0.22 : 0.12;
+    const want = alerted ? 0.22 : 0.12;
     this.beamMat.uniforms.uOpacity.value += (want - this.beamMat.uniforms.uOpacity.value) * Math.min(1, dt * 4);
   }
 }
@@ -394,6 +391,7 @@ class CarrierTarget {
   }
   update(dt, player, mgr) {
     if (!this.alive || !player || !player.alive) return;
+    if (this.faction && !this.faction.canFire()) return; // hold fire until alerted
     if (this._pos.distanceTo(player.position) > AA_RANGE) return;
     this.foreCd -= dt;
     this.aftCd -= dt;
@@ -502,6 +500,7 @@ export class GroundTargets {
         this.list.push(new GTarget(this.scene, this.fx, "aa", x, z));
       }
       // A couple of searchlights per base (dark by day; they hunt you at night).
+      // One per base is a "picket" that idles even when the island is unaware.
       const slCount = 1 + Math.floor(Math.random() * 2); // 1-2 per base
       for (let i = 0; i < slCount; i++) {
         let x = bx, z = bz, tries = 0;
@@ -510,7 +509,9 @@ export class GroundTargets {
           x = bx + Math.cos(ang) * r; z = bz + Math.sin(ang) * r;
           tries++;
         } while (tries < 14 && (terrainHeight(x, z) < -10 || Math.abs(x - riverCenterX(z)) < 280));
-        this.list.push(new GTarget(this.scene, this.fx, "searchlight", x, z));
+        const sl = new GTarget(this.scene, this.fx, "searchlight", x, z);
+        if (i === 0) sl.idleOn = true;
+        this.list.push(sl);
       }
     }
     // A power plant at the first base — a big, smoking, high-value target.

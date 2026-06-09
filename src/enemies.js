@@ -187,10 +187,17 @@ class Entity {
     this.mesh.position.copy(this.position);
     this.mesh.lookAt(_look.copy(this.position).add(this.dir));
 
+    // Awareness: a fighter with you in visual range calls the contact in (which
+    // trips the island's alert if it didn't already know), and only opens fire
+    // once its faction is alerted. Fighters with no faction (dogfight) always fire.
+    const fac = this.faction;
+    if (fac && dist < 2000) fac.illuminate(player.position);
+    const mayFire = !fac || fac.armed;
+
     // Fire only when nose is on the player and in range (and not extending) —
     // and in bursts: ~6-9 rounds, then a ~1s pause before the next volley.
     this.fireCd -= dt;
-    if (dist > 200 && dist < 1700 && aim > 0.985 && this.fireCd <= 0) {
+    if (mayFire && dist > 200 && dist < 1700 && aim > 0.985 && this.fireCd <= 0) {
       if (this.burstLeft <= 0) this.burstLeft = FIGHTER_BURST + (Math.random() * FIGHTER_BURST_VAR | 0);
       _desired.copy(player.position).sub(this.position).normalize();
       this.manager.spawnBullet(this.position, _desired);
@@ -200,7 +207,7 @@ class Entity {
 
     // Missiles & rockets (only where the manager has an ordnance pool wired in).
     const ord = this.manager.ordnance;
-    if (ord) {
+    if (ord && mayFire) {
       // Guided seeker: loosed from medium range when the nose is roughly on.
       this.mslCd -= dt;
       if (this.seekers > 0 && this.mslCd <= 0 && dist > 650 && dist < 3600 && aim > 0.96) {

@@ -11,6 +11,7 @@ import { Weapons } from "./weapons.js";
 import { Enemies } from "./enemies.js";
 import { GroundTargets } from "./ground.js";
 import { EnemyOrdnance } from "./enemyWeapons.js";
+import { Awareness } from "./awareness.js";
 import { Traffic } from "./traffic.js";
 import { Explosions } from "./fx.js";
 import { SoundEngine } from "./audio.js";
@@ -56,6 +57,9 @@ const ground = new GroundTargets(scene, fx);
 const enemyOrdnance = new EnemyOrdnance(scene, fx);
 enemies.ordnance = enemyOrdnance;
 ground.ordnance = enemyOrdnance;
+// Shared per-island enemy awareness: detection + alert state every defence reads.
+const awareness = new Awareness();
+let threatState = null; // nearest faction's state ("tracking"|"hunting"|null) for the HUD
 // Ambient moving traffic (train, container ships, war zeppelin) — alive in
 // every mode as roaming targets that the player can also crash into.
 const traffic = new Traffic(scene, fx, { islands: world.islands, sea: SEA_LEVEL });
@@ -155,6 +159,9 @@ weapons.onGroundImpact = (pos) => {
   const solid = groundHeightAt(pos.x, pos.z);
   if (solid >= SEA_LEVEL) wrecks.spawnFire(new THREE.Vector3(pos.x, solid + 0.3, pos.z), { scale: 1.1, life: 7, color: 0x242424 });
 };
+// Landing a hit instantly alerts that target's island — they now know exactly
+// where you are.
+weapons.onHit = (t) => { if (t && t.faction) t.faction.spot(state.position); };
 
 // Weather / time of day (sky, fog, lights, stars, rain).
 const weather = new Weather(scene, world);
@@ -345,7 +352,7 @@ function wakeIsland(node) {
   if (!node.defended) {
     node.defended = true;
     const d = conquestRun.defenseFor(node);
-    if (d.fighters > 0) enemies.spawnDefenders(d.fighters, d.diff, { x: node.center.x, z: node.center.z });
+    if (d.fighters > 0) { enemies.spawnDefenders(d.fighters, d.diff, { x: node.center.x, z: node.center.z }); assignFactions(); }
   }
   missionDone = false;
   missions.load({ objectives: [{ type: "destroy", priority: "primary", label: "Seize " + node.name, match: (t) => t._node === node.id }] }, ground);
@@ -353,6 +360,7 @@ function wakeIsland(node) {
 }
 function captureIsland(node) {
   conquestRun.capture(node);
+  awareness.factions.delete(node.name); // its defences are yours/dead — stop detecting
   missions.active = false; missions.status = "idle";
   if (conquestRun.checkWon()) {
     ui.showBanner("ARCHIPELAGO SECURED", "Every island is yours — Esc for the menu"); bannerTimer = 0;
@@ -899,10 +907,32 @@ function resetFlight() {
   }
   pendingMissionDef = null;
   enemyOrdnance.reset();
+  awareness.reset();
+  assignFactions(); // hand every defence its island's shared awareness state
+  threatState = null;
   camShake = 0;
   fx.reset();
   wrecks.reset();
   placePlayer();
+}
+
+// Hand each ground defence + fighter the Faction of its nearest island, so a
+// whole island shares one awareness/alert state. Strike modes only — dogfight
+// and free flight leave enemies unmanaged (they behave as always-aware).
+function assignFactions() {
+  if (!(gameMode === "mission" || gameMode === "campaign" || gameMode === "conquest")) return;
+  const islands = world.islands || [];
+  if (!islands.length) return;
+  const nearest = (x, z) => {
+    let best = null, bd = Infinity;
+    for (const is of islands) { const dx = x - is.center.x, dz = z - is.center.z, d = dx * dx + dz * dz; if (d < bd) { bd = d; best = is; } }
+    return best;
+  };
+  // Skip anything already dead/neutralised (e.g. a captured island's defences in
+  // Conquest) so we don't spin up a phantom faction for friendly ground.
+  const tag = (obj) => { if (!obj.alive) return; const pos = obj.position; const is = nearest(pos.x, pos.z); if (is) obj.faction = awareness.faction(is.name, is.center); };
+  for (const t of ground.targets) tag(t);
+  for (const e of enemies.targets) tag(e);
 }
 
 function startFlight(type, mode, start, vr) {
@@ -1581,6 +1611,23 @@ function frame(now) {
     traffic.update(dt, player);
     if (isMission) ground.update(dt, player);
     enemyOrdnance.update(dt, player); // fly/guide enemy missiles & rockets vs. the player
+    // Enemy awareness (strike modes): each island detects you from your altitude,
+    // proximity and — much faster — your own gunfire/hits, and shares the alert
+    // across all its defences. Surface the transitions so you can read the state.
+    if (isMission) {
+      const firing = !!(controls.fire || controls.missilePressed || controls.rocketPressed || controls.bombPressed);
+      awareness.update(dt, player, { firing });
+      const near = awareness.nearest(state.position);
+      threatState = near && near.alerted ? near.state : null;
+      for (const f of awareness.factions.values()) {
+        const ev = f.consumeEvent();
+        if (ev && f === near) {
+          if (ev === "spotted") flashBanner("DETECTED", "Defenses are hot — they have your position", 2.8);
+          else if (ev === "evaded") flashBanner("CONTACT LOST", "They're hunting you — stay dark and break clean", 2.8);
+          else if (ev === "clear") flashBanner("STOOD DOWN", "You're a ghost again — clean approach", 2.6);
+        }
+      }
+    }
     fx.update(dt);
     sound.updateEngine(state.telemetry.throttle, state.telemetry.speed);
 
@@ -1874,6 +1921,8 @@ function frame(now) {
       lock: radarOff ? null : lock,
       objective: radarOff ? null : objective,
       objectives: radarOff ? null : objectives,
+      threat: radarOff ? null : threatState, // "tracking" | "hunting" | null
+
       islandMarkers,
       netStatus,
       contacts: radarOff ? null : contacts,

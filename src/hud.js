@@ -90,6 +90,20 @@ export class Hud {
     ctx.fillText(extra.jetName, 20, 26);
     if (extra.camName) ctx.fillText("CAM: " + extra.camName, 20, 44);
 
+    // Threat / detection state (top centre): are they onto you?
+    if (extra.threat) {
+      const tracking = extra.threat === "tracking";
+      ctx.save();
+      ctx.textAlign = "center";
+      ctx.font = "bold 15px 'Consolas', monospace";
+      // Flash the TRACKED warning so it reads as urgent.
+      const on = tracking ? (Math.floor(Date.now() / 320) % 2 === 0) : true;
+      ctx.fillStyle = tracking ? (on ? "#ff3b30" : "#7a1c18") : "#ffb733";
+      ctx.fillText(tracking ? "◉ TRACKED" : "◎ SEARCHING…", cx, 28);
+      ctx.restore();
+      ctx.textAlign = "left";
+    }
+
     // Top-right: rings + combat tallies
     ctx.textAlign = "right";
     if (extra.checkpoints) {
