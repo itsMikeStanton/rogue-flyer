@@ -237,8 +237,8 @@ function addShake(amt) { camShake = Math.min(7, camShake + amt); }
 // Afterburner / turbo boost: hold the throttle at the firewall (turbo jets only)
 // for ~1.7x thrust. boostFx is the eased 0..1 visual amount (engine cones, FOV
 // punch, world warp, speed streaks). You can't fire while boosting.
-const BOOST_THRUST = 1.7;   // thrust multiplier when lit
-const BOOST_FOV = 16;       // extra FOV (degrees) at full boost
+const BOOST_THRUST = 2.6;   // thrust multiplier when lit — punchy accel + a clearly higher top speed
+const BOOST_FOV = 18;       // extra FOV (degrees) at full boost
 let boostActive = false;
 let boostFx = 0;
 
@@ -526,7 +526,8 @@ function exitFlightToBriefing(missionId) {
   ui.hidePause(); ui.hideHangar();
   const fab = document.getElementById("btn-hangar"); if (fab) fab.classList.add("hidden");
   touch.setVisible(false);
-  sound.stopEngine(); sound.stopSeek();
+  sound.stopEngine(); sound.stopSeek(); sound.setBoost(0);
+  sound.startMenuMusic();
   openBriefing(missionId);
 }
 
@@ -672,14 +673,27 @@ window.addEventListener("keydown", (e) => {
 const hangarFab = document.getElementById("btn-hangar");
 if (hangarFab) hangarFab.addEventListener("click", () => { if (flying && !hangarMode) enterHangar(true); });
 
+// Ominous chiptune loops on the menu; it's silenced the moment you're flying.
+function updateMenuMusic() {
+  if (flying || inXR) sound.stopMenuMusic();
+  else sound.startMenuMusic();
+}
+
 // Resume audio on the first user interaction (browser autoplay policy).
 function unlockAudio() {
   sound.resume();
+  updateMenuMusic(); // kick off menu music once we're allowed to make sound
   window.removeEventListener("pointerdown", unlockAudio);
   window.removeEventListener("keydown", unlockAudio);
 }
 window.addEventListener("pointerdown", unlockAudio);
 window.addEventListener("keydown", unlockAudio);
+
+// Soft chiptune blip on any menu/overlay button press.
+document.addEventListener("pointerdown", (e) => {
+  const t = e.target;
+  if (t && t.closest && t.closest(".overlay") && t.closest("button")) sound.uiClick();
+}, true);
 
 // Mute toggle button on the menu.
 const soundBtn = document.getElementById("btn-sound");
@@ -996,6 +1010,7 @@ function startFlight(type, mode, start, vr) {
   lastLocked = false;
   touch.setVisible(!input.hasGamepad()); // a gamepad (e.g. Steam Deck) hides touch
   sound.resume();
+  sound.stopMenuMusic(); // no menu music in flight
   sound.startEngine();
   // On touch devices, take over the full screen for an immersive cockpit — but
   // never in VR (that would fight the immersive XR session for the gesture).
@@ -1066,9 +1081,10 @@ function exitToMenu() {
   ui.hidePause(); ui.hideHangar();
   const fab = document.getElementById("btn-hangar"); if (fab) fab.classList.add("hidden");
   touch.setVisible(false);
-  sound.stopEngine(); sound.stopSeek();
+  sound.stopEngine(); sound.stopSeek(); sound.setBoost(0);
   if (net.status !== "offline") { net.disconnect(); clearRemotePlayers(); }
   ui.showMenu();
+  sound.startMenuMusic(); // back to the brooding menu loop
 }
 
 // --- Camera positioning per mode ---
@@ -1833,6 +1849,7 @@ function frame(now) {
   boostFx += ((boostActive ? 1 : 0) - boostFx) * Math.min(1, dt * 5);
   if (boostFx < 0.002) boostFx = boostActive ? boostFx : 0;
   post.setSpeed(boostFx);
+  sound.setBoost(flying && !paused ? boostFx : 0); // staticy afterburner roar
   updateSpeedLines(dt, boostFx);
   updateSky(camera, true); // ocean + clouds follow the active camera
   weather.update(simDt, _skyPos); // stars/rain follow the camera; storm lightning

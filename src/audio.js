@@ -198,13 +198,13 @@ export class SoundEngine {
 
     const low = ctx.createOscillator();
     low.type = "sawtooth";
-    low.frequency.value = 45;
+    low.frequency.value = 32;
     const whine = ctx.createOscillator();
     whine.type = "triangle";
-    whine.frequency.value = 90;
+    whine.frequency.value = 62;
     const lp = ctx.createBiquadFilter();
     lp.type = "lowpass";
-    lp.frequency.value = 480;
+    lp.frequency.value = 320;
     low.connect(lp); whine.connect(lp); lp.connect(g);
 
     const noise = this._noise();
@@ -250,13 +250,14 @@ export class SoundEngine {
         e.gHigh.gain.setTargetAtTime(hi * hi * 0.2, t, 0.15);
       }
     } else {
-      // Low, throaty synth: a deep drone + a soft whine, both kept well down in
-      // pitch so it reads as a jet rumble rather than a dentist's drill.
-      e.low.frequency.setTargetAtTime(38 + p * 20 + speed * 0.02, t, 0.1);
-      e.whine.frequency.setTargetAtTime(85 + p * 55, t, 0.1);
-      e.lp.frequency.setTargetAtTime(380 + p * 720, t, 0.1);
-      e.ng.gain.setTargetAtTime(0.025 + throttle * 0.05, t, 0.1);
-      e.g.gain.setTargetAtTime(0.045 + throttle * 0.07, t, 0.1);
+      // Deep, throaty growl: a sub drone + a soft low whine, kept well down in
+      // pitch and darkened so it rumbles rather than whines. Volume is ~0.6 of
+      // the prior level.
+      e.low.frequency.setTargetAtTime(30 + p * 16 + speed * 0.015, t, 0.1);
+      e.whine.frequency.setTargetAtTime(60 + p * 44, t, 0.1);
+      e.lp.frequency.setTargetAtTime(300 + p * 540, t, 0.1);
+      e.ng.gain.setTargetAtTime(0.015 + throttle * 0.03, t, 0.1);
+      e.g.gain.setTargetAtTime(0.027 + throttle * 0.042, t, 0.1);
     }
   }
 
@@ -296,6 +297,40 @@ export class SoundEngine {
   brake() {
     if (this._play("brake", { gain: 0.6 })) return;
     this._synthBrake();
+  }
+  // Continuous afterburner roar: a staticy, filtered-noise whoosh whose level +
+  // brightness track the boost amount (0..1). Call every frame; 0 fades it out.
+  setBoost(amt) {
+    if (!this.ctx) return;
+    if (amt > 0.02 && !this._boost) {
+      const ctx = this.ctx;
+      const n = this._noise(); n.loop = true;
+      const hp = ctx.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 900;
+      const bp = ctx.createBiquadFilter(); bp.type = "bandpass"; bp.frequency.value = 2400; bp.Q.value = 0.5;
+      const g = ctx.createGain(); g.gain.value = 0.0001;
+      n.connect(hp); hp.connect(bp); bp.connect(g); g.connect(this.master);
+      n.start();
+      this._boost = { n, g, bp };
+    }
+    if (this._boost) {
+      const t = this.ctx.currentTime;
+      this._boost.g.gain.setTargetAtTime(amt * amt * 0.2, t, 0.08);   // staticy roar swells in
+      this._boost.bp.frequency.setTargetAtTime(1900 + amt * 1500, t, 0.1); // brightens with boost
+    }
+  }
+  // A soft chiptune blip for menu button presses.
+  uiClick() {
+    this._ensure();
+    if (!this.ctx) return;
+    const ctx = this.ctx, t = ctx.currentTime;
+    const o = ctx.createOscillator(); o.type = "square"; o.frequency.setValueAtTime(660, t);
+    o.frequency.exponentialRampToValueAtTime(880, t + 0.04);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(0.08, t + 0.005);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.09);
+    o.connect(g); g.connect(this.master);
+    o.start(t); o.stop(t + 0.1);
   }
 
   // ---- Synthesized fallbacks -------------------------------------------------
@@ -491,5 +526,68 @@ export class SoundEngine {
     if (!this._seek) return;
     const s = this._seek; this._seek = null;
     try { s.o.stop(); s.lfo.stop(); s.base.stop(); } catch (_) { /* ignore */ }
+  }
+
+  // ---- Ominous chiptune menu loop --------------------------------------------
+  // A slow A-minor → F → G progression: a square sub-bass, a triangle arpeggio,
+  // and a low sine drone underneath. Scheduled a little ahead of the clock.
+  startMenuMusic() {
+    this._ensure();
+    if (!this.ctx || this._music) return;
+    const ctx = this.ctx;
+    const bus = ctx.createGain(); bus.gain.value = 0.0001; bus.connect(this.master);
+    bus.gain.setTargetAtTime(0.72, ctx.currentTime, 1.2); // ease in
+    // Low sine drone (the "ominous" floor).
+    const drone = ctx.createOscillator(); drone.type = "sine"; drone.frequency.value = 55; // A1
+    const dg = ctx.createGain(); dg.gain.value = 0.05;
+    drone.connect(dg); dg.connect(bus); drone.start();
+    this._music = { bus, drone, dg, step: 0, next: ctx.currentTime + 0.15, timer: null };
+    this._musicTick();
+  }
+  stopMenuMusic() {
+    if (!this._music) return;
+    const m = this._music; this._music = null;
+    if (m.timer) clearTimeout(m.timer);
+    const t = this.ctx.currentTime;
+    m.bus.gain.setTargetAtTime(0.0001, t, 0.5);
+    try { m.drone.stop(t + 1.2); } catch (_) { /* ignore */ }
+    const bus = m.bus; setTimeout(() => { try { bus.disconnect(); } catch (_) {} }, 1600);
+  }
+  _musicTick() {
+    if (!this._music) return;
+    const ctx = this.ctx, m = this._music;
+    const stepDur = 0.214; // ~70 BPM eighth-notes — slow and brooding
+    while (m.next < ctx.currentTime + 0.35) {
+      this._musicStep(m.step % 16, m.next, stepDur);
+      m.step++; m.next += stepDur;
+    }
+    m.timer = setTimeout(() => this._musicTick(), 70);
+  }
+  _musicStep(s, time, dur) {
+    const ctx = this.ctx, bus = this._music.bus;
+    // Bass on the quarter-notes: A A F G (one bar = 16 eighths, here 4 beats).
+    const BASS = [110, 0, 0, 0, 110, 0, 0, 0, 87.31, 0, 0, 0, 98, 0, 0, 0];
+    // Triangle arpeggio tracing the chord under each beat (Am, Am, F, G).
+    const ARP = [220, 261.63, 329.63, 261.63, 220, 329.63, 261.63, 329.63,
+                 174.61, 220, 261.63, 220, 196, 246.94, 293.66, 246.94];
+    if (BASS[s]) {
+      const o = ctx.createOscillator(); o.type = "square"; o.frequency.value = BASS[s];
+      const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 700;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, time);
+      g.gain.linearRampToValueAtTime(0.12, time + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.001, time + dur * 3.4);
+      o.connect(lp); lp.connect(g); g.connect(bus);
+      o.start(time); o.stop(time + dur * 3.6);
+    }
+    if (ARP[s]) {
+      const o = ctx.createOscillator(); o.type = "triangle"; o.frequency.value = ARP[s];
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, time);
+      g.gain.linearRampToValueAtTime(0.05, time + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.001, time + dur * 0.95);
+      o.connect(g); g.connect(bus);
+      o.start(time); o.stop(time + dur);
+    }
   }
 }
