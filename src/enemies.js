@@ -86,8 +86,9 @@ class Entity {
     this.health = this.maxHealth;
     this.mesh.visible = true;
     this.mesh.rotation.set(0, 0, 0); // clear any death-spiral tumble
-    const cx = (Math.random() - 0.5) * 9000;
-    const cz = -2500 - Math.random() * 7000;
+    const ctr = this.manager.spawnCenter || { x: 0, z: 0 };
+    const cx = ctr.x + (Math.random() - 0.5) * 9000;
+    const cz = ctr.z - 2500 - Math.random() * 7000;
     const cy = 900 + Math.random() * 1700;
     this.position.set(cx, cy, cz);
 
@@ -201,6 +202,7 @@ export class Enemies {
     this.bullets = [];
     this.kills = 0;
     this.mode = "free";
+    this.spawnCenter = { x: 0, z: 0 }; // world XZ that (re)spawns cluster around
     // Wave state (dogfight): the next wave only spawns once the current one is
     // wiped out, and each wave is bigger and meaner than the last.
     this.wave = 0;
@@ -231,6 +233,7 @@ export class Enemies {
     this.clear();
     this.mode = mode;
     this.kills = 0;
+    this.spawnCenter = { x: 0, z: 0 };
     this.wave = 0; this.waveActive = false; this.waveDelay = 0; this.waveMsg = null;
     if (mode === "practice") {
       for (let i = 0; i < 8; i++) this.entities.push(new Entity(this, "drone"));
@@ -255,8 +258,10 @@ export class Enemies {
     this.waveMsg = "WAVE " + n;
   }
 
-  // Mission defenders: a fixed group of fighters that do NOT wave or respawn.
-  spawnDefenders(n, diff = 1) {
+  // Mission defenders: a fixed group of fighters that do NOT wave or respawn,
+  // clustered around `center` (the mission island).
+  spawnDefenders(n, diff = 1, center = null) {
+    if (center) this.spawnCenter = center;
     for (let i = 0; i < n; i++) this.entities.push(new Entity(this, "fighter", diff));
   }
 
@@ -276,7 +281,7 @@ export class Enemies {
     for (const e of this.entities) {
       if (!e.alive) {
         if (e.dying) { e.updateDying(dt); continue; } // falling wreck, not yet respawning
-        if (this.mode === "dogfight") continue;        // wave mode: downed fighters stay down
+        if (this.mode === "dogfight" || this.mode === "campaign") continue; // waves / mission defenders stay down
         e.respawn -= dt;
         if (e.respawn <= 0) e.place();
         continue;

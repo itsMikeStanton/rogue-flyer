@@ -48,6 +48,29 @@ html, body {
 }
 .overlay.hidden { display: none; }
 
+/* --- Mission briefing room --- */
+.panel.brief { width: min(760px, 94vw); padding: 22px 26px; }
+.brief-head { display: flex; gap: 18px; align-items: center; }
+#brief-portrait { width: 130px; height: 130px; border-radius: 8px; border: 1px solid rgba(46,230,166,0.28); background: #0e151d; flex: 0 0 auto; }
+#brief-map { width: 170px; height: 170px; border-radius: 8px; border: 1px solid rgba(120,150,180,0.25); margin-left: auto; flex: 0 0 auto; }
+.brief-speaker { flex: 1 1 auto; }
+#brief-speaker-name { color: var(--accent); letter-spacing: 2px; font-size: 13px; text-transform: uppercase; }
+#brief-title { margin: 4px 0 0; font-size: 28px; color: #eaf4ee; }
+.brief-dialogue { margin: 14px 0; padding: 12px 16px; border-left: 3px solid var(--accent); background: rgba(46,230,166,0.06); color: #cfe0d8; font-size: 15px; line-height: 1.5; }
+.brief-cols { display: flex; gap: 24px; align-items: flex-start; }
+.brief-cols > div:first-child { flex: 1 1 auto; }
+.brief-sub { color: #9fb3c4; font-size: 12px; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 6px; }
+.brief-obj { list-style: none; margin: 0; padding: 0; }
+.brief-obj li { padding: 4px 0; color: #d7e2da; font-size: 14px; }
+.brief-obj li .pri { color: #ffd23f; } .brief-obj li .sec { color: #7fd2ff; } .brief-obj li .opt { color: #8fa0b0; }
+.brief-launch { display: flex; flex-direction: column; gap: 12px; align-items: flex-end; }
+.brief-actions { display: flex; gap: 10px; }
+.brief-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.brief-chip { padding: 6px 12px; border: 1px solid rgba(120,150,180,0.25); border-radius: 6px; background: rgba(10,16,26,0.6); color: #cbd5e0; font-size: 12px; cursor: pointer; }
+.brief-chip.done { border-color: rgba(54,255,154,0.5); color: #36ff9a; }
+.brief-chip.locked { opacity: 0.4; cursor: not-allowed; }
+.brief-chip.current { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+
 .panel {
   background: var(--panel);
   border: 1px solid rgba(46, 230, 166, 0.25);

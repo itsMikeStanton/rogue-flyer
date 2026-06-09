@@ -95,7 +95,7 @@ export class Hud {
     if (extra.checkpoints) {
       ctx.fillText(`RINGS ${extra.ringsHit}/${extra.checkpoints}`, w - 20, 26);
     }
-    if (extra.mode === "mission") {
+    if (extra.mode === "mission" || extra.mode === "campaign") {
       ctx.fillText(`TARGETS LEFT ${extra.bandits}`, w - 20, 44);
       ctx.fillText(`DESTROYED ${extra.kills}/${extra.total}`, w - 20, 62);
     } else if (extra.kills != null && extra.mode !== "free") {
@@ -107,7 +107,7 @@ export class Hud {
     ctx.textAlign = "left";
 
     // Hull health (combat modes) + missiles
-    if ((extra.mode === "dogfight" || extra.mode === "mission" || extra.mode === "ffa") && extra.health != null) {
+    if ((extra.mode === "dogfight" || extra.mode === "mission" || extra.mode === "campaign" || extra.mode === "ffa") && extra.health != null) {
       this.healthBar(20, 58, extra.health);
     }
     // Lives remaining (finite-lives runs only).

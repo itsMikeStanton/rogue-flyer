@@ -219,6 +219,41 @@
     </div>
   </div>
 
+  <!-- Mission briefing room (Campaign) -->
+  <div id="briefing" class="overlay hidden">
+    <div class="panel brief">
+      <div class="brief-head">
+        <canvas id="brief-portrait" width="160" height="160"></canvas>
+        <div class="brief-speaker">
+          <div id="brief-speaker-name">Captain Dad</div>
+          <h2 id="brief-title">Mission</h2>
+        </div>
+        <canvas id="brief-map" width="200" height="200"></canvas>
+      </div>
+      <div id="brief-dialogue" class="brief-dialogue"></div>
+      <div class="brief-cols">
+        <div>
+          <div class="brief-sub">Objectives</div>
+          <ul id="brief-objectives" class="brief-obj"></ul>
+        </div>
+        <div class="brief-launch">
+          <label class="start-opt">Lives
+            <select id="brief-lives">
+              <option value="infinite">Infinite (kid)</option>
+              <option value="3">3 lives</option>
+              <option value="1">1 — Pro</option>
+            </select>
+          </label>
+          <div class="brief-actions">
+            <button id="brief-back">◂ Back</button>
+            <button id="brief-launch" class="primary launch">LAUNCH ▸</button>
+          </div>
+        </div>
+      </div>
+      <div id="brief-list" class="brief-list"></div>
+    </div>
+  </div>
+
   <!-- Crash / pause banner -->
   <div id="banner" class="banner hidden"></div>
 

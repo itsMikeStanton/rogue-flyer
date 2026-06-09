@@ -2,6 +2,8 @@
 
 import { AIRCRAFT, LIVERIES } from "./aircraft.js";
 import { INSIGNIA, insigniaDataURL } from "./markings.js";
+import { drawCaptainDad, drawMapPreview } from "./portrait.js";
+import * as campaign from "./campaign.js";
 
 export class UI {
   constructor(input, callbacks, touch, tilt) {
@@ -20,6 +22,9 @@ export class UI {
     this.pickerJet = document.getElementById("picker-jet");
     this.hangar = document.getElementById("hangar");
     this.pause = document.getElementById("pause");
+    this.briefing = document.getElementById("briefing");
+    this._briefMission = null;
+    this._briefWorld = null;
     this.hangarPick = "f16"; // current highlight inside the in-game vehicle bay
 
     this.buildModeList();
@@ -98,8 +103,9 @@ export class UI {
 
   buildModeList() {
     this.modesData = [
-      { key: "dogfight", name: "Dogfight", desc: "Enemy jets hunt you. Guns + lock-on missiles. Survive and rack up kills." },
-      { key: "mission", name: "Strike Mission", desc: "Destroy every ground target. Air-to-ground guns + missiles." },
+      { key: "campaign", name: "Campaign", desc: "Briefed missions from Captain Dad. Escalating objectives; pick up where you left off." },
+      { key: "dogfight", name: "Dogfight — Waves", desc: "Clear each wave of fighters to summon the next. They get meaner." },
+      { key: "mission", name: "Strike — Objectives", desc: "Hit the marked objectives. Only the active objective is highlighted." },
       { key: "practice", name: "Target Practice", desc: "Gun down drifting drones. No one shoots back." },
       { key: "free", name: "Free Flight", desc: "Just fly. Chase the rings, no combat." },
       { key: "ffa", name: "Multiplayer FFA", desc: "LAN free-for-all. Connects to the local server; see and fight other pilots." },
@@ -393,9 +399,20 @@ export class UI {
       lv.addEventListener("change", () => this.cb.onLives(lv.value));
     }
     document.getElementById("btn-fly").addEventListener("click", () => {
+      // Campaign opens the briefing room first; everything else launches directly.
+      if (this.mode === "campaign" && this.cb.onOpenCampaign) { this.hideAll(); this.cb.onOpenCampaign(); return; }
       this.hideAll();
       this.cb.onFly(this.selected, this.mode, this.startPos);
     });
+    const bl = document.getElementById("brief-launch");
+    if (bl) bl.addEventListener("click", () => {
+      const lv = document.getElementById("brief-lives");
+      if (lv && this.cb.onLives) this.cb.onLives(lv.value);
+      this.hideBriefing();
+      if (this.cb.onBriefingLaunch && this._briefMission) this.cb.onBriefingLaunch(this._briefMission.id, this.selected);
+    });
+    const bb = document.getElementById("brief-back");
+    if (bb) bb.addEventListener("click", () => { this.hideBriefing(); this.showMenu(); });
     const vrBtn = document.getElementById("btn-vr");
     if (vrBtn) vrBtn.addEventListener("click", () => {
       // Don't hide the menu yet — enterVR hides it only once the session starts,
@@ -581,4 +598,58 @@ export class UI {
     this.banner.classList.remove("hidden");
   }
   hideBanner() { this.banner.classList.add("hidden"); }
+
+  // --- Mission briefing room (Campaign) ---
+  showBriefing(mission, progress, world) {
+    if (!this.briefing) return;
+    this._briefMission = mission;
+    this._briefProgress = progress;
+    this._briefWorld = world;
+    this.menu.classList.add("hidden");
+    this.briefing.classList.remove("hidden");
+    this._buildBriefing();
+  }
+  hideBriefing() { if (this.briefing) this.briefing.classList.add("hidden"); }
+
+  _buildBriefing() {
+    const m = this._briefMission;
+    if (!m) return;
+    const el = (id) => document.getElementById(id);
+    el("brief-speaker-name").textContent = m.speaker || "Captain Dad";
+    el("brief-title").textContent = m.title || "Mission";
+    el("brief-dialogue").innerHTML = (m.briefing || []).map((line) => `<div>${line}</div>`).join("");
+    // Portrait.
+    const pc = el("brief-portrait"); if (pc) drawCaptainDad(pc.getContext("2d"), pc.width);
+    // Map preview: plot the mission island's bases as targets.
+    const mc = el("brief-map");
+    if (mc) {
+      const isl = (this._briefWorld && this._briefWorld.islands || []).find((i) => i.name === m.island) || { center: { x: 0, z: 0 } };
+      const bases = (isl.missionBases || []).map((b) => ({ x: b[0] + isl.center.x, z: b[1] + isl.center.z }));
+      drawMapPreview(mc.getContext("2d"), mc.width, isl, bases, []);
+    }
+    // Objectives.
+    const ul = el("brief-objectives");
+    ul.innerHTML = (m.objectives || []).map((o) => {
+      const cls = o.priority === "secondary" ? "sec" : o.priority === "optional" ? "opt" : "pri";
+      const tag = o.priority === "optional" ? "○" : o.priority === "secondary" ? "◆" : "●";
+      return `<li><span class="${cls}">${tag}</span> ${o.label}</li>`;
+    }).join("");
+    // Lives select default.
+    const lv = el("brief-lives");
+    if (lv && this.cb.livesMode) lv.value = this.cb.livesMode();
+    // Mission list (locked / done / current).
+    const list = el("brief-list");
+    if (list && this._briefProgress) {
+      list.innerHTML = "";
+      for (const mm of campaign.CAMPAIGN) {
+        const unlocked = campaign.isUnlocked(mm.id, this._briefProgress);
+        const done = campaign.isComplete(mm.id, this._briefProgress);
+        const chip = document.createElement("button");
+        chip.className = "brief-chip" + (done ? " done" : "") + (!unlocked ? " locked" : "") + (mm.id === m.id ? " current" : "");
+        chip.textContent = (done ? "✓ " : "") + mm.title;
+        if (unlocked) chip.addEventListener("click", () => { this._briefMission = mm; this._buildBriefing(); });
+        list.appendChild(chip);
+      }
+    }
+  }
 }

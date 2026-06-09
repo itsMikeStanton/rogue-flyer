@@ -21,6 +21,7 @@ import { Wrecks } from "./wreckage.js";
 import { Net } from "./net.js";
 import { Approach } from "./approach.js";
 import { MissionManager, defaultStrikeMission } from "./missions.js";
+import * as campaign from "./campaign.js";
 
 // --- Renderer / scene / camera ---
 const canvas = document.getElementById("scene");
@@ -180,6 +181,9 @@ let flying = false;
 let gameMode = "free";
 let missionDone = false;
 let pendingMissionDef = null; // a specific mission def to load on next resetFlight (Surprise Me / campaign)
+let currentMission = null;    // the active campaign mission def (null outside campaign)
+let spawnOverride = null;     // {x,z} world center to spawn near (campaign missions on far islands)
+let campaignProgress = campaign.loadProgress();
 let startPos = "air"; // "air" | "runway" | "carrier"
 // In-game vehicle bay: sim paused, camera orbits the parked vehicle at the spawn.
 let hangarMode = false, hangarAngle = 0;
@@ -259,9 +263,31 @@ const missions = new MissionManager();
 missions.onComplete = () => {
   if (missionDone) return;
   missionDone = true;
-  ui.showBanner("MISSION COMPLETE", "Keep flying — Esc for the menu"); bannerTimer = 0;
+  if (gameMode === "campaign" && currentMission) {
+    campaign.markComplete(currentMission.id, campaignProgress);
+    const nxt = campaign.nextMission(currentMission.id);
+    ui.showBanner("MISSION COMPLETE", nxt ? `Next up: ${nxt.title} — Esc for the briefing` : "Campaign clear! — Esc for the menu");
+  } else {
+    ui.showBanner("MISSION COMPLETE", "Keep flying — Esc for the menu");
+  }
+  bannerTimer = 0;
 };
 missions.onFail = () => { flashBanner("OBJECTIVE FAILED", "", 3); };
+
+// Open the campaign: pick the furthest unlocked-but-incomplete mission and brief it.
+function openCampaign() {
+  let target = campaign.firstMission();
+  for (const m of campaign.CAMPAIGN) {
+    if (campaign.isUnlocked(m.id, campaignProgress) && !campaign.isComplete(m.id, campaignProgress)) { target = m; break; }
+  }
+  openBriefing(target.id);
+}
+function openBriefing(missionId) {
+  const m = campaign.missionById(missionId) || campaign.firstMission();
+  currentMission = m;
+  flying = false;
+  ui.showBriefing(m, campaignProgress, world);
+}
 let ringsHit = 0;
 // Transient on-screen banner (auto-hides). Persistent banners use ui.showBanner
 // directly and set bannerTimer = 0 so this never clears them early.
@@ -345,9 +371,24 @@ function handleCrash(title) {
 // to the menu; once campaigns land this routes to a mission-retry/briefing.
 function outOfLives() {
   flying = false;
-  ui.showBanner("OUT OF AIRCRAFT", "Run over — returning to base"); bannerTimer = 0;
+  const isCamp = gameMode === "campaign" && currentMission;
+  ui.showBanner("OUT OF AIRCRAFT", isCamp ? "Regroup and try again" : "Run over — returning to base"); bannerTimer = 0;
   sound.stopEngine(); sound.stopSeek();
-  setTimeout(() => { if (!flying) exitToMenu(); }, 2400);
+  const m = currentMission;
+  setTimeout(() => {
+    if (flying) return; // already restarted some other way
+    if (isCamp && m) { exitFlightToBriefing(m.id); } else { exitToMenu(); }
+  }, 2400);
+}
+// Tear down the flight and reopen the briefing room (campaign mission retry).
+function exitFlightToBriefing(missionId) {
+  paused = false; hangarMode = false;
+  wrecks.reset();
+  ui.hidePause(); ui.hideHangar();
+  const fab = document.getElementById("btn-hangar"); if (fab) fab.classList.add("hidden");
+  touch.setVisible(false);
+  sound.stopEngine(); sound.stopSeek();
+  openBriefing(missionId);
 }
 
 
@@ -368,6 +409,12 @@ const ui = new UI(input, {
   onPauseMenu: () => exitToMenu(),
   onLives: (v) => setLives(v),                  // 1 / 3 / infinite respawns
   livesMode: () => livesMode,
+  onOpenCampaign: () => openCampaign(),         // menu "Campaign" → briefing room
+  onBriefingLaunch: (missionId, type) => {      // briefing "Launch" → fly the mission
+    const m = campaign.missionById(missionId);
+    currentMission = m;
+    startFlight(type, "campaign", m ? m.start : "air");
+  },
 }, touch, tilt);
 
 // --- Multiplayer (LAN free-for-all) ---
@@ -670,7 +717,12 @@ function populateBases() {
 function placePlayer() {
   state = createState();
   flybyActive = false; flybyAnchor = null; // cancel any flyby on (re)spawn/teleport
-  if (startPos === "runway") {
+  if (startPos === "air" && spawnOverride) {
+    // Campaign mission on a far island: drop in to its south, already flying in.
+    state.position.set(spawnOverride.x, 1200, spawnOverride.z + 7000);
+    state.velocity.set(0, 0, -180);
+    input.kbThrottle = 0.7;
+  } else if (startPos === "runway") {
     // Park at the start of the runway, level, stopped, throttle idle.
     const z = 520;
     state.position.set(0, terrainHeight(0, z) + 1.5, z);
@@ -712,13 +764,23 @@ function placePlayer() {
 function resetFlight() {
   ringsHit = 0;
   world.rings.forEach((r) => { r.visible = true; r.userData.hit = false; });
+  const strike = gameMode === "mission" || gameMode === "campaign";
   enemies.setMode(gameMode);
-  ground.setActive(gameMode === "mission", world.carriers.enemy, getCarriers().find((c) => c.team === "enemy"));
+  ground.setActive(strike, world.carriers.enemy, getCarriers().find((c) => c.team === "enemy"));
   livesLeft = livesForMode();
   missionDone = false;
+  spawnOverride = null;
   // Strike: build objectives from the spawned targets (only objective-relevant
   // targets get HUD-marked; tanks/bunkers stay ambient).
-  if (gameMode === "mission") missions.load(pendingMissionDef || defaultStrikeMission(ground), ground);
+  if (gameMode === "mission") {
+    missions.load(pendingMissionDef || defaultStrikeMission(ground), ground);
+  } else if (gameMode === "campaign" && currentMission) {
+    missions.load({ objectives: currentMission.objectives }, ground);
+    const isl = (world.islands || []).find((i) => i.name === currentMission.island);
+    if (isl) spawnOverride = { x: isl.center.x, z: isl.center.z };
+    const d = currentMission.defense;
+    if (d && d.fighters > 0) enemies.spawnDefenders(d.fighters, d.diff || 1, isl ? { x: isl.center.x, z: isl.center.z } : null);
+  }
   pendingMissionDef = null;
   fx.reset();
   wrecks.reset();
@@ -1382,11 +1444,14 @@ function frame(now) {
       if (!state.crashed && traffic.collides(state.position)) state.crashed = true;
     }
 
-    const isMission = gameMode === "mission";
+    const isMission = gameMode === "mission" || gameMode === "campaign"; // strike modes
     // Mode targets + the always-on traffic (train/ships/zeppelin) the player can
     // also engage. weapons.fire's first valid target in the list wins, so put
     // the mode targets first and append traffic.
-    const baseTargets = gameMode === "ffa" ? netTargets : (isMission ? ground.targets : enemies.targets);
+    const baseTargets = gameMode === "ffa" ? netTargets
+      : gameMode === "campaign" ? ground.targets.concat(enemies.targets) // strike targets + defenders
+      : isMission ? ground.targets
+      : enemies.targets;
     const activeTargets = baseTargets.concat(traffic.targets);
     if (controls.fire && weapons.fire(state.position, state.quaternion)) sound.gun();
     if (controls.missilePressed && weapons.fireMissile(state.position, state.quaternion, state.velocity)) sound.missile();
@@ -1572,12 +1637,12 @@ function frame(now) {
     // Mission objective marker + list: only objective-relevant targets are
     // marked (ambient defenses stay unmarked until you find them).
     let objective = null, objectives = null;
-    if (gameMode === "mission") {
+    const isMissionHud = gameMode === "mission" || gameMode === "campaign";
+    if (isMissionHud) {
       const md = missions.hudData(projectHud, state.position);
       objective = md.objective;
       objectives = md.objectives;
     }
-    const isMissionHud = gameMode === "mission";
     // Nav markers to other islands (so the open ocean isn't a void).
     let islandMarkers = null;
     if (world.islands && world.islands.length > 1) {
