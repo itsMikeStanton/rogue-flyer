@@ -50,6 +50,15 @@ export class UI {
       ctype.value = this.input.controllerType;
       ctype.addEventListener("change", () => this.input.setControllerType(ctype.value));
     }
+
+    // Keyboard remap: while a key slot is "listening", the next keypress binds.
+    window.addEventListener("keydown", (e) => {
+      if (!this._keyCapture) return;
+      e.preventDefault();
+      const action = this._keyCapture.action;
+      this._keyCapture = null;
+      this._setBinding("keys", action, e.code);
+    });
   }
 
   wireMobile() {
@@ -468,40 +477,110 @@ export class UI {
     });
   }
 
-  // Every action → any joystick button. Click "Set", then press a button.
-  buildButtonBindings() {
-    const root = document.getElementById("button-bindings");
-    if (!root) return;
-    const ACTIONS = [
+  // The full digital-action list, grouped so the table reads as "flight controls
+  // (joystick home)" then "system / camera (keyboard home)". Each action can be
+  // bound to a keyboard key AND/OR a joystick button, or turned Off on either.
+  get ACTIONS() {
+    return [
       ["fire", "Fire cannon"], ["missile", "Missile"], ["rocket", "Rockets"], ["bomb", "Drop bomb"],
-      ["bombsight", "Bomb sight"], ["flare", "Flares"], ["view", "Camera"], ["flyby", "Flyby cam"],
-      ["radar", "Radar / markers"], ["hud", "HUD on/off"], ["gear", "Gear"], ["flaps", "Flaps"],
-      ["brake", "Airbrake"], ["vtol", "VTOL nozzles"], ["hangar", "Vehicle bay"], ["reset", "Pause menu"],
-      ["approach", "Approach mode"], ["boost", "Afterburner"],
+      ["flare", "Flares"], ["gear", "Gear"], ["flaps", "Flaps"], ["brake", "Airbrake"],
+      ["vtol", "VTOL nozzles"], ["boost", "Afterburner"],
+      ["view", "Camera"], ["flyby", "Flyby cam"], ["bombsight", "Bomb sight"], ["approach", "Approach mode"],
+      ["radar", "Radar / markers"], ["hud", "HUD on/off"], ["hangar", "Vehicle bay"], ["reset", "Pause menu"],
     ];
-    root.innerHTML = "";
-    for (const [key, label] of ACTIONS) {
-      const lab = document.createElement("span"); lab.className = "bb-label"; lab.textContent = label;
-      const cur = document.createElement("span"); cur.className = "bb-cur";
-      const b = this.input.bindings.buttons[key];
-      cur.textContent = (b == null || b > 31) ? "—" : ("Btn " + b);
-      const set = document.createElement("button"); set.className = "bb-set"; set.textContent = "Set";
-      set.addEventListener("click", () => this._captureButton(key, set));
-      root.appendChild(lab); root.appendChild(cur); root.appendChild(set);
-    }
+  }
+  _actionLabel(a) { const f = this.ACTIONS.find((x) => x[0] === a); return f ? f[1] : a; }
+
+  // Pretty name for a KeyboardEvent.code.
+  _keyName(code) {
+    if (code == null) return "Off";
+    if (code.startsWith("Key")) return code.slice(3);
+    if (code.startsWith("Digit")) return code.slice(5);
+    const map = {
+      Space: "Space", Escape: "Esc", Enter: "Enter", Tab: "Tab", Backspace: "Bksp",
+      ShiftLeft: "L-Shift", ShiftRight: "R-Shift", ControlLeft: "L-Ctrl", ControlRight: "R-Ctrl",
+      AltLeft: "L-Alt", AltRight: "R-Alt", ArrowUp: "↑", ArrowDown: "↓", ArrowLeft: "←", ArrowRight: "→",
+      Backquote: "`", Minus: "-", Equal: "=", Comma: ",", Period: ".", Slash: "/",
+      Semicolon: ";", Quote: "'", BracketLeft: "[", BracketRight: "]", Backslash: "\\",
+    };
+    return map[code] || code;
   }
 
-  _captureButton(key, btnEl) {
-    if (this._capture && this._capture.btnEl) { this._capture.btnEl.textContent = "Set"; this._capture.btnEl.classList.remove("listening"); }
-    if (this._capture && this._capture.key === key) { this._capture = null; return; } // toggle off
+  // Build the dual-device action map: a 3-column grid (action | keyboard | joystick).
+  buildActionBindings() {
+    const root = document.getElementById("button-bindings");
+    if (!root) return;
+    root.innerHTML = "";
+    const head = (t) => { const s = document.createElement("span"); s.className = "bb-head"; s.textContent = t; return s; };
+    root.appendChild(head("Action")); root.appendChild(head("Keyboard")); root.appendChild(head("Joystick"));
+    for (const [action, label] of this.ACTIONS) {
+      const lab = document.createElement("span"); lab.className = "bb-label"; lab.textContent = label;
+      root.appendChild(lab);
+      root.appendChild(this._bindCell("keys", action));
+      root.appendChild(this._bindCell("buttons", action));
+    }
+  }
+  // backwards-compat alias (older call sites)
+  buildButtonBindings() { this.buildActionBindings(); }
+
+  _bindCell(device, action) {
+    const cell = document.createElement("div"); cell.className = "bb-cell";
+    const val = this.input.bindings[device][action];
+    const slot = document.createElement("button");
+    slot.className = "bind-slot" + (val == null ? " off" : "");
+    slot.textContent = val == null ? "Off" : (device === "keys" ? this._keyName(val) : "Btn " + val);
+    slot.addEventListener("click", () => device === "keys" ? this._captureKey(action, slot) : this._captureButton(action, slot));
+    const clr = document.createElement("button"); clr.className = "bind-clr"; clr.textContent = "✕"; clr.title = "Turn off (unmap)";
+    clr.addEventListener("click", () => this._setBinding(device, action, null));
+    cell.appendChild(slot); cell.appendChild(clr);
+    return cell;
+  }
+
+  // Assign (or clear) a binding. When assigning an input already used by another
+  // action on the same device, confirm and steal it (unmapping the other).
+  _setBinding(device, action, value) {
+    const map = this.input.bindings[device];
+    if (value != null) {
+      const taken = Object.keys(map).find((a) => a !== action && map[a] === value);
+      if (taken) {
+        const name = device === "keys" ? this._keyName(value) : "Button " + value;
+        if (!window.confirm(`${name} is already mapped to "${this._actionLabel(taken)}".\nUnmap it and use it for "${this._actionLabel(action)}"?`)) {
+          this.buildActionBindings();
+          return false;
+        }
+        map[taken] = null; // steal it
+      }
+    }
+    map[action] = value;
+    this.input.saveBindings();
+    this.buildActionBindings();
+    return true;
+  }
+
+  _cancelCaptures() {
+    if (this._capture && this._capture.btnEl) this._capture.btnEl.classList.remove("listening");
+    if (this._keyCapture && this._keyCapture.slotEl) this._keyCapture.slotEl.classList.remove("listening");
+    this._capture = null; this._keyCapture = null;
+  }
+  _captureKey(action, slotEl) {
+    const was = this._keyCapture && this._keyCapture.action === action;
+    this._cancelCaptures();
+    if (was) { this.buildActionBindings(); return; } // toggle off
+    this._keyCapture = { action, slotEl };
+    slotEl.textContent = "Press a key…"; slotEl.classList.add("listening");
+  }
+  _captureButton(action, slotEl) {
+    const was = this._capture && this._capture.key === action;
+    this._cancelCaptures();
+    if (was) { this.buildActionBindings(); return; } // toggle off
     const pad = this.input.getPad();
     const prev = new Set();
     if (pad) pad.buttons.forEach((bn, i) => { if (bn.pressed) prev.add(i); });
-    this._capture = { key, prev, btnEl };
-    btnEl.textContent = "Press…"; btnEl.classList.add("listening");
+    this._capture = { key: action, prev, btnEl: slotEl };
+    slotEl.textContent = "Press a button…"; slotEl.classList.add("listening");
   }
 
-  // Poll for the captured button each frame (called from updateMonitors).
+  // Poll for the captured joystick button each frame (called from updateMonitors).
   _pollCapture() {
     if (!this._capture) return;
     const pad = this.input.getPad();
@@ -509,10 +588,9 @@ export class UI {
     for (let i = 0; i < pad.buttons.length; i++) {
       const down = pad.buttons[i].pressed;
       if (down && !this._capture.prev.has(i)) {
-        this.input.bindings.buttons[this._capture.key] = i;
-        this.input.saveBindings();
+        const action = this._capture.key;
         this._capture = null;
-        this.buildButtonBindings();
+        this._setBinding("buttons", action, i);
         return;
       }
       if (!down) this._capture.prev.delete(i); // a held-at-start button only counts once re-pressed
@@ -600,6 +678,8 @@ export class UI {
   showSettings() {
     this.menu.classList.add("hidden");
     this.settings.classList.remove("hidden");
+    this._cancelCaptures();
+    this.buildActionBindings(); // reflect current bindings + clear any stale capture
     this.updateGamepadStatus();
   }
 

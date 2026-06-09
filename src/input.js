@@ -6,7 +6,7 @@
 // normalized {pitch, roll, yaw, throttle, view, reset, ...}, regardless of
 // whether the input came from a stick or the keyboard.
 
-const STORAGE_KEY = "rogueflyer.bindings.v1";
+const STORAGE_KEY = "rogueflyer.bindings.v2"; // v2: per-action keyboard + joystick maps, unmappable
 const CTRL_KEY = "rogueflyer.controllertype.v1"; // "auto" | "gamepad" | "hotas"
 
 // Default axis bindings, tuned for a Logitech Extreme 3D Pro (a very common
@@ -19,10 +19,21 @@ const DEFAULTS = {
   // several degrees, and an expo curve softens the low end (see getControls).
   yaw: { axis: 5, invert: true, deadzone: 0.16 },
   throttle: { axis: 6, invert: true, deadzone: 0.0 },
-  // button indices for actions (standard mapping-ish; remappable later)
-  // Every action can be bound to any joystick button (remap in Settings). High
-  // defaults for the niche actions are usually out of range (unbound) until set.
-  buttons: { fire: 0, missile: 1, flare: 2, view: 3, reset: 9, gear: 4, flaps: 5, brake: 6, vtol: 7, hangar: 8, bomb: 10, rocket: 11, bombsight: 16, flyby: 17, radar: 18, hud: 19, approach: 20, boost: 21 },
+  // Digital actions can each be bound to a joystick button AND/OR a keyboard key
+  // (independently; either can be unmapped = null). Principle: the player flies
+  // on the stick, with the keyboard on the side — so the DIRECT flight & combat
+  // controls live on the joystick by default, and the camera / system / gameplay
+  // controls live on the keyboard by default. Both maps are fully remappable.
+  buttons: { fire: 0, missile: 1, flare: 2, gear: 4, flaps: 5, brake: 6, vtol: 7, bomb: 10, rocket: 11, boost: 21 },
+  keys: {
+    // Flight & combat — duplicated on the keyboard so a stickless player can fly,
+    // but their primary home is the joystick above.
+    fire: "Space", missile: "KeyB", rocket: "KeyR", bomb: "KeyN", flare: "KeyX",
+    gear: "KeyG", flaps: "KeyV", brake: "KeyZ", vtol: "KeyT",
+    // Camera / system / gameplay — keyboard home, joystick left free.
+    view: "KeyC", flyby: "KeyY", bombsight: "KeyU", radar: "KeyK", hud: "KeyJ",
+    approach: "KeyL", hangar: "KeyH", reset: "Escape",
+  },
 };
 
 // Expo response curve: e in [0,1], higher = gentler near centre, full at edge.
@@ -37,7 +48,10 @@ function loadBindings() {
     if (raw) {
       const saved = JSON.parse(raw);
       const merged = { ...structuredClone(DEFAULTS), ...saved };
-      merged.buttons = { ...DEFAULTS.buttons, ...(saved.buttons || {}) }; // keep new action defaults
+      // Merge each device map so new actions get defaults while saved choices
+      // (including explicit null = "unmapped") are preserved.
+      merged.buttons = { ...DEFAULTS.buttons, ...(saved.buttons || {}) };
+      merged.keys = { ...DEFAULTS.keys, ...(saved.keys || {}) };
       return merged;
     }
   } catch (_) { /* ignore */ }
@@ -179,25 +193,26 @@ export class Input {
         let raw = (pad.axes[t.axis] || 0);
         if (t.invert) raw = -raw;
         throttle = (raw + 1) / 2;
-        const b = this.bindings.buttons;
-        fire = btn(b.fire);
-        missilePressed = this.pressed("pad-missile", btn(b.missile));
-        flarePressed = this.pressed("pad-flare", btn(b.flare));
-        viewPressed = this.pressed("pad-view", btn(b.view));
-        pausePressed = this.pressed("pad-reset", btn(b.reset)); // → pause menu
-        gearPressed = this.pressed("pad-gear", btn(b.gear));
-        flapsPressed = this.pressed("pad-flaps", btn(b.flaps));
-        vtolPressed = this.pressed("pad-vtol", btn(b.vtol));
-        bombPressed = this.pressed("pad-bomb", btn(b.bomb));
-        rocketPressed = this.pressed("pad-rkt", btn(b.rocket));
-        bombsightPressed = this.pressed("pad-bsight", btn(b.bombsight)); // bomb sight (bombers)
-        flybyPressed = this.pressed("pad-flyby", btn(b.flyby));
-        radarPressed = this.pressed("pad-radar", btn(b.radar));
-        hudPressed = this.pressed("pad-hud", btn(b.hud));
-        approachPressed = this.pressed("pad-approach", btn(b.approach));
-        hangarPressed = this.pressed("pad-bay", btn(b.hangar));
-        if (btn(b.brake)) brake = true; // airbrake / wheel brake (held)
-        if (b.boost != null && btn(b.boost)) boost = true; // afterburner (held)
+        // Each action reads its bound joystick button (or nothing if unmapped).
+        const pOn = (a) => { const i = this.bindings.buttons[a]; return i != null && btn(i); };
+        fire = pOn("fire");
+        missilePressed = this.pressed("pad-missile", pOn("missile"));
+        flarePressed = this.pressed("pad-flare", pOn("flare"));
+        viewPressed = this.pressed("pad-view", pOn("view"));
+        pausePressed = this.pressed("pad-reset", pOn("reset")); // → pause menu
+        gearPressed = this.pressed("pad-gear", pOn("gear"));
+        flapsPressed = this.pressed("pad-flaps", pOn("flaps"));
+        vtolPressed = this.pressed("pad-vtol", pOn("vtol"));
+        bombPressed = this.pressed("pad-bomb", pOn("bomb"));
+        rocketPressed = this.pressed("pad-rkt", pOn("rocket"));
+        bombsightPressed = this.pressed("pad-bsight", pOn("bombsight")); // bomb sight (bombers)
+        flybyPressed = this.pressed("pad-flyby", pOn("flyby"));
+        radarPressed = this.pressed("pad-radar", pOn("radar"));
+        hudPressed = this.pressed("pad-hud", pOn("hud"));
+        approachPressed = this.pressed("pad-approach", pOn("approach"));
+        hangarPressed = this.pressed("pad-bay", pOn("hangar"));
+        if (pOn("brake")) brake = true; // airbrake / wheel brake (held)
+        if (pOn("boost")) boost = true; // afterburner (held)
         // POV hat → free-look. Many sticks report it as a "hat" axis whose value
         // snaps to one of 8 detents (centred reads out of band); only act when
         // it's near a detent so an ordinary analog axis can't spin the view.
@@ -238,21 +253,27 @@ export class Input {
       if ((k.has("ShiftLeft") || k.has("ShiftRight")) && this.kbThrottle >= 0.999) boost = true;
     }
 
-    if (this.pressed("key-view", k.has("KeyC"))) viewPressed = true;
-    if (this.pressed("key-missile", k.has("KeyB"))) missilePressed = true;
-    if (this.pressed("key-flare", k.has("KeyX"))) flarePressed = true;
-    if (this.pressed("key-gear", k.has("KeyG"))) gearPressed = true;   // G = gear toggle
-    if (this.pressed("key-flaps", k.has("KeyV"))) flapsPressed = true; // V = flaps toggle
-    if (this.pressed("key-vtol", k.has("KeyT"))) vtolPressed = true;   // T = VTOL nozzle toggle
-    if (this.pressed("key-bomb", k.has("KeyN"))) bombPressed = true;   // N = drop bomb
-    if (this.pressed("key-rkt", k.has("KeyR"))) rocketPressed = true;  // R = fire rockets
-    if (this.pressed("key-bsight", k.has("KeyU"))) bombsightPressed = true; // U = bomb sight toggle (bombers)
-    if (this.pressed("key-flyby", k.has("KeyY"))) flybyPressed = true;       // Y = one-shot flyby cam
-    if (this.pressed("key-radar", k.has("KeyK"))) radarPressed = true;       // K = toggle radar / target markers
-    if (this.pressed("key-hud", k.has("KeyJ"))) hudPressed = true;           // J = toggle the whole HUD
-    if (this.pressed("key-approach", k.has("KeyL"))) approachPressed = true;  // L = landing-approach guidance
-    if (k.has("KeyZ")) brake = true;   // Z = airbrake / wheel brake (held)
-    if (k.has("Space")) fire = true;
+    // Each action also reads its bound keyboard key (independently of the stick).
+    const kHeld = (a) => { const c = this.bindings.keys[a]; return c != null && k.has(c); };
+    const kEdge = (a) => this.pressed("key-" + a, kHeld(a));
+    if (kHeld("fire")) fire = true;
+    if (kHeld("brake")) brake = true;
+    if (kHeld("boost")) boost = true; // (the Shift firewall above also lights it)
+    if (kEdge("missile")) missilePressed = true;
+    if (kEdge("flare")) flarePressed = true;
+    if (kEdge("rocket")) rocketPressed = true;
+    if (kEdge("bomb")) bombPressed = true;
+    if (kEdge("gear")) gearPressed = true;
+    if (kEdge("flaps")) flapsPressed = true;
+    if (kEdge("vtol")) vtolPressed = true;
+    if (kEdge("view")) viewPressed = true;
+    if (kEdge("flyby")) flybyPressed = true;
+    if (kEdge("bombsight")) bombsightPressed = true;
+    if (kEdge("radar")) radarPressed = true;
+    if (kEdge("hud")) hudPressed = true;
+    if (kEdge("approach")) approachPressed = true;
+    if (kEdge("hangar")) hangarPressed = true;
+    if (kEdge("reset")) pausePressed = true;
 
     // Touch layer (on-screen controls). Stick/rudder are additive; the
     // throttle lever is absolute and overrides keyboard when there's no pad.

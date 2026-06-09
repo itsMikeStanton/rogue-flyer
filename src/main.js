@@ -662,10 +662,10 @@ function toggleFullscreen() {
 }
 
 window.addEventListener("keydown", (e) => {
-  if (e.code === "Escape") openPause();
+  // Pause (reset) and the vehicle bay (hangar) are remappable now — they're read
+  // through input.getControls. Fullscreen / mute stay as fixed utility keys.
   if (e.code === "KeyF") toggleFullscreen();
   if (e.code === "KeyM") updateSoundButton(sound.toggleMute());
-  if (e.code === "KeyH" && flying && !inXR) { hangarMode ? exitHangar() : enterHangar(true); }
 });
 
 // Floating in-flight button to reopen the vehicle bay.
