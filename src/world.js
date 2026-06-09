@@ -227,7 +227,9 @@ function islandHeight(is, x, z) {
     h = THREE.MathUtils.lerp(cf.h, h, t);
   }
   if (d < is.spawn.flattenRadius) {
-    const t = THREE.MathUtils.clamp((d - 600) / 800, 0, 1);
+    const core = is.spawn.flatCore != null ? is.spawn.flatCore : 600; // fully-flat radius
+    const ramp = is.spawn.flatRamp != null ? is.spawn.flatRamp : 800; // blend-out width
+    const t = THREE.MathUtils.clamp((d - core) / ramp, 0, 1);
     h = THREE.MathUtils.lerp(0, h, t);
   }
   // (River removed — carve water inlets by hand with the height-sculpt tool.)
@@ -851,7 +853,7 @@ function buildIsland(scene, is, waveMats, colliders, smokeSources, trees, spinne
 
   // Runway near spawn (local)
   const ry = H(0, 0);
-  const runway = new THREE.Mesh(new THREE.PlaneGeometry(80, 1200), new THREE.MeshStandardMaterial({ color: 0x2a2d33, roughness: 0.9 }));
+  const runway = new THREE.Mesh(new THREE.PlaneGeometry(80, 2000), new THREE.MeshStandardMaterial({ color: 0x2a2d33, roughness: 0.9 }));
   runway.rotation.x = -Math.PI / 2;
   runway.position.set(0, ry + 0.5, 0);
   runway.receiveShadow = true;
@@ -864,10 +866,10 @@ function buildIsland(scene, is, waveMats, colliders, smokeSources, trees, spinne
     m.receiveShadow = true;
     grp.add(m);
   };
-  for (let z = -540; z <= 540; z += 60) mark(1.6, 30, 0, z);
-  mark(1.4, 1170, -37, 0); mark(1.4, 1170, 37, 0);
-  for (const ze of [-585, 585]) for (let i = -3; i <= 3; i++) { if (i === 0) continue; mark(4, 26, i * 8, ze); }
-  for (const za of [-380, 380]) { mark(6, 42, -10, za); mark(6, 42, 10, za); }
+  for (let z = -940; z <= 940; z += 60) mark(1.6, 30, 0, z);
+  mark(1.4, 1970, -37, 0); mark(1.4, 1970, 37, 0);
+  for (const ze of [-985, 985]) for (let i = -3; i <= 3; i++) { if (i === 0) continue; mark(4, 26, i * 8, ze); }
+  for (const za of [-660, 660]) { mark(6, 42, -10, za); mark(6, 42, 10, za); }
 
   // (River ribbon removed — the global ocean shows through any inlet you sculpt.)
 

@@ -8,7 +8,7 @@
 const HOME_TERRAIN = { islandInner: 7000, islandOuter: 9800, deep: -750 };
 const HOME_FOREST = { extent: 10800, gridN: 96, maxTrees: 45000, perCell: 22, density: null };
 const HOME_CLIFF = { x: -6200, z: 1900, r: 620, h: 560 };
-const HOME_SPAWN = { flattenRadius: 1400, x: 0, z: 520 };
+const HOME_SPAWN = { flattenRadius: 1900, x: 0, z: 520, flatCore: 1100, flatRamp: 800 };
 const HOME_SETTLEMENTS = [
   { kind: "town", x: 3200, z: -3500, radius: 2, spacing: 115, maxHeight: 150 },
   { kind: "town", x: -4200, z: 2600, radius: 2, spacing: 115, maxHeight: 140 },
