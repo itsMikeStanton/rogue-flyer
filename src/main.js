@@ -252,6 +252,10 @@ function setHudOff(v) { hudOff = v; try { localStorage.setItem("rf.hudOff", v ? 
 const approach = new Approach({ cx: 0, cz: 0 });
 let approachOn = false;
 let ringsHit = 0;
+// Transient on-screen banner (auto-hides). Persistent banners use ui.showBanner
+// directly and set bannerTimer = 0 so this never clears them early.
+let bannerTimer = 0;
+function flashBanner(title, sub, secs = 2.4) { ui.showBanner(title, sub); bannerTimer = secs; }
 
 // Ground reticle showing the predicted bomb impact (shown in Bomb Sight).
 const bombMarker = new THREE.Group();
@@ -308,7 +312,7 @@ function handleCrash(title) {
         Math.abs(gx - t.info.x) < t.info.halfW + 14 && Math.abs(gz - t.info.z) < t.info.halfL + 14) t.hit(99999);
   }
   sound.stopEngine(); sound.stopSeek();
-  ui.showBanner(title || "AIRCRAFT DOWN", "Recovering a new aircraft…");
+  ui.showBanner(title || "AIRCRAFT DOWN", "Recovering a new aircraft…"); bannerTimer = 0;
   respawnTimer = 2.8;
 }
 
@@ -1268,6 +1272,7 @@ function frame(now) {
   let dt = (now - last) / 1000;
   last = now;
   if (dt > 0.1) dt = 0.1; // clamp after tab-out
+  if (bannerTimer > 0) { bannerTimer -= dt; if (bannerTimer <= 0) ui.hideBanner(); }
   const simDt = paused ? 0 : dt; // freeze the world while the pause menu is open
 
   // World editor takes over rendering with its top-down camera. The ocean still
@@ -1348,6 +1353,7 @@ function frame(now) {
     if (controls.bombPressed && weapons.dropBomb(state.position, state.quaternion, state.velocity)) sound.bomb();
     weapons.update(dt, state.position, state.quaternion, activeTargets);
     enemies.update(dt, player);
+    if (enemies.waveMsg) { flashBanner(enemies.waveMsg, enemies.wave === 1 ? "Bandits inbound — good hunting" : "Here they come again", 2.6); enemies.waveMsg = null; }
     traffic.update(dt, player);
     if (isMission) ground.update(dt, player);
     fx.update(dt);
@@ -1367,7 +1373,7 @@ function frame(now) {
 
     if (isMission && ground.total > 0 && ground.remaining === 0 && !missionDone) {
       missionDone = true;
-      ui.showBanner("MISSION COMPLETE", "Keep flying — Esc for the menu");
+      ui.showBanner("MISSION COMPLETE", "Keep flying — Esc for the menu"); bannerTimer = 0;
     }
 
     // Lock audio: a growl that ramps while a target sits in the box, then a
@@ -1622,6 +1628,7 @@ function frame(now) {
       kills: gameMode === "ffa" ? null : (isMissionHud ? ground.destroyed : enemies.kills),
       bandits: gameMode === "ffa" ? null : (isMissionHud ? ground.remaining : enemies.alive()),
       total: isMissionHud ? ground.total : null,
+      wave: gameMode === "dogfight" ? enemies.wave : null,
       health: player.health,
       ord: { missiles: weapons.missileCount, rockets: weapons.rocketCount, bombs: weapons.bombCount },
       gear: def.rotor ? null : gearDown, // helis have skids — no gear/flaps readouts

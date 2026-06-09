@@ -102,6 +102,7 @@ export class Hud {
       ctx.fillText(`KILLS ${extra.kills}`, w - 20, 44);
       const label = extra.mode === "dogfight" ? "BANDITS" : "DRONES";
       ctx.fillText(`${label} ${extra.bandits}`, w - 20, 62);
+      if (extra.wave) ctx.fillText(`WAVE ${extra.wave}`, w - 20, 80);
     }
     ctx.textAlign = "left";
 

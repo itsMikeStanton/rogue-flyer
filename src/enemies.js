@@ -36,9 +36,10 @@ function steer(dir, desired, maxRad) {
 }
 
 class Entity {
-  constructor(manager, kind) {
+  constructor(manager, kind, diff = 1) {
     this.manager = manager;
     this.kind = kind;
+    this.diff = diff;            // difficulty multiplier (wave dogfight scales this)
     this.alive = true;
     this.respawn = 0;
     this.position = new THREE.Vector3();
@@ -49,7 +50,7 @@ class Entity {
 
     if (kind === "fighter") {
       this.radius = 30;
-      this.maxHealth = 30;
+      this.maxHealth = Math.round(30 * diff);
       this.mesh = buildAircraftMesh(Math.random() < 0.5 ? "fa18" : "f16", 0xb84a4a);
       if (this.mesh.userData.gear) this.mesh.userData.gear.visible = false; // gear up in the air
     } else {
@@ -172,7 +173,8 @@ class Entity {
     if (dist < 350) _desired.multiplyScalar(-1);        // overshoot: extend for another pass
     const aim = steer(this.dir, _desired, 1.3 * dt);
 
-    this.speed += (215 - this.speed) * Math.min(1, dt * 0.5);
+    const topSpeed = 215 + (this.diff - 1) * 45; // later waves fly faster
+    this.speed += (topSpeed - this.speed) * Math.min(1, dt * 0.5);
     this.position.addScaledVector(this.dir, this.speed * dt);
 
     this.mesh.position.copy(this.position);
@@ -199,6 +201,12 @@ export class Enemies {
     this.bullets = [];
     this.kills = 0;
     this.mode = "free";
+    // Wave state (dogfight): the next wave only spawns once the current one is
+    // wiped out, and each wave is bigger and meaner than the last.
+    this.wave = 0;
+    this.waveActive = false;
+    this.waveDelay = 0;
+    this.waveMsg = null; // main.js pulls this to flash a "WAVE n" banner
     this.onFire = null; // optional callback(position) for sound
     this.bulletGeo = new THREE.BoxGeometry(0.8, 0.8, 14);
     this.bulletMat = new THREE.MeshBasicMaterial({ color: 0xff5a3c });
@@ -223,12 +231,37 @@ export class Enemies {
     this.clear();
     this.mode = mode;
     this.kills = 0;
+    this.wave = 0; this.waveActive = false; this.waveDelay = 0; this.waveMsg = null;
     if (mode === "practice") {
       for (let i = 0; i < 8; i++) this.entities.push(new Entity(this, "drone"));
     } else if (mode === "dogfight") {
-      for (let i = 0; i < 5; i++) this.entities.push(new Entity(this, "fighter"));
+      this._startWave(1);
     }
+    // Strike/campaign defenders are spawned on demand via spawnDefenders().
   }
+
+  // Spawn the next wave of fighters: count and difficulty climb each wave.
+  _startWave(n) {
+    // Tidy up the previous wave's hidden wrecks (keep any still death-spiralling).
+    for (let i = this.entities.length - 1; i >= 0; i--) {
+      const e = this.entities[i];
+      if (!e.alive && !e.dying) { this.scene.remove(e.mesh); this.entities.splice(i, 1); }
+    }
+    this.wave = n;
+    const count = 3 + n;                 // wave 1: 4, wave 2: 5, ...
+    const diff = 1 + (n - 1) * 0.13;     // ~13% tougher/faster each wave
+    for (let i = 0; i < count; i++) this.entities.push(new Entity(this, "fighter", diff));
+    this.waveActive = true;
+    this.waveMsg = "WAVE " + n;
+  }
+
+  // Mission defenders: a fixed group of fighters that do NOT wave or respawn.
+  spawnDefenders(n, diff = 1) {
+    for (let i = 0; i < n; i++) this.entities.push(new Entity(this, "fighter", diff));
+  }
+
+  // Entities still in play (alive or mid-death-spiral) — drives wave clearing.
+  _pending() { let n = 0; for (const e of this.entities) if (e.alive || e.dying) n++; return n; }
 
   spawnBullet(pos, dir) {
     const m = new THREE.Mesh(this.bulletGeo, this.bulletMat);
@@ -243,11 +276,21 @@ export class Enemies {
     for (const e of this.entities) {
       if (!e.alive) {
         if (e.dying) { e.updateDying(dt); continue; } // falling wreck, not yet respawning
+        if (this.mode === "dogfight") continue;        // wave mode: downed fighters stay down
         e.respawn -= dt;
         if (e.respawn <= 0) e.place();
         continue;
       }
       e.update(dt, player);
+    }
+
+    // Wave dogfight: when the current wave is wiped out, pause, then send more.
+    if (this.mode === "dogfight") {
+      if (this.waveActive && this._pending() === 0) { this.waveActive = false; this.waveDelay = 2.6; }
+      else if (!this.waveActive && this.waveDelay > 0) {
+        this.waveDelay -= dt;
+        if (this.waveDelay <= 0) this._startWave(this.wave + 1);
+      }
     }
 
     for (let i = this.bullets.length - 1; i >= 0; i--) {
