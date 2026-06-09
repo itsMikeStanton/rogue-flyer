@@ -256,6 +256,18 @@ let ringsHit = 0;
 // directly and set bannerTimer = 0 so this never clears them early.
 let bannerTimer = 0;
 function flashBanner(title, sub, secs = 2.4) { ui.showBanner(title, sub); bannerTimer = secs; }
+// Lives / respawns: "1" (Pro, one life) | "3" | "infinite" (default; kid mode —
+// you can keep going forever). Free flight, multiplayer and VR are always
+// infinite. Out of lives ends the run (mission retry is wired in once campaigns
+// land).
+let livesMode = "infinite";
+try { livesMode = localStorage.getItem("rf.lives") || "infinite"; } catch (_) { /* ignore */ }
+let livesLeft = Infinity;
+function setLives(v) { livesMode = v; try { localStorage.setItem("rf.lives", v); } catch (_) { /* ignore */ } }
+function livesForMode() {
+  if (gameMode === "free" || gameMode === "ffa" || inXR) return Infinity;
+  return livesMode === "1" ? 1 : livesMode === "3" ? 3 : Infinity;
+}
 
 // Ground reticle showing the predicted bomb impact (shown in Bomb Sight).
 const bombMarker = new THREE.Group();
@@ -312,8 +324,19 @@ function handleCrash(title) {
         Math.abs(gx - t.info.x) < t.info.halfW + 14 && Math.abs(gz - t.info.z) < t.info.halfL + 14) t.hit(99999);
   }
   sound.stopEngine(); sound.stopSeek();
-  ui.showBanner(title || "AIRCRAFT DOWN", "Recovering a new aircraft…"); bannerTimer = 0;
+  const sub = livesLeft === Infinity ? "Recovering a new aircraft…"
+    : (livesLeft > 1 ? `Recovering a new aircraft…  (${livesLeft - 1} left)` : "Last aircraft down…");
+  ui.showBanner(title || "AIRCRAFT DOWN", sub); bannerTimer = 0;
   respawnTimer = 2.8;
+}
+
+// No aircraft left (finite lives ran out). For now this ends the run and drops
+// to the menu; once campaigns land this routes to a mission-retry/briefing.
+function outOfLives() {
+  flying = false;
+  ui.showBanner("OUT OF AIRCRAFT", "Run over — returning to base"); bannerTimer = 0;
+  sound.stopEngine(); sound.stopSeek();
+  setTimeout(() => { if (!flying) exitToMenu(); }, 2400);
 }
 
 
@@ -332,6 +355,8 @@ const ui = new UI(input, {
   onHangarStay: () => exitHangar(),             // keep the current vehicle, close the bay
   onPauseResume: () => closePause(),
   onPauseMenu: () => exitToMenu(),
+  onLives: (v) => setLives(v),                  // 1 / 3 / infinite respawns
+  livesMode: () => livesMode,
 }, touch, tilt);
 
 // --- Multiplayer (LAN free-for-all) ---
@@ -678,6 +703,7 @@ function resetFlight() {
   world.rings.forEach((r) => { r.visible = true; r.userData.hit = false; });
   enemies.setMode(gameMode);
   ground.setActive(gameMode === "mission", world.carriers.enemy, getCarriers().find((c) => c.team === "enemy"));
+  livesLeft = livesForMode();
   missionDone = false;
   fx.reset();
   wrecks.reset();
@@ -1388,7 +1414,14 @@ function frame(now) {
     // Burning wreckage stays in the world; auto-respawn a fresh aircraft.
     sound.stopSeek();
     fx.update(dt);
-    if (respawnTimer > 0) { respawnTimer -= dt; if (respawnTimer <= 0) { if (inXR) placePlayer(); else enterHangar(false); } }
+    if (respawnTimer > 0) {
+      respawnTimer -= dt;
+      if (respawnTimer <= 0) {
+        if (livesLeft !== Infinity && livesLeft > 0) livesLeft--;
+        if (livesLeft > 0) { if (inXR) placePlayer(); else enterHangar(false); }
+        else { outOfLives(); }
+      }
+    }
   }
 
   // Sync mesh to physics state
@@ -1630,6 +1663,7 @@ function frame(now) {
       total: isMissionHud ? ground.total : null,
       wave: gameMode === "dogfight" ? enemies.wave : null,
       health: player.health,
+      lives: livesLeft === Infinity ? null : livesLeft,
       ord: { missiles: weapons.missileCount, rockets: weapons.rocketCount, bombs: weapons.bombCount },
       gear: def.rotor ? null : gearDown, // helis have skids — no gear/flaps readouts
       flaps: def.rotor ? null : flapsDown,

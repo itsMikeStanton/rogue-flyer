@@ -387,6 +387,11 @@ export class UI {
       sp.value = this.startPos;
       sp.addEventListener("change", () => { this.startPos = sp.value; });
     }
+    const lv = document.getElementById("lives-sel");
+    if (lv && this.cb.onLives) {
+      if (this.cb.livesMode) lv.value = this.cb.livesMode();
+      lv.addEventListener("change", () => this.cb.onLives(lv.value));
+    }
     document.getElementById("btn-fly").addEventListener("click", () => {
       this.hideAll();
       this.cb.onFly(this.selected, this.mode, this.startPos);

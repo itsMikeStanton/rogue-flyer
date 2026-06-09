@@ -110,6 +110,13 @@ export class Hud {
     if ((extra.mode === "dogfight" || extra.mode === "mission" || extra.mode === "ffa") && extra.health != null) {
       this.healthBar(20, 58, extra.health);
     }
+    // Lives remaining (finite-lives runs only).
+    if (extra.lives != null) {
+      ctx.textAlign = "left";
+      ctx.fillStyle = extra.lives > 1 ? green : "#ff5b5b";
+      ctx.font = "12px 'Consolas', monospace";
+      ctx.fillText("✈ LIVES " + extra.lives, 180, 66);
+    }
     if (extra.ord) {
       ctx.font = "13px 'Consolas', monospace";
       const parts = [];
