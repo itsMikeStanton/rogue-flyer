@@ -683,7 +683,7 @@ function buildTomcat(def) {
 function buildRaptor(def) {
   const g = new THREE.Group(); const m = makeMaterials(def);
   const fuse = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.85, 7.0), m.body); g.add(fuse);
-  const nose = new THREE.Mesh(new THREE.ConeGeometry(0.8, 3.0, 4), m.body); nose.rotation.x = -Math.PI / 2; nose.rotation.z = Math.PI / 4; nose.position.z = -4.9; g.add(nose);
+  const nose = new THREE.Mesh(new THREE.ConeGeometry(0.8, 3.0, 4), m.body); nose.rotation.x = -Math.PI / 2; nose.rotation.y = Math.PI / 4; nose.position.z = -4.9; g.add(nose); // roll the facets to a diamond about its OWN axis (rotation.y), so the apex still points dead ahead
   for (const s of [-1, 1]) { const ch = flatPoly(m.panel, [[0, -3.0], [s * 1.2, 1.2], [s * 0.3, 1.4]], 0.1); ch.position.set(0, 0.12, -0.8); g.add(ch); }
   // Caret (angled) side intakes below the chines — the Raptor's signature inlets.
   for (const s of [-1, 1]) {
