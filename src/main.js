@@ -20,6 +20,7 @@ import { Smokestacks } from "./smoke.js";
 import { Wrecks } from "./wreckage.js";
 import { Net } from "./net.js";
 import { Approach } from "./approach.js";
+import { MissionManager, defaultStrikeMission } from "./missions.js";
 
 // --- Renderer / scene / camera ---
 const canvas = document.getElementById("scene");
@@ -178,6 +179,7 @@ let mesh = null;
 let flying = false;
 let gameMode = "free";
 let missionDone = false;
+let pendingMissionDef = null; // a specific mission def to load on next resetFlight (Surprise Me / campaign)
 let startPos = "air"; // "air" | "runway" | "carrier"
 // In-game vehicle bay: sim paused, camera orbits the parked vehicle at the spawn.
 let hangarMode = false, hangarAngle = 0;
@@ -251,6 +253,15 @@ function setHudOff(v) { hudOff = v; try { localStorage.setItem("rf.hudOff", v ? 
 // home runway at the island origin.
 const approach = new Approach({ cx: 0, cz: 0 });
 let approachOn = false;
+
+// Mission objectives (Strike / Campaign). Completion/fail drive the banners.
+const missions = new MissionManager();
+missions.onComplete = () => {
+  if (missionDone) return;
+  missionDone = true;
+  ui.showBanner("MISSION COMPLETE", "Keep flying — Esc for the menu"); bannerTimer = 0;
+};
+missions.onFail = () => { flashBanner("OBJECTIVE FAILED", "", 3); };
 let ringsHit = 0;
 // Transient on-screen banner (auto-hides). Persistent banners use ui.showBanner
 // directly and set bannerTimer = 0 so this never clears them early.
@@ -705,6 +716,10 @@ function resetFlight() {
   ground.setActive(gameMode === "mission", world.carriers.enemy, getCarriers().find((c) => c.team === "enemy"));
   livesLeft = livesForMode();
   missionDone = false;
+  // Strike: build objectives from the spawned targets (only objective-relevant
+  // targets get HUD-marked; tanks/bunkers stay ambient).
+  if (gameMode === "mission") missions.load(pendingMissionDef || defaultStrikeMission(ground), ground);
+  pendingMissionDef = null;
   fx.reset();
   wrecks.reset();
   placePlayer();
@@ -1397,10 +1412,7 @@ function frame(now) {
       if (gameMode === "ffa" && net.connected) net.sendFire("flare", state.position, _v);
     }
 
-    if (isMission && ground.total > 0 && ground.remaining === 0 && !missionDone) {
-      missionDone = true;
-      ui.showBanner("MISSION COMPLETE", "Keep flying — Esc for the menu"); bannerTimer = 0;
-    }
+    if (isMission) missions.update(dt, player, state);
 
     // Lock audio: a growl that ramps while a target sits in the box, then a
     // confirmation chirp the moment it goes solid.
@@ -1534,6 +1546,15 @@ function frame(now) {
 
   // HUD
   if (flying && !hangarMode && !hudOff) {
+    // Shared world→screen projection for HUD markers (objectives, approach, …).
+    const projectHud = (vec) => {
+      _v.copy(vec).project(camera);
+      return {
+        x: (_v.x * 0.5 + 0.5) * hud.w, y: (-_v.y * 0.5 + 0.5) * hud.h,
+        ndcx: _v.x, ndcy: _v.y, behind: _v.z > 1,
+        onscreen: _v.z < 1 && Math.abs(_v.x) <= 1 && Math.abs(_v.y) <= 1,
+      };
+    };
     // Project the locked target to screen space for the lock box.
     let lock = null;
     if (weapons.lock && weapons.lock.alive) {
@@ -1548,25 +1569,13 @@ function frame(now) {
         };
       }
     }
-    // Mission objective marker: point to the nearest surviving ground target.
-    let objective = null;
+    // Mission objective marker + list: only objective-relevant targets are
+    // marked (ambient defenses stay unmarked until you find them).
+    let objective = null, objectives = null;
     if (gameMode === "mission") {
-      let best = null, bd = Infinity;
-      for (const t of ground.targets) {
-        if (!t.alive) continue;
-        const d = state.position.distanceTo(t.position);
-        if (d < bd) { bd = d; best = t; }
-      }
-      if (best) {
-        _v.copy(best.position).project(camera);
-        objective = {
-          ndcx: _v.x, ndcy: _v.y, behind: _v.z > 1,
-          onscreen: _v.z < 1 && Math.abs(_v.x) <= 1 && Math.abs(_v.y) <= 1,
-          x: (_v.x * 0.5 + 0.5) * hud.w,
-          y: (-_v.y * 0.5 + 0.5) * hud.h,
-          dist: bd,
-        };
-      }
+      const md = missions.hudData(projectHud, state.position);
+      objective = md.objective;
+      objectives = md.objectives;
     }
     const isMissionHud = gameMode === "mission";
     // Nav markers to other islands (so the open ocean isn't a void).
@@ -1630,16 +1639,8 @@ function frame(now) {
     // HUD is off (this block already gates on !hudOff).
     let approachHud = null;
     if (approachOn) {
-      const project = (vec) => {
-        _v.copy(vec).project(camera);
-        return {
-          x: (_v.x * 0.5 + 0.5) * hud.w, y: (-_v.y * 0.5 + 0.5) * hud.h,
-          ndcx: _v.x, ndcy: _v.y, behind: _v.z > 1,
-          onscreen: _v.z < 1 && Math.abs(_v.x) <= 1 && Math.abs(_v.y) <= 1,
-        };
-      };
       approachHud = approach.update(state, {
-        gearDown, flapsDown, speedKts: state.telemetry.speed * 1.94384, project,
+        gearDown, flapsDown, speedKts: state.telemetry.speed * 1.94384, project: projectHud,
       });
     }
 
@@ -1674,6 +1675,7 @@ function frame(now) {
       // contacts, radar); nav island markers + instruments stay.
       lock: radarOff ? null : lock,
       objective: radarOff ? null : objective,
+      objectives: radarOff ? null : objectives,
       islandMarkers,
       netStatus,
       contacts: radarOff ? null : contacts,

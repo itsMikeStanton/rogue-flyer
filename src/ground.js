@@ -30,6 +30,7 @@ class GTarget {
     this.fx = fx;
     this.type = type;
     this.alive = true;
+    this.objective = false; // set by MissionManager when this target is an objective
     this.spin = null;
     const g = new THREE.Group();
 
@@ -117,6 +118,7 @@ class CarrierTarget {
     this.fx = fx;
     this.mesh = mesh;
     this.alive = true;
+    this.objective = false;
     this.radius = 140;
     this.maxHealth = 320;
     this.health = 320;

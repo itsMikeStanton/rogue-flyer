@@ -163,6 +163,8 @@ export class Hud {
 
     // Mission objective marker (on-screen diamond or edge arrow).
     if (extra.objective) this.objective(extra.objective);
+    // Objective checklist panel (top-left).
+    if (extra.objectives && extra.objectives.length) this.objectiveList(extra.objectives);
 
     // Nav markers pointing to the other islands.
     if (extra.islandMarkers) for (const m of extra.islandMarkers) this.islandMarker(m);
@@ -440,6 +442,27 @@ export class Hud {
       const lbl = String(Math.abs(a));
       ctx.fillText(lbl, -half - 18, y + 4);
       ctx.fillText(lbl, half + 6, y + 4);
+    }
+    ctx.restore();
+  }
+
+  // Mission objective checklist, top-left under the ordnance row.
+  objectiveList(list) {
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.textAlign = "left";
+    ctx.font = "12px 'Consolas', monospace";
+    let y = 124;
+    ctx.fillStyle = "#9fb3c4";
+    ctx.fillText("OBJECTIVES", 20, y); y += 18;
+    for (const o of list) {
+      const done = o.state === "done", failed = o.state === "failed";
+      const mark = done ? "✓" : failed ? "✗" : o.priority === "optional" ? "○" : o.priority === "secondary" ? "◆" : "●";
+      ctx.fillStyle = done ? "#36ff9a" : failed ? "#ff5b5b" : o.priority === "optional" ? "#8fa0b0" : "#ffd23f";
+      let label = `${mark} ${o.label}`;
+      if (o.timeLeft != null) label += `  ${o.timeLeft}s`;
+      ctx.fillText(label, 20, y);
+      y += 17;
     }
     ctx.restore();
   }
