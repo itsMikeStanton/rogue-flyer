@@ -102,6 +102,7 @@ export class TouchControls {
         <button class="t-btn" data-act="flaps">FLAPS</button>
         <button class="t-btn" data-act="vtol">VTOL</button>
         <button class="t-btn" data-act="brake">BRAKE</button>
+        <button class="t-btn burn" data-act="boost">⚡ BURN</button>
         <button class="t-btn" data-act="pause">MENU</button>
         <button class="t-btn msl" data-act="missile">MSL</button>
         <button class="t-btn" data-act="rocket">RKT</button>

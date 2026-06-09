@@ -93,8 +93,9 @@ export function step(state, def, controls, dt, groundHeight) {
   _force.set(0, 0, 0);
 
   // Thrust along the nose. Squared throttle curve = gentle low end, punchy top
-  // (more arcade contrast between idle and full).
-  const thr = controls.throttle * controls.throttle;
+  // (more arcade contrast between idle and full). `controls.boost` is the turbo
+  // multiplier (1 normally, ~1.7 with the afterburner lit) set by main.js.
+  const thr = controls.throttle * controls.throttle * (controls.boost || 1);
   _tmp.copy(_fwd).multiplyScalar(thr * def.maxThrust);
   _force.add(_tmp);
 

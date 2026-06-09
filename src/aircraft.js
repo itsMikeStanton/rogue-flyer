@@ -15,6 +15,7 @@ export const AIRCRAFT = {
   f16: {
     name: "F-16 Falcon",
     role: "Agile dogfighter",
+    turbo: true,
     loadout: { missiles: 6, rockets: 0, bombs: 4 },
     color: 0xb8c4cf,
     mass: 9000,
@@ -28,6 +29,7 @@ export const AIRCRAFT = {
   fa18: {
     name: "F/A-18 Hornet",
     role: "All-round multirole",
+    turbo: true,
     loadout: { missiles: 6, rockets: 0, bombs: 6 },
     color: 0x9aa7b3,
     mass: 11000,
@@ -55,6 +57,7 @@ export const AIRCRAFT = {
   f15: {
     name: "F-15 Eagle",
     role: "Air-superiority fighter",
+    turbo: true,
     loadout: { missiles: 8, rockets: 0, bombs: 0 },
     color: 0xb6bdc6,
     mass: 13000, maxThrust: 210000, wingArea: 56,
@@ -67,6 +70,7 @@ export const AIRCRAFT = {
   f14: {
     name: "F-14 Tomcat",
     role: "Swing-wing interceptor",
+    turbo: true,
     loadout: { missiles: 6, rockets: 0, bombs: 0 },
     color: 0x9aa3ad,
     mass: 16000, maxThrust: 220000, wingArea: 54,
@@ -79,6 +83,7 @@ export const AIRCRAFT = {
   f22: {
     name: "F-22 Raptor",
     role: "Stealth air-dominance",
+    turbo: true,
     loadout: { missiles: 8, rockets: 0, bombs: 0 },
     color: 0x4a525c,
     mass: 14000, maxThrust: 260000, wingArea: 50,
@@ -91,6 +96,7 @@ export const AIRCRAFT = {
   mig29: {
     name: "MiG-29 Fulcrum",
     role: "Agile frontline fighter",
+    turbo: true,
     loadout: { missiles: 6, rockets: 0, bombs: 0 },
     color: 0x8a96a6,
     mass: 11000, maxThrust: 162000, wingArea: 38,
@@ -425,6 +431,29 @@ function addAfterburner(g, x, y, z, base, flames) {
   inner.rotation.x = Math.PI / 2; inner.position.set(x, y, z + 1.0);
   inner.scale.setScalar(base); inner.userData.base = base * 0.7;
   g.add(inner); flames.push(inner);
+}
+
+// Afterburner / turbo cones layered over a normal burner at `ref` (an existing
+// outer afterburner cone). A wide cool flare that fans out, plus a bright deep
+// blue inner shock — both additive and hidden until the boost lights (main
+// animates opacity/scale).
+function addBoostConesAt(g, ref, boostFlames) {
+  const base = ref.userData.base || 1;
+  const x = ref.position.x, y = ref.position.y, z = ref.position.z;
+  const flare = new THREE.Mesh(
+    new THREE.ConeGeometry(0.52, 5.0, 14),
+    new THREE.MeshBasicMaterial({ color: 0x9fe0ff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false })
+  );
+  flare.rotation.x = Math.PI / 2; flare.position.set(x, y, z + 0.95);
+  flare.scale.setScalar(base); flare.userData.base = base;
+  g.add(flare); boostFlames.push(flare);
+  const core = new THREE.Mesh(
+    new THREE.ConeGeometry(0.27, 3.4, 10),
+    new THREE.MeshBasicMaterial({ color: 0x4a86ff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false })
+  );
+  core.rotation.x = Math.PI / 2; core.position.set(x, y, z + 0.25);
+  core.scale.setScalar(base); core.userData.base = base * 0.85;
+  g.add(core); boostFlames.push(core);
 }
 
 function makeCanopy(glass, z, sx, sy, sz) {
@@ -1046,6 +1075,12 @@ export function buildAircraftMesh(type, colorOverride, liveryId, markings) {
   else if (type === "chinook") g = buildChinook(def);
   else g = buildF16(def);
   if (!base.rotor) addGearFlaps(g, def); // helis carry skids/wheels in their own builders
+  // Turbo jets get layered afterburner cones over each engine's normal burner
+  // (flames are pushed [outer, inner] per engine — even indices are the outers).
+  g.userData.boostFlames = [];
+  if (base.turbo && g.userData.flames) {
+    for (let i = 0; i < g.userData.flames.length; i += 2) addBoostConesAt(g, g.userData.flames[i], g.userData.boostFlames);
+  }
   if (!g.userData.rotors) g.userData.rotors = [];
   if (markings) applyMarkings(g, def, markings); // national/squadron decals (player only)
   if (def._livery && def._livery.pattern) bakeModelPositions(g); // camo needs per-vertex model-space coords

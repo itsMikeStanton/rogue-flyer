@@ -18,6 +18,7 @@ const GradeShader = {
     uScan: { value: 0.0 },
     uChroma: { value: 0.0016 },
     uDistort: { value: 0.10 },   // barrel lens distortion (edge warp)
+    uSpeed: { value: 0.0 },      // afterburner: extra radial warp + streak blur (0..1)
     uOverscan: { value: 0.03 },  // zoom so distorted edges don't sample past frame
     uRgbShift: { value: 0.3 },   // extra horizontal R/B channel split (pixels)
     uWarm: { value: 0.25 },
@@ -33,22 +34,32 @@ const GradeShader = {
     varying vec2 vUv;
     uniform sampler2D tDiffuse;
     uniform vec2 uResolution;
-    uniform float uTime, uVignette, uGrain, uScan, uChroma, uWarm, uTealOrange, uContrast, uSat, uDistort, uOverscan, uRgbShift;
+    uniform float uTime, uVignette, uGrain, uScan, uChroma, uWarm, uTealOrange, uContrast, uSat, uDistort, uOverscan, uRgbShift, uSpeed;
     float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
     void main() {
       // Zoom in a touch so the barrel-warped edges keep sampling inside the frame.
       vec2 uv = 0.5 + (vUv - 0.5) * (1.0 - uOverscan);
       vec2 toC = uv - 0.5;
       float r2 = dot(toC, toC);
-      // Barrel lens distortion — bows the image out toward the edges.
-      vec2 base = uv + toC * (uDistort * r2);
+      // Barrel lens distortion — bows the image out toward the edges (afterburner
+      // adds a strong extra bow so the world warps as you tear forward).
+      vec2 base = uv + toC * ((uDistort + uSpeed * 0.35) * r2);
       // Chromatic aberration grows toward the edges (real-lens CA) + a flat RGB shift.
-      vec2 ca = toC * uChroma * (0.35 + r2 * 2.0);
+      vec2 ca = toC * (uChroma + uSpeed * 0.004) * (0.35 + r2 * 2.0);
       vec2 px = vec2(uRgbShift / uResolution.x, 0.0);
       vec3 col;
       col.r = texture2D(tDiffuse, base + ca + px).r;
       col.g = texture2D(tDiffuse, base).g;
       col.b = texture2D(tDiffuse, base - ca - px).b;
+      // Afterburner radial streak: a few taps pulled outward from centre, so the
+      // world smears past you at the edges — cheap warp-speed motion blur.
+      if (uSpeed > 0.001) {
+        vec3 acc = col;
+        acc += texture2D(tDiffuse, base + toC * (uSpeed * 0.05)).rgb;
+        acc += texture2D(tDiffuse, base + toC * (uSpeed * 0.10)).rgb;
+        acc += texture2D(tDiffuse, base + toC * (uSpeed * 0.16)).rgb;
+        col = mix(col, acc * 0.25, clamp(uSpeed, 0.0, 1.0) * 0.7);
+      }
       // contrast about mid-grey
       col = (col - 0.5) * uContrast + 0.5;
       // saturation
@@ -72,8 +83,8 @@ const GradeShader = {
       if (uGrain > 0.0) {
         col += (hash(uv * uResolution + fract(uTime)) - 0.5) * uGrain;
       }
-      // vignette
-      float v = 1.0 - uVignette * dot(toC, toC) * 2.6;
+      // vignette (tightens at speed for a tunnel-vision rush)
+      float v = 1.0 - (uVignette + uSpeed * 0.3) * dot(toC, toC) * 2.6;
       col *= clamp(v, 0.0, 1.0);
       gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
     }
@@ -115,6 +126,9 @@ export class PostFX {
     this.bloom.strength = L.bloom[0]; this.bloom.radius = L.bloom[1]; this.bloom.threshold = L.bloom[2];
     for (const k in L.grade) this.grade.uniforms[k].value = L.grade[k];
   }
+  // Afterburner warp amount (0..1). Always settable; only visible while the grade
+  // pass is enabled (an FX look other than "off").
+  setSpeed(v) { this.grade.uniforms.uSpeed.value = v; }
   render(dt) {
     this.grade.uniforms.uTime.value += dt;
     this.composer.render();

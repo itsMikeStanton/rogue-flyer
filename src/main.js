@@ -234,6 +234,55 @@ let crashHandled = false, respawnTimer = 0; // crash → wreckage → soft respa
 let camShake = 0;
 function addShake(amt) { camShake = Math.min(7, camShake + amt); }
 
+// Afterburner / turbo boost: hold the throttle at the firewall (turbo jets only)
+// for ~1.7x thrust. boostFx is the eased 0..1 visual amount (engine cones, FOV
+// punch, world warp, speed streaks). You can't fire while boosting.
+const BOOST_THRUST = 1.7;   // thrust multiplier when lit
+const BOOST_FOV = 16;       // extra FOV (degrees) at full boost
+let boostActive = false;
+let boostFx = 0;
+
+// Speed streaks that rip past the camera while the afterburner is lit. A small
+// pool of additive dashes scattered ahead in world space, streaming aft.
+const speedLines = (() => {
+  const N = 80;
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(N * 6), 3));
+  const mat = new THREE.LineBasicMaterial({ color: 0xcfe6ff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false });
+  const seg = new THREE.LineSegments(geo, mat);
+  seg.frustumCulled = false; seg.visible = false;
+  scene.add(seg);
+  const pts = []; for (let i = 0; i < N; i++) { const p = new THREE.Vector3(); p._init = false; pts.push(p); }
+  return { N, geo, mat, seg, pts };
+})();
+function updateSpeedLines(dt, amt) {
+  const sl = speedLines;
+  const vis = amt > 0.03 && flying && !state.crashed && !hangarMode;
+  sl.seg.visible = vis;
+  if (!vis) { sl.mat.opacity = 0; return; }
+  sl.mat.opacity = amt * 0.5;
+  const v = state.velocity, sp = Math.max(80, v.length());
+  const fX = v.x / sp, fY = v.y / sp, fZ = v.z / sp;     // forward unit
+  const cam = camera.position;
+  const len = 26 + sp * 0.16, R = 230, spawnDist = 360;
+  const arr = sl.geo.attributes.position.array;
+  for (let i = 0; i < sl.N; i++) {
+    const p = sl.pts[i];
+    p.addScaledVector(v, -dt);                            // stream aft relative to the jet
+    const ahead = (p.x - cam.x) * fX + (p.y - cam.y) * fY + (p.z - cam.z) * fZ;
+    if (!p._init || ahead < -90) {
+      p._init = true;
+      p.set(cam.x + fX * spawnDist + (Math.random() - 0.5) * R * 2,
+            cam.y + fY * spawnDist + (Math.random() - 0.5) * R * 2,
+            cam.z + fZ * spawnDist + (Math.random() - 0.5) * R * 2);
+    }
+    const k = i * 6;
+    arr[k] = p.x; arr[k + 1] = p.y; arr[k + 2] = p.z;
+    arr[k + 3] = p.x - fX * len; arr[k + 4] = p.y - fY * len; arr[k + 5] = p.z - fZ * len;
+  }
+  sl.geo.attributes.position.needsUpdate = true;
+}
+
 // Throttle "arming" gesture before a flight begins (see updateArming).
 let armActive = false, armUp = false, armOpposite = false, armInit = false, armHint = "";
 const ARM_HI = 0.9, ARM_LO = 0.08;
@@ -1078,8 +1127,8 @@ function updateCamera(dt) {
     return;
   }
 
-  // Speed-driven FOV kick for a sense of velocity.
-  const targetFov = 70 + THREE.MathUtils.clamp((state.velocity.length() - 140) * 0.06, 0, 18);
+  // Speed-driven FOV kick for a sense of velocity (afterburner punches it wider).
+  const targetFov = 70 + THREE.MathUtils.clamp((state.velocity.length() - 140) * 0.06, 0, 18) + boostFx * BOOST_FOV;
   camera.fov += (targetFov - camera.fov) * Math.min(1, dt * 3);
   camera.updateProjectionMatrix();
 
@@ -1551,6 +1600,7 @@ function frame(now) {
   // Throttle-arming gate: hold the sim until the player engages the throttle.
   if (flying && !hangarMode && !paused && !state.crashed && armActive) updateArming(controls);
 
+  boostActive = false; // set true below only while actively boosting this frame
   if (flying && !hangarMode && !paused && !state.crashed && !armActive) {
     if (controls.viewPressed) setCamIndex(camIndex + 1);
     if (controls.bombsightPressed && def.loadout && def.loadout.bombs > 0) bombSightOn = !bombSightOn; // bomber-only sight toggle
@@ -1569,6 +1619,13 @@ function frame(now) {
     if (def.vtol && controls.vtolPressed) { vtolMode = !vtolMode; touch.setVtol(vtolMode); }
     controls.vtol = def.vtol ? vtolMode : false;
     brakeActive = !!controls.brake; // airbrake (air) / wheel brake (ground)
+
+    // Afterburner: only on turbo jets, only at the firewall (full throttle).
+    // controls.boost arrives as a held boolean; convert it to the thrust
+    // multiplier the physics reads (1 = off, BOOST_THRUST = lit).
+    boostActive = !!controls.boost && !!def.turbo && controls.throttle >= 0.98;
+    controls.boost = boostActive ? BOOST_THRUST : 1;
+    if (boostActive && !state.onGround) addShake(dt * 9); // high-speed buffet while lit
 
     acc += dt;
     let steps = 0;
@@ -1601,10 +1658,13 @@ function frame(now) {
       : isMission ? ground.targets
       : enemies.targets;
     const activeTargets = baseTargets.concat(traffic.targets);
-    if (controls.fire && weapons.fire(state.position, state.quaternion)) sound.gun();
-    if (controls.missilePressed && weapons.fireMissile(state.position, state.quaternion, state.velocity)) sound.missile();
-    if (controls.rocketPressed && weapons.fireRocket(state.position, state.quaternion, state.velocity)) sound.missile();
-    if (controls.bombPressed && weapons.dropBomb(state.position, state.quaternion, state.velocity)) sound.bomb();
+    // No weapons while the afterburner is lit — it's pure high-speed travel.
+    if (!boostActive) {
+      if (controls.fire && weapons.fire(state.position, state.quaternion)) sound.gun();
+      if (controls.missilePressed && weapons.fireMissile(state.position, state.quaternion, state.velocity)) sound.missile();
+      if (controls.rocketPressed && weapons.fireRocket(state.position, state.quaternion, state.velocity)) sound.missile();
+      if (controls.bombPressed && weapons.dropBomb(state.position, state.quaternion, state.velocity)) sound.bomb();
+    }
     weapons.update(dt, state.position, state.quaternion, activeTargets);
     enemies.update(dt, player);
     if (enemies.waveMsg) { flashBanner(enemies.waveMsg, enemies.wave === 1 ? "Bandits inbound — good hunting" : "Here they come again", 2.6); enemies.waveMsg = null; }
@@ -1693,6 +1753,17 @@ function frame(now) {
         fl.scale.setScalar((fl.userData.base || 1) * (0.6 + t * 0.8));
       }
     }
+    // Afterburner cones: flare out + flicker, scaling longer aft, while lit.
+    const bf = mesh.userData.boostFlames;
+    if (bf && bf.length) {
+      const fk = 0.85 + Math.random() * 0.3; // flame flicker
+      for (let i = 0; i < bf.length; i++) {
+        const fl = bf[i], b = fl.userData.base || 1;
+        fl.material.opacity = boostFx * (i % 2 ? 0.9 : 0.6) * fk;
+        // Wider lateral flare + a longer trail aft as it builds.
+        fl.scale.set(b * (0.7 + boostFx * 0.9) * fk, b * (0.7 + boostFx * 0.9) * fk, b * (0.7 + boostFx * 1.5));
+      }
+    }
     // Gear extends/retracts smoothly (legs telescope out of the belly); flaps
     // swing down. Both ease toward the manual gear/flaps state.
     gearAnim += ((gearDown ? 1 : 0) - gearAnim) * Math.min(1, dt * 3.5);
@@ -1756,6 +1827,12 @@ function frame(now) {
     camera.position.z += (Math.random() - 0.5) * camShake;
     camShake *= Math.pow(0.0009, dt); // fast decay (~halves every ~0.1s)
   } else camShake = 0;
+  // Afterburner visuals: ease the amount, warp the world (post-FX), streak the
+  // air past the camera. boostFx decays whenever the burner isn't lit.
+  boostFx += ((boostActive ? 1 : 0) - boostFx) * Math.min(1, dt * 5);
+  if (boostFx < 0.002) boostFx = boostActive ? boostFx : 0;
+  post.setSpeed(boostFx);
+  updateSpeedLines(dt, boostFx);
   updateSky(camera, true); // ocean + clouds follow the active camera
   weather.update(simDt, _skyPos); // stars/rain follow the camera; storm lightning
   ground.night = weatherMode === "night" || weatherMode === "storm"; // gate searchlights to darkness
@@ -1914,6 +1991,7 @@ function frame(now) {
       gear: def.rotor ? null : gearDown, // helis have skids — no gear/flaps readouts
       flaps: def.rotor ? null : flapsDown,
       brake: brakeActive,
+      boost: boostActive,
       vtol: def.vtol ? vtolMode : null,
       gearWarn: !def.rotor && !gearDown && !state.onGround && state.telemetry.altitude < 350 && state.telemetry.speed < 140 && state.telemetry.vspeed < 0,
       // "Pure flight" hides every target/enemy indicator (lock, objective,

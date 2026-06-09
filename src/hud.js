@@ -68,6 +68,14 @@ export class Hud {
     const vs = Math.round(t.vspeed * 196.85); // m/s -> ft/min
     ctx.fillText(`MACH ${mach}    ${g} G    AoA ${aoa}°    VS ${vs} fpm`, cx, h - 26);
 
+    if (extra.boost) {
+      ctx.save();
+      ctx.font = "bold 15px 'Consolas', monospace";
+      ctx.fillStyle = Math.floor(Date.now() / 120) % 2 ? "#7fd0ff" : "#39a9ff";
+      ctx.fillText("▲▲  AFTERBURNER  ▲▲", cx, h - 46);
+      ctx.restore();
+    }
+
     if (t.stall) {
       ctx.fillStyle = "#ff5b5b";
       ctx.font = "bold 22px 'Consolas', monospace";

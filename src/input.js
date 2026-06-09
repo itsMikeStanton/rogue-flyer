@@ -22,7 +22,7 @@ const DEFAULTS = {
   // button indices for actions (standard mapping-ish; remappable later)
   // Every action can be bound to any joystick button (remap in Settings). High
   // defaults for the niche actions are usually out of range (unbound) until set.
-  buttons: { fire: 0, missile: 1, flare: 2, view: 3, reset: 9, gear: 4, flaps: 5, brake: 6, vtol: 7, hangar: 8, bomb: 10, rocket: 11, bombsight: 16, flyby: 17, radar: 18, hud: 19, approach: 20 },
+  buttons: { fire: 0, missile: 1, flare: 2, view: 3, reset: 9, gear: 4, flaps: 5, brake: 6, vtol: 7, hangar: 8, bomb: 10, rocket: 11, bombsight: 16, flyby: 17, radar: 18, hud: 19, approach: 20, boost: 21 },
 };
 
 // Expo response curve: e in [0,1], higher = gentler near centre, full at edge.
@@ -137,6 +137,7 @@ export class Input {
     let viewPressed = false, pausePressed = false, fire = false, missilePressed = false, flarePressed = false;
     let gearPressed = false, flapsPressed = false, brake = false, vtolPressed = false, hangarPressed = false, bombPressed = false, rocketPressed = false, bombsightPressed = false;
     let flybyPressed = false, radarPressed = false, hudPressed = false, approachPressed = false;
+    let boost = false; // afterburner held (only bites at full throttle — gated in main)
     let lookX = 0, lookY = 0; // POV hat free-look (x = right, y = up)
 
     if (pad) {
@@ -154,6 +155,7 @@ export class Input {
         const val = (i) => (pad.buttons[i] ? pad.buttons[i].value : 0);
         this.kbThrottle = Math.min(1, Math.max(0, this.kbThrottle + (val(7) - val(6)) * dt * 0.9));
         throttle = this.kbThrottle;
+        if (val(7) > 0.85) boost = true;                  // R2 firewalled = afterburner (needs max throttle, gated in main)
         fire = btn(5);                                    // RB
         missilePressed = this.pressed("gp-msl", btn(0));  // A
         flarePressed = this.pressed("gp-flr", btn(1));    // B
@@ -195,6 +197,7 @@ export class Input {
         approachPressed = this.pressed("pad-approach", btn(b.approach));
         hangarPressed = this.pressed("pad-bay", btn(b.hangar));
         if (btn(b.brake)) brake = true; // airbrake / wheel brake (held)
+        if (b.boost != null && btn(b.boost)) boost = true; // afterburner (held)
         // POV hat → free-look. Many sticks report it as a "hat" axis whose value
         // snaps to one of 8 detents (centred reads out of band); only act when
         // it's near a detent so an ordinary analog axis can't spin the view.
@@ -229,6 +232,10 @@ export class Input {
       if (k.has("ControlLeft") || k.has("ControlRight")) this.kbThrottle -= dt * 0.6;
       this.kbThrottle = Math.min(1, Math.max(0, this.kbThrottle));
       throttle = this.kbThrottle;
+      // Firewall the throttle (keep Shift held once you're already at max) to
+      // light the afterburner. Gated to full throttle in main, so a cruise at
+      // max with Shift released doesn't burn.
+      if ((k.has("ShiftLeft") || k.has("ShiftRight")) && this.kbThrottle >= 0.999) boost = true;
     }
 
     if (this.pressed("key-view", k.has("KeyC"))) viewPressed = true;
@@ -264,13 +271,14 @@ export class Input {
     if (this.pressed("touch-rkt", ts.rocket)) rocketPressed = true;
     if (this.pressed("touch-bsight", ts.bombsight)) bombsightPressed = true;
     if (ts.brake) brake = true;
+    if (ts.boost) boost = true; // on-screen afterburner button (held)
 
     return {
       pitch: clamp(pitch), roll: clamp(roll), yaw: clamp(yaw),
       throttle: Math.min(1, Math.max(0, throttle)),
       viewPressed, pausePressed, fire, missilePressed, flarePressed,
       gearPressed, flapsPressed, brake, vtolPressed, hangarPressed, bombPressed, rocketPressed, bombsightPressed,
-      flybyPressed, radarPressed, hudPressed, approachPressed,
+      flybyPressed, radarPressed, hudPressed, approachPressed, boost,
       look: { x: lookX, y: lookY },
     };
   }

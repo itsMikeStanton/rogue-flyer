@@ -315,6 +315,8 @@ button.primary:hover { background: #4ff5b8; }
 .t-btn.msl.on { background: rgba(255, 210, 63, 0.7); color: #2a2204; }
 .t-btn.flare { border-color: #ffb86b; color: #ffe2c0; }
 .t-btn.flare.on { background: rgba(255, 184, 107, 0.7); color: #2a1804; }
+.t-btn.burn { border-color: #4a86ff; color: #bcd8ff; }
+.t-btn.burn.on { background: rgba(74, 134, 255, 0.7); color: #04122a; }
 
 #t-recenter {
   position: absolute;
