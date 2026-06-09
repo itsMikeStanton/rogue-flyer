@@ -67,7 +67,7 @@ function steer(dir, desired, maxRad) {
 // A smoke ribbon that traces the missile's path and widens + fades with age, so
 // the trail looks like a dynamic, dissipating stream rather than a hard line.
 const _UP = new THREE.Vector3(0, 1, 0);
-class Ribbon {
+export class Ribbon {
   constructor(scene, { color = 0xccd1d6, maxPts = 46, maxAge = 0.8, baseW = 0.5, expand = 11, alpha = 0.5 } = {}) {
     this.scene = scene; this.maxPts = maxPts; this.maxAge = maxAge; this.baseW = baseW; this.expand = expand; this.alpha = alpha;
     this.pts = [];

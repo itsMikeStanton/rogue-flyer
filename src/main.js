@@ -10,6 +10,7 @@ import { TiltControls } from "./tilt.js";
 import { Weapons } from "./weapons.js";
 import { Enemies } from "./enemies.js";
 import { GroundTargets } from "./ground.js";
+import { EnemyOrdnance } from "./enemyWeapons.js";
 import { Traffic } from "./traffic.js";
 import { Explosions } from "./fx.js";
 import { SoundEngine } from "./audio.js";
@@ -49,6 +50,12 @@ const fx = new Explosions(scene);
 const weapons = new Weapons(scene, fx);
 const enemies = new Enemies(scene, fx);
 const ground = new GroundTargets(scene, fx);
+// Shared pool for enemy missiles & dumb-fire rockets, fired by both fighters
+// (enemies) and SAM batteries (ground). It flies/guides/resolves them vs. the
+// player each frame.
+const enemyOrdnance = new EnemyOrdnance(scene, fx);
+enemies.ordnance = enemyOrdnance;
+ground.ordnance = enemyOrdnance;
 // Ambient moving traffic (train, container ships, war zeppelin) — alive in
 // every mode as roaming targets that the player can also crash into.
 const traffic = new Traffic(scene, fx, { islands: world.islands, sea: SEA_LEVEL });
@@ -57,6 +64,10 @@ fx.onAdd = (size, pos) => sound.explosion(size, pos); // positional booms
 enemies.onFire = (pos) => sound.enemyGun(pos);         // positional enemy guns
 ground.onFire = (pos) => sound.enemyGun(pos);          // carrier flak
 traffic.onFire = (pos) => sound.enemyGun(pos);         // ship / zeppelin flak
+enemyOrdnance.onLaunch = (pos) => sound.missile();     // incoming missile/rocket whoosh
+ground.onLaunch = (pos) => sound.missile();            // SAM launch
+// A detonation near the player jolts the camera — a real hit jolts it harder.
+enemyOrdnance.onNearMiss = (pos, didDamage) => addShake(didDamage ? 4.5 : 3.0);
 let lastLocked = false;
 const hud = new Hud(document.getElementById("hud"));
 
@@ -211,6 +222,10 @@ function measureHangarVehicle() {
 }
 let paused = false;                 // Esc pause menu (sim frozen)
 let crashHandled = false, respawnTimer = 0; // crash → wreckage → soft respawn
+// Camera shake: a decaying jolt that nearby blasts / missile hits add to
+// (addShake), applied to the camera each frame once it's been positioned.
+let camShake = 0;
+function addShake(amt) { camShake = Math.min(7, camShake + amt); }
 
 // Throttle "arming" gesture before a flight begins (see updateArming).
 let armActive = false, armUp = false, armOpposite = false, armInit = false, armHint = "";
@@ -831,6 +846,8 @@ function placePlayer() {
     input.kbThrottle = 0.7;
   }
   weapons.reset(def.loadout); // per-aircraft loadout (missiles / rockets / bombs)
+  enemyOrdnance.reset();      // a fresh aircraft shouldn't inherit incoming fire
+  camShake = 0;
   player.health = 100;
   crashHandled = false; respawnTimer = 0;
   // Gear down for ground/carrier starts, up for air starts; flaps up. Snap the
@@ -881,6 +898,8 @@ function resetFlight() {
     missions.active = false; missions.status = "idle";
   }
   pendingMissionDef = null;
+  enemyOrdnance.reset();
+  camShake = 0;
   fx.reset();
   wrecks.reset();
   placePlayer();
@@ -1561,6 +1580,7 @@ function frame(now) {
     if (enemies.waveMsg) { flashBanner(enemies.waveMsg, enemies.wave === 1 ? "Bandits inbound — good hunting" : "Here they come again", 2.6); enemies.waveMsg = null; }
     traffic.update(dt, player);
     if (isMission) ground.update(dt, player);
+    enemyOrdnance.update(dt, player); // fly/guide enemy missiles & rockets vs. the player
     fx.update(dt);
     sound.updateEngine(state.telemetry.throttle, state.telemetry.speed);
 
@@ -1571,6 +1591,7 @@ function frame(now) {
       const tail = state.position.clone().addScaledVector(_v, 6);
       for (let i = 0; i < 6; i++) fx.flare(tail, away);
       sound.flare();
+      enemyOrdnance.addFlares(state.position); // decoy incoming enemy seekers
       // In multiplayer, tell other pilots so their missiles tracking us can be
       // lured off (decoy logic runs on the shooter's machine).
       if (gameMode === "ffa" && net.connected) net.sendFire("flare", state.position, _v);
@@ -1681,6 +1702,13 @@ function frame(now) {
   if (inXR) { updateVRRig(dt); sound.setListener(playerRig); }
   else if (flying) { updateCamera(simDt); sound.setListener(camera); }
   else { menuCinematic(dt); sound.setListener(camera); }
+  // Apply + decay camera shake (skip VR — jolting the headset is nauseating).
+  if (camShake > 0.001 && !inXR) {
+    camera.position.x += (Math.random() - 0.5) * camShake;
+    camera.position.y += (Math.random() - 0.5) * camShake;
+    camera.position.z += (Math.random() - 0.5) * camShake;
+    camShake *= Math.pow(0.0009, dt); // fast decay (~halves every ~0.1s)
+  } else camShake = 0;
   updateSky(camera, true); // ocean + clouds follow the active camera
   weather.update(simDt, _skyPos); // stars/rain follow the camera; storm lightning
   if (world.spinners) for (const s of world.spinners) s.obj.rotation.y += dt * s.speed; // lighthouse beacons sweep

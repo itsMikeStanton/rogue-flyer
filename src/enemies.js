@@ -102,6 +102,12 @@ class Entity {
       this.dir.set((Math.random() - 0.5), 0, -1).normalize();
       this.speed = 190;
       this.fireCd = 0.5 + Math.random();
+      // Rearm the missile/rocket loadout each (re)spawn. Tougher fighters carry
+      // (and cycle) ordnance more aggressively — see the firing logic in update.
+      this.seekers = Math.random() < 0.5 ? 2 : 1;
+      this.rockets = 6;
+      this.mslCd = 3 + Math.random() * 4;   // delay before the first guided shot
+      this.salvoCd = 2.5 + Math.random() * 3;
     }
   }
 
@@ -191,6 +197,25 @@ class Entity {
       this.burstLeft--;
       this.fireCd = this.burstLeft > 0 ? FIGHTER_SHOT : FIGHTER_GAP * (0.7 + Math.random() * 0.6);
     }
+
+    // Missiles & rockets (only where the manager has an ordnance pool wired in).
+    const ord = this.manager.ordnance;
+    if (ord) {
+      // Guided seeker: loosed from medium range when the nose is roughly on.
+      this.mslCd -= dt;
+      if (this.seekers > 0 && this.mslCd <= 0 && dist > 650 && dist < 3600 && aim > 0.96) {
+        ord.fireSeeker(this.position, player);
+        this.seekers--;
+        this.mslCd = (5 + Math.random() * 5) / this.diff; // harder fighters reload faster
+      }
+      // Dumb-fire salvo: a spray straight at you when in close and lined up.
+      this.salvoCd -= dt;
+      if (this.rockets > 0 && this.salvoCd <= 0 && dist > 320 && dist < 1500 && aim > 0.99) {
+        const n = Math.min(this.rockets, 2 + (Math.random() * 2 | 0));
+        for (let k = 0; k < n; k++) { ord.fireDumb(this.position, player.position); this.rockets--; }
+        this.salvoCd = (4 + Math.random() * 4) / this.diff;
+      }
+    }
   }
 }
 
@@ -210,6 +235,7 @@ export class Enemies {
     this.waveDelay = 0;
     this.waveMsg = null; // main.js pulls this to flash a "WAVE n" banner
     this.onFire = null; // optional callback(position) for sound
+    this.ordnance = null; // shared EnemyOrdnance pool (set by main.js) for missiles/rockets
     this.bulletGeo = new THREE.BoxGeometry(0.8, 0.8, 14);
     this.bulletMat = new THREE.MeshBasicMaterial({ color: 0xff5a3c });
   }

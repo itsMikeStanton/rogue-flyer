@@ -9,6 +9,14 @@ import { terrainHeight, riverCenterX, getMissionBases, buildPowerPlant } from ".
 const _v = new THREE.Vector3();
 const _dir = new THREE.Vector3();
 
+// SAM batteries: an airborne player within range gets engaged with guided
+// missiles (their specialty) and the odd dumb-fire volley, via the shared
+// EnemyOrdnance pool.
+const SAM_RANGE = 3400;     // engagement radius
+const SAM_RELOAD = 3.6;     // base seconds between launches
+const SAM_MIN_ALT = 70;     // player must be this far above the deck to be shot at
+const SAM_TURN = 1.5;       // seeker turn rate (still tamer than the player's)
+
 // Carrier flak guns
 const AA_RANGE = 2600;
 // Flak fires in bursts, not a continuous stream.
@@ -63,11 +71,14 @@ class GTarget {
     } else { // sam
       const b = new THREE.Mesh(new THREE.BoxGeometry(12, 5, 16), gmat(0x4f5b3a));
       b.position.y = 2.5; g.add(b);
+      this._tubes = [];
       for (const s of [-1, 1]) {
         const tube = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.2, 12, 6), gmat(0x33402a));
         tube.position.set(s * 3, 8, 0); tube.rotation.x = -0.5; g.add(tube);
+        this._tubes.push(tube);
       }
       this.maxHealth = 40; this.radius = 26;
+      this.reload = 1.5 + Math.random() * SAM_RELOAD; // stagger first launches
     }
 
     this.health = this.maxHealth;
@@ -107,8 +118,29 @@ class GTarget {
     }
   }
 
-  update(dt) {
-    if (this.alive && this.spin) this.spin.rotation.z += dt * 1.2;
+  update(dt, player, mgr) {
+    if (!this.alive) return;
+    if (this.spin) this.spin.rotation.z += dt * 1.2;
+    // SAM engagement: track + launch at an airborne player in range.
+    if (this.type === "sam" && mgr && mgr.ordnance && player && player.alive) {
+      const p = this.group.position;
+      const d = p.distanceTo(player.position);
+      // Slew the launch tubes to roughly face the threat (cosmetic).
+      if (d < SAM_RANGE && this._tubes) {
+        const yaw = Math.atan2(player.position.x - p.x, player.position.z - p.z);
+        this.group.rotation.y += (yaw - this.group.rotation.y) * Math.min(1, dt * 2);
+      }
+      this.reload -= dt;
+      const airborne = player.position.y > terrainHeight(player.position.x, player.position.z) + SAM_MIN_ALT;
+      if (this.reload <= 0 && d < SAM_RANGE && airborne) {
+        _v.set(p.x, p.y + 9, p.z); // launch from the tube tops
+        if (Math.random() < 0.78) mgr.ordnance.fireSeeker(_v, player, { turn: SAM_TURN });
+        else mgr.ordnance.fireDumb(_v, player.position);
+        this.fx.add(_v, 0.5, 0xffd27d, true); // launch flash
+        this.reload = SAM_RELOAD * (0.7 + Math.random() * 0.7);
+        if (mgr.onLaunch) mgr.onLaunch(p);
+      }
+    }
   }
 }
 
@@ -186,7 +218,9 @@ export class GroundTargets {
     this.list = [];
     this.total = 0;
     this.bullets = [];
-    this.onFire = null; // callback(position) for sound
+    this.onFire = null; // callback(position) for sound (carrier flak)
+    this.ordnance = null; // shared EnemyOrdnance pool (set by main.js) for SAM missiles
+    this.onLaunch = null; // callback(position) — SAM launch sound
     this.bulletGeo = new THREE.BoxGeometry(0.9, 0.9, 16);
     this.bulletMat = new THREE.MeshBasicMaterial({ color: 0xff7a2c });
   }
