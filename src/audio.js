@@ -318,6 +318,43 @@ export class SoundEngine {
       this._boost.bp.frequency.setTargetAtTime(1900 + amt * 1500, t, 0.1); // brightens with boost
     }
   }
+  // Radio comms "voice": a squelch click, a run of blippy robotic syllables
+  // (old-school video-game speech), and a closing squelch. `n` ~ syllable count.
+  radio(n = 4) {
+    this._ensure();
+    if (!this.ctx) return;
+    const ctx = this.ctx;
+    let t = ctx.currentTime + 0.01;
+    this._squelch(t, 0.05); t += 0.08;
+    const N = Math.max(2, Math.min(10, n | 0));
+    for (let i = 0; i < N; i++) {
+      const o = ctx.createOscillator();
+      o.type = i % 2 ? "square" : "triangle";
+      const f = 230 + Math.random() * 210;             // clipped robotic pitch
+      o.frequency.setValueAtTime(f, t);
+      o.frequency.linearRampToValueAtTime(f * (0.82 + Math.random() * 0.36), t + 0.05);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.linearRampToValueAtTime(0.075, t + 0.008);
+      g.gain.setValueAtTime(0.075, t + 0.045);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.07);
+      o.connect(g); g.connect(this.master);
+      o.start(t); o.stop(t + 0.085);
+      t += 0.058 + Math.random() * 0.035;
+    }
+    this._squelch(t + 0.02, 0.045);
+  }
+  _squelch(t, dur) {
+    const ctx = this.ctx;
+    const n = this._noise();
+    const hp = ctx.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 1600;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.11, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    n.connect(hp); hp.connect(g); g.connect(this.master);
+    n.start(t); n.stop(t + dur + 0.02);
+  }
+
   // A soft chiptune blip for menu button presses.
   uiClick() {
     this._ensure();

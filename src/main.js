@@ -241,6 +241,8 @@ const BOOST_THRUST = 2.6;   // thrust multiplier when lit — punchy accel + a c
 const BOOST_FOV = 18;       // extra FOV (degrees) at full boost
 let boostActive = false;
 let boostFx = 0;
+// Comms event tracking (kill tallies + airborne state) for callouts.
+let prevDestroyed = 0, prevKills = 0, wasOnGround = true;
 
 // Speed streaks that rip past the camera while the afterburner is lit. A small
 // pool of additive dashes scattered ahead in world space, streaming aft.
@@ -349,6 +351,7 @@ missions.onComplete = () => {
   } else {
     ui.showBanner("MISSION COMPLETE", "Keep flying — Esc for the menu");
   }
+  comms("All objectives complete", "obj", 0);
   bannerTimer = 0;
 };
 missions.onFail = () => { flashBanner("OBJECTIVE FAILED", "", 3); };
@@ -413,8 +416,10 @@ function captureIsland(node) {
   missions.active = false; missions.status = "idle";
   if (conquestRun.checkWon()) {
     ui.showBanner("ARCHIPELAGO SECURED", "Every island is yours — Esc for the menu"); bannerTimer = 0;
+    comms("Archipelago secured", "obj", 0);
   } else {
     flashBanner("ISLAND CAPTURED", node.name + " is yours — launch from it anytime", 3.4);
+    comms("Island secured", "obj", 0);
   }
 }
 // Per-frame conquest tick: wake the island you're closing on, and claim any
@@ -477,6 +482,7 @@ const player = {
     this.health = Math.max(0, this.health - d);
     sound.hit();
     if (this.health <= 0) { state.crashed = true; handleCrash("SHOT DOWN"); }
+    else comms(this.health < 35 ? "We're hit, going down" : "We're hit", "hit", 3);
   },
 };
 
@@ -704,6 +710,35 @@ if (soundBtn) {
   updateSoundButton(sound.muted);
   soundBtn.addEventListener("click", () => { sound.resume(); updateSoundButton(sound.toggleMute()); });
 }
+
+// --- Radio comms: terse military callouts (text + chiptune "radio voice") ----
+let commsOn = true;
+try { commsOn = localStorage.getItem("rf.comms") !== "0"; } catch (_) { /* ignore */ }
+function setComms(v) { commsOn = !!v; try { localStorage.setItem("rf.comms", commsOn ? "1" : "0"); } catch (_) { /* ignore */ } }
+const commsEl = document.getElementById("comms");
+let _commsAt = 0, _commsHideT = null;
+const _commsLast = {};
+// key gates repeats of the same call; cool = seconds before that key can repeat.
+function comms(text, key, cool = 0) {
+  if (!commsOn || !flying) return;
+  const now = performance.now() / 1000;
+  if (now - _commsAt < 0.45) return;                       // never stack transmissions
+  if (key && cool && now - (_commsLast[key] || 0) < cool) return;
+  if (key) _commsLast[key] = now;
+  _commsAt = now;
+  const syl = (text.match(/[aeiouy]+/gi) || []).length + 1; // rough syllable count → blip count
+  sound.radio(Math.max(2, syl));
+  if (commsEl) {
+    commsEl.textContent = "▸ " + text;
+    commsEl.classList.remove("hidden");
+    void commsEl.offsetWidth;                              // restart the fade transition
+    commsEl.classList.add("show");
+    if (_commsHideT) clearTimeout(_commsHideT);
+    _commsHideT = setTimeout(() => commsEl.classList.remove("show"), 2400);
+  }
+}
+const commsChk = document.getElementById("comms-enable");
+if (commsChk) { commsChk.checked = commsOn; commsChk.addEventListener("change", () => setComms(commsChk.checked)); }
 
 // VR comfort toggles (default off to honour 1:1 head motion).
 try {
@@ -973,6 +1008,7 @@ function resetFlight() {
   awareness.reset();
   assignFactions(); // hand every defence its island's shared awareness state
   threatState = null;
+  prevDestroyed = 0; prevKills = 0; wasOnGround = true;
   camShake = 0;
   fx.reset();
   wrecks.reset();
@@ -1626,7 +1662,7 @@ function frame(now) {
     if (controls.approachPressed) approachOn = approach.toggle(state); // landing-approach guidance
 
     // Gear + flaps are manual now (G / V keys, or on-screen GEAR / FLAPS).
-    if (controls.gearPressed) { gearDown = !gearDown; sound.gear(gearDown); }
+    if (controls.gearPressed) { gearDown = !gearDown; sound.gear(gearDown); comms(gearDown ? "Gear down" : "Gear up", "gear", 0.8); }
     if (controls.flapsPressed) { flapsDown = !flapsDown; sound.flaps(flapsDown); }
     if (controls.gearPressed || controls.flapsPressed) touch.setGearFlaps(gearDown, flapsDown);
     controls.gear = gearDown;
@@ -1640,8 +1676,10 @@ function frame(now) {
     // Afterburner: only on turbo jets, only at the firewall (full throttle).
     // controls.boost arrives as a held boolean; convert it to the thrust
     // multiplier the physics reads (1 = off, BOOST_THRUST = lit).
+    const boostWas = boostActive;
     boostActive = !!controls.boost && !!def.turbo && controls.throttle >= 0.98;
     controls.boost = boostActive ? BOOST_THRUST : 1;
+    if (boostActive && !boostWas) comms("Burner", "boost", 2);
     if (boostActive && !state.onGround) addShake(dt * 9); // high-speed buffet while lit
 
     acc += dt;
@@ -1678,16 +1716,30 @@ function frame(now) {
     // No weapons while the afterburner is lit — it's pure high-speed travel.
     if (!boostActive) {
       if (controls.fire && weapons.fire(state.position, state.quaternion)) sound.gun();
-      if (controls.missilePressed && weapons.fireMissile(state.position, state.quaternion, state.velocity)) sound.missile();
-      if (controls.rocketPressed && weapons.fireRocket(state.position, state.quaternion, state.velocity)) sound.missile();
-      if (controls.bombPressed && weapons.dropBomb(state.position, state.quaternion, state.velocity)) sound.bomb();
+      if (controls.missilePressed && weapons.fireMissile(state.position, state.quaternion, state.velocity)) { sound.missile(); comms("Fox two", "msl", 0.7); }
+      if (controls.rocketPressed && weapons.fireRocket(state.position, state.quaternion, state.velocity)) { sound.missile(); comms("Rifle", "rkt", 0.7); }
+      if (controls.bombPressed && weapons.dropBomb(state.position, state.quaternion, state.velocity)) { sound.bomb(); comms("Bombs away", "bomb", 0.9); }
     }
     weapons.update(dt, state.position, state.quaternion, activeTargets);
     enemies.update(dt, player);
-    if (enemies.waveMsg) { flashBanner(enemies.waveMsg, enemies.wave === 1 ? "Bandits inbound — good hunting" : "Here they come again", 2.6); enemies.waveMsg = null; }
+    if (enemies.waveMsg) { flashBanner(enemies.waveMsg, enemies.wave === 1 ? "Bandits inbound — good hunting" : "Here they come again", 2.6); comms("Bandits, bandits", "wave", 3); enemies.waveMsg = null; }
     traffic.update(dt, player);
     if (isMission) ground.update(dt, player);
     enemyOrdnance.update(dt, player); // fly/guide enemy missiles & rockets vs. the player
+
+    // Comms callouts driven by tallies + airborne state.
+    if (gameMode !== "ffa") {
+      const gd = isMission ? ground.destroyed : 0;
+      if (gd > prevDestroyed) comms("Target down", "kill", 1.2);
+      prevDestroyed = gd;
+      if (enemies.kills > prevKills) comms("Splash one", "kill", 1.2);
+      prevKills = enemies.kills;
+    }
+    const og = state.onGround;
+    if (!og && wasOnGround && state.telemetry.speed > 70) comms("Airborne", "to", 4);
+    else if (og && !wasOnGround && state.telemetry.speed < 90) comms("On the deck", "land", 4);
+    wasOnGround = og;
+
     // Enemy awareness (strike modes): each island detects you from your altitude,
     // proximity and — much faster — your own gunfire/hits, and shares the alert
     // across all its defences. Surface the transitions so you can read the state.
@@ -1699,8 +1751,8 @@ function frame(now) {
       for (const f of awareness.factions.values()) {
         const ev = f.consumeEvent();
         if (ev && f === near) {
-          if (ev === "spotted") flashBanner("DETECTED", "Defenses are hot — they have your position", 2.8);
-          else if (ev === "evaded") flashBanner("CONTACT LOST", "They're hunting you — stay dark and break clean", 2.8);
+          if (ev === "spotted") { flashBanner("DETECTED", "Defenses are hot — they have your position", 2.8); comms("We're lit up", "det", 4); }
+          else if (ev === "evaded") { flashBanner("CONTACT LOST", "They're hunting you — stay dark and break clean", 2.8); comms("We're clear", "det", 4); }
           else if (ev === "clear") flashBanner("STOOD DOWN", "You're a ghost again — clean approach", 2.6);
         }
       }
@@ -1715,6 +1767,7 @@ function frame(now) {
       const tail = state.position.clone().addScaledVector(_v, 6);
       for (let i = 0; i < 6; i++) fx.flare(tail, away);
       sound.flare();
+      comms("Flares, flares", "flr", 1.2);
       enemyOrdnance.addFlares(state.position); // decoy incoming enemy seekers
       // In multiplayer, tell other pilots so their missiles tracking us can be
       // lured off (decoy logic runs on the shooter's machine).

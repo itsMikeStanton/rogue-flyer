@@ -48,6 +48,19 @@ html, body {
 }
 .overlay.hidden { display: none; }
 
+/* --- Radio comms callout line --- */
+.comms {
+  position: fixed; left: 50%; bottom: 13%; transform: translateX(-50%) translateY(6px);
+  z-index: 9; pointer-events: none;
+  font: 700 15px "Consolas", "Courier New", monospace; letter-spacing: 1px;
+  color: #5effa0; text-shadow: 0 0 8px rgba(46,230,120,0.55);
+  background: rgba(4, 14, 8, 0.55); border: 1px solid rgba(46,230,120,0.35); border-radius: 4px;
+  padding: 5px 12px; text-transform: uppercase;
+  opacity: 0; transition: opacity .12s ease, transform .12s ease;
+}
+.comms.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+.comms.hidden { display: none; }
+
 /* --- Mission briefing room --- */
 .panel.brief { width: min(760px, 94vw); padding: 22px 26px; }
 .brief-head { display: flex; gap: 18px; align-items: center; }
