@@ -71,6 +71,21 @@ html, body {
 .brief-chip.locked { opacity: 0.4; cursor: not-allowed; }
 .brief-chip.current { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
 
+/* --- Conquest map screen (reuses .panel.brief) --- */
+#cq-map { width: 260px; height: 260px; border-radius: 8px; border: 1px solid rgba(120,150,180,0.25); margin-left: auto; flex: 0 0 auto; background: #08202c; }
+.cq-spawns { display: flex; flex-wrap: wrap; gap: 8px; }
+.cq-chip { padding: 7px 12px; border: 1px solid rgba(120,150,180,0.25); border-radius: 6px; background: rgba(10,16,26,0.6); color: #cbd5e0; font-size: 13px; cursor: pointer; display: inline-flex; align-items: center; gap: 6px; }
+.cq-chip:hover { border-color: rgba(120,150,180,0.5); }
+.cq-chip.held { border-color: rgba(94,224,138,0.4); }
+.cq-chip.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; color: #eaf4ee; }
+.cq-chip .cq-ic { font-size: 14px; }
+.cq-status { display: flex; flex-wrap: wrap; gap: 6px; }
+.cq-node { font-size: 12px; padding: 3px 8px; border-radius: 5px; border: 1px solid transparent; }
+.cq-node.owned { color: #5ee08a; border-color: rgba(94,224,138,0.35); }
+.cq-node.enemy { color: #ff8b8b; border-color: rgba(255,107,107,0.3); }
+.cq-node.fighting { color: #ffd23f; border-color: rgba(255,210,63,0.4); }
+#cq-launch:disabled { opacity: 0.4; cursor: not-allowed; }
+
 .panel {
   background: var(--panel);
   border: 1px solid rgba(46, 230, 166, 0.25);

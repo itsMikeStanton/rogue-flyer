@@ -281,7 +281,7 @@ export class Enemies {
     for (const e of this.entities) {
       if (!e.alive) {
         if (e.dying) { e.updateDying(dt); continue; } // falling wreck, not yet respawning
-        if (this.mode === "dogfight" || this.mode === "campaign") continue; // waves / mission defenders stay down
+        if (this.mode === "dogfight" || this.mode === "campaign" || this.mode === "conquest") continue; // waves / mission defenders stay down
         e.respawn -= dt;
         if (e.respawn <= 0) e.place();
         continue;

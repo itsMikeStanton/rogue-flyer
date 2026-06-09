@@ -112,3 +112,51 @@ export function drawMapPreview(ctx, S, island, targets = [], waypoints = [], ext
   const sx = S / 2, sy = S * 0.86;
   ctx.beginPath(); ctx.moveTo(sx, sy - 8); ctx.lineTo(sx - 6, sy + 6); ctx.lineTo(sx + 6, sy + 6); ctx.closePath(); ctx.fill();
 }
+
+// Top-down strategic map of the whole archipelago for Conquest: every island as
+// a blob coloured by ownership (green = yours, red = enemy, amber = under
+// assault), with the currently selected island ringed gold. nodes come straight
+// from ConquestRun.nodes ({ id, name, center, owner, awake }).
+export function drawArchipelago(ctx, S, nodes, opts = {}) {
+  ctx.clearRect(0, 0, S, S);
+  ctx.fillStyle = "#08202c"; ctx.fillRect(0, 0, S, S); // ocean
+  if (!nodes || !nodes.length) return;
+  // Frame all island centres with a margin, keeping the layout square.
+  let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+  for (const n of nodes) {
+    minX = Math.min(minX, n.center.x); maxX = Math.max(maxX, n.center.x);
+    minZ = Math.min(minZ, n.center.z); maxZ = Math.max(maxZ, n.center.z);
+  }
+  const pad = 11000;
+  minX -= pad; maxX += pad; minZ -= pad; maxZ += pad;
+  const span = Math.max(1, maxX - minX, maxZ - minZ);
+  const ox = (S - ((maxX - minX) / span) * S) / 2;
+  const oy = (S - ((maxZ - minZ) / span) * S) / 2;
+  const toX = (wx) => ((wx - minX) / span) * S + ox;
+  const toY = (wz) => ((wz - minZ) / span) * S + oy;
+  // Grid.
+  ctx.strokeStyle = "rgba(120,150,170,0.10)"; ctx.lineWidth = 1;
+  for (let i = 1; i < 6; i++) {
+    const p = (i / 6) * S;
+    ctx.beginPath(); ctx.moveTo(p, 0); ctx.lineTo(p, S); ctx.moveTo(0, p); ctx.lineTo(S, p); ctx.stroke();
+  }
+  const R = S * 0.075;
+  for (const n of nodes) {
+    const x = toX(n.center.x), y = toY(n.center.z);
+    const owned = n.owner === "player";
+    const sel = opts.selectedNode != null && opts.selectedNode === n.id;
+    ctx.fillStyle = owned ? "#2f6d3a" : n.awake ? "#7a3030" : "#5a4a2c";
+    ctx.beginPath(); ctx.arc(x, y, R, 0, Math.PI * 2); ctx.fill();
+    ctx.lineWidth = sel ? 3 : 1.5;
+    ctx.strokeStyle = sel ? "#ffd23f" : owned ? "#5ee08a" : "#c98f6b";
+    ctx.stroke();
+    // Owner pennant.
+    ctx.fillStyle = owned ? "#5ee08a" : "#ff6b6b";
+    ctx.beginPath(); ctx.arc(x, y - R - 5, 3, 0, Math.PI * 2); ctx.fill();
+    // Label.
+    ctx.fillStyle = "#cfe3ee";
+    ctx.font = `${Math.max(9, Math.round(S * 0.044))}px system-ui, sans-serif`;
+    ctx.textAlign = "center"; ctx.textBaseline = "top";
+    ctx.fillText(n.name, x, y + R + 4);
+  }
+}

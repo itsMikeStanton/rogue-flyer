@@ -2,7 +2,7 @@
 
 import { AIRCRAFT, LIVERIES } from "./aircraft.js";
 import { INSIGNIA, insigniaDataURL } from "./markings.js";
-import { drawCaptainDad, drawMapPreview } from "./portrait.js";
+import { drawCaptainDad, drawMapPreview, drawArchipelago } from "./portrait.js";
 import * as campaign from "./campaign.js";
 
 export class UI {
@@ -23,8 +23,12 @@ export class UI {
     this.hangar = document.getElementById("hangar");
     this.pause = document.getElementById("pause");
     this.briefing = document.getElementById("briefing");
+    this.conquest = document.getElementById("conquest");
     this._briefMission = null;
     this._briefWorld = null;
+    this._cqRun = null;
+    this._cqMode = "setup";
+    this._cqPick = null;
     this.hangarPick = "f16"; // current highlight inside the in-game vehicle bay
 
     this.buildModeList();
@@ -104,6 +108,7 @@ export class UI {
   buildModeList() {
     this.modesData = [
       { key: "campaign", name: "Campaign", desc: "Briefed missions from Captain Dad. Escalating objectives; pick up where you left off." },
+      { key: "conquest", name: "Conquest", desc: "Take the whole archipelago. Pick a beachhead, launch from your runways, capture every island." },
       { key: "dogfight", name: "Dogfight — Waves", desc: "Clear each wave of fighters to summon the next. They get meaner." },
       { key: "mission", name: "Strike — Objectives", desc: "Hit the marked objectives. Only the active objective is highlighted." },
       { key: "practice", name: "Target Practice", desc: "Gun down drifting drones. No one shoots back." },
@@ -399,11 +404,27 @@ export class UI {
       lv.addEventListener("change", () => this.cb.onLives(lv.value));
     }
     document.getElementById("btn-fly").addEventListener("click", () => {
-      // Campaign opens the briefing room first; everything else launches directly.
+      // Campaign opens the briefing room first; Conquest opens the map screen;
+      // everything else launches directly.
       if (this.mode === "campaign" && this.cb.onOpenCampaign) { this.hideAll(); this.cb.onOpenCampaign(); return; }
+      if (this.mode === "conquest" && this.cb.onOpenConquest) { this.hideAll(); this.cb.onOpenConquest(); return; }
       this.hideAll();
       this.cb.onFly(this.selected, this.mode, this.startPos);
     });
+    const cqLaunch = document.getElementById("cq-launch");
+    if (cqLaunch) cqLaunch.addEventListener("click", () => {
+      if (!this._cqPick) return;
+      if (this._cqMode === "setup") {
+        const lv = document.getElementById("cq-lives");
+        const df = document.getElementById("cq-diff");
+        if (this.cb.onConquestLaunch) this.cb.onConquestLaunch(this._cqPick, lv ? lv.value : "infinite", df ? df.value : "veteran");
+      } else {
+        if (this.cb.onConquestRespawn) this.cb.onConquestRespawn(this._cqPick);
+      }
+      this.hideConquest();
+    });
+    const cqBack = document.getElementById("cq-back");
+    if (cqBack) cqBack.addEventListener("click", () => { this.hideConquest(); this.showMenu(); });
     const bl = document.getElementById("brief-launch");
     if (bl) bl.addEventListener("click", () => {
       const lv = document.getElementById("brief-lives");
@@ -651,5 +672,66 @@ export class UI {
         list.appendChild(chip);
       }
     }
+  }
+
+  // --- Conquest map screen (beachhead pick at setup; runway pick on respawn) ---
+  // opts.mode: "setup" (choose a beachhead + rules) | "respawn" (owned only).
+  showConquest(run, world, opts = {}) {
+    if (!this.conquest) return;
+    this._cqRun = run;
+    this._cqWorld = world;
+    this._cqMode = opts.mode || "setup";
+    this._cqPick = null;
+    this.menu.classList.add("hidden");
+    this.hideBriefing();
+    const lv = document.getElementById("cq-lives");
+    if (lv && this.cb.livesMode) lv.value = this.cb.livesMode();
+    const df = document.getElementById("cq-diff");
+    if (df && run) df.value = run.difficulty || "veteran";
+    this.conquest.classList.remove("hidden");
+    this._buildConquest();
+  }
+  hideConquest() { if (this.conquest) this.conquest.classList.add("hidden"); }
+
+  _buildConquest() {
+    const run = this._cqRun;
+    if (!run) return;
+    const el = (id) => document.getElementById(id);
+    const setup = this._cqMode === "setup";
+    el("cq-title").textContent = setup ? "Choose your beachhead" : "Launch a fresh aircraft";
+    el("cq-dialogue").innerHTML = setup
+      ? "<div>Pick an island to land and seize — that's your first foothold. From its runway, take the rest of the archipelago one island at a time.</div>"
+      : "<div>Aircraft down. Choose a captured runway or carrier to get back in the fight.</div>";
+    // Strategic map.
+    const mc = el("cq-map");
+    if (mc) drawArchipelago(mc.getContext("2d"), mc.width, run.nodes, { selectedNode: this._cqPick ? this._cqPick.node : run.startId });
+    // Launch points (every island at setup; only owned ones on respawn).
+    const sp = el("cq-spawns");
+    if (sp) {
+      sp.innerHTML = "";
+      const list = setup ? run.allSpawns() : run.ownedSpawns();
+      for (const s of list) {
+        const owner = run.node(s.node);
+        const held = owner && owner.owner === "player";
+        const chip = document.createElement("button");
+        chip.className = "cq-chip" + (this._cqPick === s ? " selected" : "") + (held ? " held" : "");
+        const icon = s.kind === "carrier" ? "⚓" : "🛫";
+        chip.innerHTML = `<span class="cq-ic">${icon}</span> ${s.name}`;
+        chip.addEventListener("click", () => { this._cqPick = s; this._buildConquest(); });
+        sp.appendChild(chip);
+      }
+      if (!list.length) sp.innerHTML = `<span class="hint">No launch points available.</span>`;
+    }
+    // Front-line status: every island, coloured by who holds it.
+    const st = el("cq-status");
+    if (st) {
+      st.innerHTML = run.nodes.map((n) => {
+        const cls = n.owner === "player" ? "owned" : n.awake ? "fighting" : "enemy";
+        const tag = n.owner === "player" ? "✓" : n.awake ? "⚔" : "✕";
+        return `<span class="cq-node ${cls}">${tag} ${n.name}</span>`;
+      }).join("");
+    }
+    const bl = el("cq-launch");
+    if (bl) bl.disabled = !this._cqPick;
   }
 }

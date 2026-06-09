@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { AIRCRAFT, buildAircraftMesh } from "./aircraft.js";
 import { createState, step } from "./flight.js";
-import { buildWorld, terrainHeight, groundHeightAt, getCarriers, SEA_LEVEL, lightPoolTexture } from "./world.js";
+import { buildWorld, terrainHeight, groundHeightAt, getCarriers, getIslandSpawns, SEA_LEVEL, lightPoolTexture } from "./world.js";
 import { Input } from "./input.js";
 import { Hud } from "./hud.js";
 import { UI } from "./ui.js";
@@ -22,6 +22,7 @@ import { Net } from "./net.js";
 import { Approach } from "./approach.js";
 import { MissionManager, defaultStrikeMission } from "./missions.js";
 import * as campaign from "./campaign.js";
+import * as cq from "./conquest.js";
 
 // --- Renderer / scene / camera ---
 const canvas = document.getElementById("scene");
@@ -184,6 +185,10 @@ let pendingMissionDef = null; // a specific mission def to load on next resetFli
 let currentMission = null;    // the active campaign mission def (null outside campaign)
 let spawnOverride = null;     // {x,z} world center to spawn near (campaign missions on far islands)
 let campaignProgress = campaign.loadProgress();
+// Conquest: the live run (island ownership / progress) + the launch point chosen
+// on the map screen. Both null outside conquest mode.
+let conquestRun = null;
+let conquestSpawn = null;     // {kind,x,z,...} runway/carrier the player launches from
 let startPos = "air"; // "air" | "runway" | "carrier"
 // In-game vehicle bay: sim paused, camera orbits the parked vehicle at the spawn.
 let hangarMode = false, hangarAngle = 0;
@@ -261,6 +266,9 @@ let approachOn = false;
 // Mission objectives (Strike / Campaign). Completion/fail drive the banners.
 const missions = new MissionManager();
 missions.onComplete = () => {
+  // Conquest detects a captured island in updateConquest (it may have several
+  // islands in flight) — don't let the objective-cleared signal end the run.
+  if (gameMode === "conquest") return;
   if (missionDone) return;
   missionDone = true;
   if (gameMode === "campaign" && currentMission) {
@@ -288,6 +296,65 @@ function openBriefing(missionId) {
   flying = false;
   ui.showBriefing(m, campaignProgress, world);
 }
+
+// --- Conquest: take the whole archipelago, island by island ----------------
+// Open the map screen to choose a beachhead + rules, then launch.
+function openConquest() {
+  conquestRun = new cq.ConquestRun(getIslandSpawns(), { difficulty: "veteran" });
+  flying = false;
+  ui.showConquest(conquestRun, world, { mode: "setup" });
+}
+// Setup → flight: grant the chosen beachhead and launch from it.
+function beginConquest(spawn, lives, difficulty) {
+  if (!conquestRun) return;
+  setLives(lives);
+  conquestRun.difficulty = difficulty || conquestRun.difficulty;
+  conquestRun.setStart(spawn.node);
+  conquestSpawn = spawn;
+  startFlight(jetType, "conquest");
+}
+// Death with lives left → reopen the map to pick another owned runway/carrier.
+function openConquestRespawn() {
+  ui.showConquest(conquestRun, world, { mode: "respawn" });
+}
+function respawnConquest(spawn) {
+  conquestSpawn = spawn;
+  ui.hideConquest();
+  enterHangar(false); // drop into the vehicle bay at the chosen launch point
+}
+// The nearest enemy island's pickets scramble as you arrive; its targets become
+// the active objective so the HUD marks them.
+function wakeIsland(node) {
+  node.awake = true;
+  conquestRun.activeId = node.id;
+  if (!node.defended) {
+    node.defended = true;
+    const d = conquestRun.defenseFor(node);
+    if (d.fighters > 0) enemies.spawnDefenders(d.fighters, d.diff, { x: node.center.x, z: node.center.z });
+  }
+  missionDone = false;
+  missions.load({ objectives: [{ type: "destroy", priority: "primary", label: "Seize " + node.name, match: (t) => t._node === node.id }] }, ground);
+  flashBanner("DEFENSES SCRAMBLING", node.name + " is defending — clear it out", 3);
+}
+function captureIsland(node) {
+  conquestRun.capture(node);
+  missions.active = false; missions.status = "idle";
+  if (conquestRun.checkWon()) {
+    ui.showBanner("ARCHIPELAGO SECURED", "Every island is yours — Esc for the menu"); bannerTimer = 0;
+  } else {
+    flashBanner("ISLAND CAPTURED", node.name + " is yours — launch from it anytime", 3.4);
+  }
+}
+// Per-frame conquest tick: wake the island you're closing on, and claim any
+// awake island whose defenses are wiped out.
+function updateConquest() {
+  if (!conquestRun || conquestRun.won) return;
+  const near = conquestRun.nearestEnemy(state.position);
+  if (near && !near.node.awake && near.dist < cq.AWAKE_RANGE) wakeIsland(near.node);
+  const a = conquestRun.activeId != null ? conquestRun.node(conquestRun.activeId) : null;
+  if (a && a.awake && !a.captured && conquestRun.isCleared(a)) captureIsland(a);
+}
+
 let ringsHit = 0;
 // Transient on-screen banner (auto-hides). Persistent banners use ui.showBanner
 // directly and set bannerTimer = 0 so this never clears them early.
@@ -415,6 +482,9 @@ const ui = new UI(input, {
     currentMission = m;
     startFlight(type, "campaign", m ? m.start : "air");
   },
+  onOpenConquest: () => openConquest(),         // menu "Conquest" → map screen
+  onConquestLaunch: (spawn, lives, diff) => beginConquest(spawn, lives, diff),
+  onConquestRespawn: (spawn) => respawnConquest(spawn),
 }, touch, tilt);
 
 // --- Multiplayer (LAN free-for-all) ---
@@ -714,10 +784,31 @@ function populateBases() {
 // Put a fresh player aircraft down at the spawn point (the runway, carrier or
 // air). This is a SOFT reset — it touches only the player, leaving the rest of
 // the world (enemies, ground targets, rings, score, wreckage) exactly as it is.
+// Drop the player onto a conquest launch point (a runway or a carrier deck),
+// in world coordinates straight from getIslandSpawns().
+function placeAtSpawn(sp) {
+  if (sp.kind === "carrier") {
+    const deckY = SEA_LEVEL + 24;
+    const halfL = sp.halfL || 330;
+    state.position.set(sp.x, deckY + 1.5, sp.z + halfL - 30);
+    state.velocity.set(0, 0, -60); // catapult kick
+    input.kbThrottle = 0.7;
+  } else { // runway / airfield
+    state.position.set(sp.x, terrainHeight(sp.x, sp.z) + 1.5, sp.z);
+    state.velocity.set(0, 0, 0);
+    input.kbThrottle = 0;
+  }
+  state.quaternion.identity();
+  state.onGround = true;
+}
+
 function placePlayer() {
   state = createState();
   flybyActive = false; flybyAnchor = null; // cancel any flyby on (re)spawn/teleport
-  if (startPos === "air" && spawnOverride) {
+  const cqSpawn = gameMode === "conquest" ? conquestSpawn : null;
+  if (cqSpawn) {
+    placeAtSpawn(cqSpawn);
+  } else if (startPos === "air" && spawnOverride) {
     // Campaign mission on a far island: drop in to its south, already flying in.
     state.position.set(spawnOverride.x, 1200, spawnOverride.z + 7000);
     state.velocity.set(0, 0, -180);
@@ -743,8 +834,10 @@ function placePlayer() {
   player.health = 100;
   crashHandled = false; respawnTimer = 0;
   // Gear down for ground/carrier starts, up for air starts; flaps up. Snap the
-  // animation so it doesn't visibly deploy on spawn.
-  gearDown = startPos !== "air";
+  // animation so it doesn't visibly deploy on spawn. Conquest always launches
+  // from a runway or carrier, so it's a ground start.
+  const groundStart = cqSpawn ? true : startPos !== "air";
+  gearDown = groundStart;
   flapsDown = false;
   gearAnim = gearDown ? 1 : 0;
   brakeActive = false; brakeAnim = 0;
@@ -754,7 +847,7 @@ function placePlayer() {
   ui.hideBanner();
   // Require a deliberate throttle gesture before the sim runs.
   armActive = true;
-  armUp = startPos === "air";
+  armUp = !groundStart;
   armInit = false;
   armHint = "";
 }
@@ -764,7 +857,7 @@ function placePlayer() {
 function resetFlight() {
   ringsHit = 0;
   world.rings.forEach((r) => { r.visible = true; r.userData.hit = false; });
-  const strike = gameMode === "mission" || gameMode === "campaign";
+  const strike = gameMode === "mission" || gameMode === "campaign" || gameMode === "conquest";
   enemies.setMode(gameMode);
   ground.setActive(strike, world.carriers.enemy, getCarriers().find((c) => c.team === "enemy"));
   livesLeft = livesForMode();
@@ -780,6 +873,12 @@ function resetFlight() {
     if (isl) spawnOverride = { x: isl.center.x, z: isl.center.z };
     const d = currentMission.defense;
     if (d && d.fighters > 0) enemies.spawnDefenders(d.fighters, d.diff || 1, isl ? { x: isl.center.x, z: isl.center.z } : null);
+  } else if (gameMode === "conquest" && conquestRun) {
+    // Every island's strike targets are spawned; tag them to islands so we know
+    // when one is cleared, and neutralise anything on islands you already hold.
+    // Defenders aren't spawned yet — they scramble per island on approach.
+    conquestRun.bindTargets(ground.targets);
+    missions.active = false; missions.status = "idle";
   }
   pendingMissionDef = null;
   fx.reset();
@@ -1444,12 +1543,12 @@ function frame(now) {
       if (!state.crashed && traffic.collides(state.position)) state.crashed = true;
     }
 
-    const isMission = gameMode === "mission" || gameMode === "campaign"; // strike modes
+    const isMission = gameMode === "mission" || gameMode === "campaign" || gameMode === "conquest"; // strike modes
     // Mode targets + the always-on traffic (train/ships/zeppelin) the player can
     // also engage. weapons.fire's first valid target in the list wins, so put
     // the mode targets first and append traffic.
     const baseTargets = gameMode === "ffa" ? netTargets
-      : gameMode === "campaign" ? ground.targets.concat(enemies.targets) // strike targets + defenders
+      : (gameMode === "campaign" || gameMode === "conquest") ? ground.targets.concat(enemies.targets) // strike targets + defenders
       : isMission ? ground.targets
       : enemies.targets;
     const activeTargets = baseTargets.concat(traffic.targets);
@@ -1478,6 +1577,7 @@ function frame(now) {
     }
 
     if (isMission) missions.update(dt, player, state);
+    if (gameMode === "conquest") updateConquest();
 
     // Lock audio: a growl that ramps while a target sits in the box, then a
     // confirmation chirp the moment it goes solid.
@@ -1495,7 +1595,11 @@ function frame(now) {
       respawnTimer -= dt;
       if (respawnTimer <= 0) {
         if (livesLeft !== Infinity && livesLeft > 0) livesLeft--;
-        if (livesLeft > 0) { if (inXR) placePlayer(); else enterHangar(false); }
+        if (livesLeft > 0) {
+          if (inXR) placePlayer();
+          else if (gameMode === "conquest") openConquestRespawn(); // pick a captured runway/carrier
+          else enterHangar(false);
+        }
         else { outOfLives(); }
       }
     }
@@ -1637,7 +1741,7 @@ function frame(now) {
     // Mission objective marker + list: only objective-relevant targets are
     // marked (ambient defenses stay unmarked until you find them).
     let objective = null, objectives = null;
-    const isMissionHud = gameMode === "mission" || gameMode === "campaign";
+    const isMissionHud = gameMode === "mission" || gameMode === "campaign" || gameMode === "conquest";
     if (isMissionHud) {
       const md = missions.hudData(projectHud, state.position);
       objective = md.objective;

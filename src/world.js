@@ -83,6 +83,21 @@ export function getMissionBases() {
   for (const is of CFG.islands) for (const b of (is.missionBases || [])) out.push([b[0] + is.center.x, b[1] + is.center.z]);
   return out;
 }
+// Per-island launch points in WORLD coordinates: the flattened home base
+// ("runway") plus any carriers. Conquest mode treats these as the spawn nodes
+// you launch from once an island is yours.
+export function getIslandSpawns() {
+  const out = [];
+  for (const is of CFG.islands) {
+    const sp = is.spawn || { x: 0, z: 520 };
+    const spawns = [{ kind: "runway", name: is.name + " airfield", x: (sp.x || 0) + is.center.x, z: (sp.z || 0) + is.center.z }];
+    for (const c of (is.carriers || [])) {
+      spawns.push({ kind: "carrier", name: is.name + " carrier", team: c.team, x: c.x + is.center.x, z: c.z + is.center.z, halfL: c.halfL, halfW: c.halfW });
+    }
+    out.push({ name: is.name, faction: is.faction, center: { x: is.center.x, z: is.center.z }, spawns });
+  }
+  return out;
+}
 
 // Paintable tree-cover grid (0..1) per island.
 function defaultForestDensity(gridN, extent) {

@@ -254,6 +254,48 @@
     </div>
   </div>
 
+  <!-- Conquest: pick a beachhead / respawn point on the archipelago map -->
+  <div id="conquest" class="overlay hidden">
+    <div class="panel brief">
+      <div class="brief-head">
+        <div class="brief-speaker">
+          <div id="cq-speaker-name">Conquest</div>
+          <h2 id="cq-title">Choose your beachhead</h2>
+        </div>
+        <canvas id="cq-map" width="320" height="320"></canvas>
+      </div>
+      <div id="cq-dialogue" class="brief-dialogue"></div>
+      <div class="brief-cols">
+        <div>
+          <div class="brief-sub">Launch from</div>
+          <div id="cq-spawns" class="cq-spawns"></div>
+          <div class="brief-sub" style="margin-top:10px">Front line</div>
+          <div id="cq-status" class="cq-status"></div>
+        </div>
+        <div class="brief-launch">
+          <label class="start-opt">Lives
+            <select id="cq-lives">
+              <option value="infinite">Infinite (kid)</option>
+              <option value="3">3 lives</option>
+              <option value="1">1 — Pro</option>
+            </select>
+          </label>
+          <label class="start-opt">Defenses
+            <select id="cq-diff">
+              <option value="recruit">Recruit — light</option>
+              <option value="veteran" selected>Veteran</option>
+              <option value="ace">Ace — heavy</option>
+            </select>
+          </label>
+          <div class="brief-actions">
+            <button id="cq-back">◂ Back</button>
+            <button id="cq-launch" class="primary launch">LAUNCH ▸</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Crash / pause banner -->
   <div id="banner" class="banner hidden"></div>
 
