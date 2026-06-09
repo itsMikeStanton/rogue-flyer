@@ -119,16 +119,26 @@ export class ConquestRun {
     return best ? { node: best, dist: bd } : null;
   }
 
-  // An island is cleared once all the ground targets bound to it are down.
-  // (An island with no targets is taken simply by reaching it.)
+  // An island is cleared once its essential installations are down. Ambient
+  // flak guns are flavour — they don't gate the capture. (An island with no
+  // essential targets is taken simply by reaching it.)
   isCleared(n) {
-    return n.targets.length ? n.targets.every((t) => !t.alive) : true;
+    const essential = n.targets.filter((t) => !t.ambient);
+    return essential.length ? essential.every((t) => !t.alive) : true;
   }
 
   capture(n) {
     n.owner = "player";
     n.captured = true;
     n.awake = false;
+    // The island is yours now — silence anything still standing (leftover flak
+    // guns that didn't gate the capture) so it doesn't shoot at its new owner.
+    for (const t of n.targets) {
+      if (!t.alive) continue;
+      t.alive = false;
+      if (t.group) t.group.visible = false;
+      if (t.mesh) t.mesh.visible = false;
+    }
     if (this.activeId === n.id) this.activeId = null;
   }
 
