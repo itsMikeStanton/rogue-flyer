@@ -1711,6 +1711,7 @@ function frame(now) {
   } else camShake = 0;
   updateSky(camera, true); // ocean + clouds follow the active camera
   weather.update(simDt, _skyPos); // stars/rain follow the camera; storm lightning
+  ground.night = weatherMode === "night" || weatherMode === "storm"; // gate searchlights to darkness
   if (world.spinners) for (const s of world.spinners) s.obj.rotation.y += dt * s.speed; // lighthouse beacons sweep
   // Smoke plumes: scenery sources + any still-alive power-plant strike targets.
   const dyn = smoke.dynamic; dyn.length = 0;
