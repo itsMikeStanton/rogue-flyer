@@ -164,8 +164,13 @@ weapons.onGroundImpact = (pos) => {
   if (solid >= SEA_LEVEL) wrecks.spawnFire(new THREE.Vector3(pos.x, solid + 0.3, pos.z), { scale: 1.1, life: 7, color: 0x242424 });
 };
 // Landing a hit instantly alerts that target's island — they now know exactly
-// where you are.
-weapons.onHit = (t) => { if (t && t.faction) t.faction.spot(state.position); };
+// where you are — and, if they weren't already hostile, drags their whole
+// faction into war with you (retaliation).
+weapons.onHit = (t) => {
+  if (!t) return;
+  if (t.faction) t.faction.spot(state.position);
+  provokeByPlayer(t.factionId);
+};
 
 // Weather / time of day (sky, fog, lights, stars, rain).
 const weather = new Weather(scene, world);
@@ -1050,10 +1055,24 @@ function assignFactions() {
   const tag = (obj) => {
     if (!obj.alive) return;
     const pos = obj.position; const is = nearest(pos.x, pos.z);
-    if (is) obj.faction = awareness.faction(is.name, is.center, modeFor(factions.vsPlayer(is.faction)));
+    if (is) { obj.factionId = is.faction; obj.faction = awareness.faction(is.name, is.center, modeFor(factions.vsPlayer(is.faction))); }
   };
   for (const t of ground.targets) tag(t);
   for (const e of enemies.targets) tag(e);
+}
+
+// The player just attacked something belonging to `factionId`. If that faction
+// wasn't already hostile to us, it is now: flip its regard of the player to
+// enemy (so the HUD turns it red and it stays hostile), and upgrade its islands
+// from passive defence to active hunting with an immediate fix on us.
+function provokeByPlayer(factionId) {
+  if (!factionId) return;
+  if (!factions.provoke(factionId, factions.playerFaction)) return; // already at war
+  for (const is of (world.islands || [])) {
+    if (is.faction !== factionId) continue;
+    const f = awareness.factions.get(is.name);
+    if (f) { f.mode = "hunt"; f.spot(state.position); }
+  }
 }
 
 function startFlight(type, mode, start, vr) {
