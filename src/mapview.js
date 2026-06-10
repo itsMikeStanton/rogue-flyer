@@ -44,6 +44,7 @@ export class MapView {
     return getWorldConfig().islands.map((is) => ({
       name: is.name, center: { x: is.center.x, z: is.center.z },
       outer: (is.terrain && is.terrain.islandOuter) || 9000,
+      roads: is.roads || [], settlements: is.settlements || [],
     }));
   }
 
@@ -111,12 +112,12 @@ export class MapView {
           const hz = at(i, Math.min(G, j + 1)) - at(i, Math.max(0, j - 1));
           let nx = -hx, nz = -hz, ny = 2 * cell; const nl = Math.hypot(nx, ny, nz) || 1;
           let shade = Math.max(0, (nx * Lx + ny * Ly + nz * Lz) / nl);
-          shade = Math.min(1, (shade - 0.5) * 1.7 + 0.5);  // steepen: deep shadows, bright faces
-          const b = 0.1 + 1.32 * Math.max(0, shade);       // high-contrast relief
-          const e = Math.min(1, (h - sea) / 2000);         // peaks clearly lighter
-          d[idx] = Math.min(255, (54 + 50 * e) * b);
-          d[idx + 1] = Math.min(255, (74 + 44 * e) * b);
-          d[idx + 2] = Math.min(255, (54 + 32 * e) * b);
+          shade = Math.min(1, Math.max(0, (shade - 0.5) * 2.3 + 0.5)); // hard contrast
+          const b = 0.04 + 1.7 * shade;                    // deep shadows, bright faces
+          const e = Math.min(1, (h - sea) / 1800);         // peaks clearly lighter
+          d[idx] = Math.min(255, (58 + 58 * e) * b);
+          d[idx + 1] = Math.min(255, (80 + 50 * e) * b);
+          d[idx + 2] = Math.min(255, (58 + 36 * e) * b);
           d[idx + 3] = 255;
         } else if (h > sea - 160) {                      // shore shelf
           d[idx] = 26; d[idx + 1] = 52; d[idx + 2] = 64; d[idx + 3] = 120;
@@ -124,14 +125,19 @@ export class MapView {
       }
     }
     c.putImageData(img, 0, 0);
-    const rec = { canvas: cv, R, coast: this._coastline(H, G, sea, R, is.center) };
+    const rec = {
+      canvas: cv, R,
+      coast: this._iso(H, G, sea, R, is.center),
+      contours: [300, 700, 1300].map((dz) => this._iso(H, G, sea + dz, R, is.center)),
+    };
     RASTERS.set(is.name, rec);
     return rec;
   }
 
-  // Marching-squares isocontour of the shoreline -> world-space line segments
-  // [x0,z0,x1,z1, ...]. Drawn as a crisp stroke, so it scales without blur.
-  _coastline(H, G, t, R, center) {
+  // Marching-squares isocontour at height `t` -> world-space line segments
+  // [x0,z0,x1,z1, ...]. Used for the shoreline and the elevation contour lines;
+  // drawn as a crisp stroke, so it scales without blur.
+  _iso(H, G, t, R, center) {
     const segs = [];
     const pos = (k) => (k / G - 0.5) * 2 * R;
     const lerp = (a, b, ha, hb) => { const dd = hb - ha; const tt = Math.abs(dd) < 1e-6 ? 0.5 : (t - ha) / dd; return a + (b - a) * tt; };
@@ -211,29 +217,60 @@ export class MapView {
       for (let y = y0; y < H; y += step) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
     }
 
-    // Land (accurate hillshaded terrain).
+    // Land (accurate hillshaded terrain) — drawn at half strength so the relief
+    // is a faint underlay and the crisp linework (coast, contours, roads) reads.
     const isl = this._islands();
     ctx.imageSmoothingEnabled = true;
     const rasters = isl.map((is) => this._raster(is));
+    ctx.globalAlpha = 0.5;
     for (let k = 0; k < isl.length; k++) {
       const is = isl[k], r = rasters[k];
       const x0 = tf.toX(is.center.x - r.R), y0 = tf.toY(is.center.z - r.R);
       const x1 = tf.toX(is.center.x + r.R), y1 = tf.toY(is.center.z + r.R);
       ctx.drawImage(r.canvas, x0, y0, x1 - x0, y1 - y0);
     }
-    // Crisp vector coastline on top — sharp at any zoom. Two passes: a dark
-    // underlay to deepen the water at the shore, then a bright line, so the
-    // island pops off the ocean.
-    ctx.lineJoin = "round"; ctx.lineCap = "round"; ctx.beginPath();
-    for (const r of rasters) {
-      const seg = r.coast;
-      for (let s = 0; s < seg.length; s += 4) {
-        ctx.moveTo(tf.toX(seg[s]), tf.toY(seg[s + 1]));
-        ctx.lineTo(tf.toX(seg[s + 2]), tf.toY(seg[s + 3]));
-      }
+    ctx.globalAlpha = 1;
+    const strokeSegs = (segs) => { for (let s = 0; s < segs.length; s += 4) { ctx.moveTo(tf.toX(segs[s]), tf.toY(segs[s + 1])); ctx.lineTo(tf.toX(segs[s + 2]), tf.toY(segs[s + 3])); } };
+
+    // Elevation contour lines (zoomed-in only — too busy at overview).
+    if (zoomed) {
+      ctx.strokeStyle = "rgba(150,172,150,0.30)"; ctx.lineWidth = 0.8; ctx.beginPath();
+      for (let k = 0; k < isl.length; k++) { if (isl[k].name !== this.view.island) continue; for (const seg of rasters[k].contours) strokeSegs(seg); }
+      ctx.stroke();
     }
+
+    // Crisp vector coastline — two passes (dark underlay deepens the water at the
+    // shore, then a bright line) so the island pops off the ocean.
+    ctx.lineJoin = "round"; ctx.lineCap = "round"; ctx.beginPath();
+    for (const r of rasters) strokeSegs(r.coast);
     ctx.strokeStyle = "#040d14"; ctx.lineWidth = zoomed ? 4 : 2.6; ctx.globalAlpha = 0.9; ctx.stroke();
     ctx.strokeStyle = "#cfeaf2"; ctx.lineWidth = zoomed ? 1.6 : 1.0; ctx.globalAlpha = 1; ctx.stroke();
+
+    // Roads (tactical overlay).
+    ctx.strokeStyle = "rgba(212,184,140,0.55)"; ctx.lineWidth = zoomed ? 1.5 : 0.8; ctx.beginPath();
+    for (const is of isl) for (const road of is.roads) {
+      for (let p = 0; p < road.length; p++) {
+        const X = tf.toX(is.center.x + road[p][0]), Y = tf.toY(is.center.z + road[p][1]);
+        p === 0 ? ctx.moveTo(X, Y) : ctx.lineTo(X, Y);
+      }
+    }
+    ctx.stroke();
+
+    // Settlements (buildings) — a footprint grid when zoomed enough, else a town tick.
+    ctx.fillStyle = "rgba(186,200,214,0.6)";
+    for (const is of isl) for (const s of (is.settlements || [])) {
+      const r = s.radius || 1, sp = s.spacing || 110, bpx = sp * tf.s;
+      const cx = is.center.x + s.x, cz = is.center.z + s.z;
+      if (bpx < 2.4) { // too small to resolve buildings — one block marks the town
+        const w = Math.max(2.5, (2 * r + 1) * bpx);
+        ctx.fillRect(tf.toX(cx) - w / 2, tf.toY(cz) - w / 2, w, w);
+      } else {
+        const bs = Math.max(1.5, bpx * 0.62);
+        for (let gy = -r; gy <= r; gy++) for (let gx = -r; gx <= r; gx++) {
+          ctx.fillRect(tf.toX(cx + gx * sp) - bs / 2, tf.toY(cz + gy * sp) - bs / 2, bs, bs);
+        }
+      }
+    }
 
     // Conquest: ring islands by who holds them; halo the selected beachhead.
     if (nodes) {
