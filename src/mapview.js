@@ -261,7 +261,8 @@ export class MapView {
     const nodes = this.opts.getNodes && this.opts.getNodes();
     const nodeByName = new Map(); if (nodes) for (const n of nodes) nodeByName.set(n.name, n);
     const selId = this.opts.getSelected && this.opts.getSelected();
-    const zoomed = this.embedded ? false : (this.cam && this.cam.s > this._fitS * 2.2);
+    const zoomed = this.embedded ? false : (this.cam && this.cam.s > this._fitS * 2.0);
+    const showItems = !this.embedded && this.labelsOn && zoomed; // item labels need zoom-in
     this._markers = []; const labelFeats = [];
 
     // Ocean + range grid.
@@ -378,12 +379,12 @@ export class MapView {
       const col = dead ? "#5a6066" : (SIDE_COL[f.side] || SIDE_COL.neutral);
       this._symbol(f.kind, x, y, col, dead, big);
       this._markers.push({ x, y, r: (big ? 9 : 6) + 3, label: f.label, dead, range: f.range });
-      if (!this.embedded && this.labelsOn && !dead && LABEL_KINDS.has(f.kind)) labelFeats.push({ x, y, text: f.label });
+      if (showItems && !dead && LABEL_KINDS.has(f.kind)) labelFeats.push({ x, y, text: f.label });
     }
 
-    // Text labels — island names (always on the planner) + item descriptors with
-    // leader lines (full-screen, toggleable).
-    if (this.embedded || this.labelsOn) this._drawLabels(isl, labelFeats, tf, zoomed);
+    // Island names are always on (tactical caps); item descriptors only when
+    // zoomed in past the overview and labels are enabled.
+    this._drawLabels(isl, labelFeats, tf, showItems);
 
     // Your jet (in flight).
     const p = this.opts.getPlayer && this.opts.getPlayer();
@@ -458,24 +459,30 @@ export class MapView {
 
   _chrome() {
     const ctx = this.ctx, W = this._w;
-    ctx.fillStyle = "rgba(5,10,16,0.78)"; ctx.fillRect(0, 0, W, this._top);
-    ctx.fillStyle = "#dfe8f2"; ctx.textAlign = "left"; ctx.textBaseline = "middle";
-    ctx.font = "700 15px system-ui, sans-serif";
-    ctx.fillText(this.view.island ? `TACTICAL  ›  ${this.view.island}` : "TACTICAL MAP  ·  ARCHIPELAGO", 14, this._top / 2);
-    ctx.textAlign = "right"; ctx.fillStyle = "#7e8da3"; ctx.font = "11px system-ui, sans-serif";
-    ctx.fillText("drag to pan  ·  scroll to zoom  ·  hover for detail  ·  Esc/O close", W - 14, this._top / 2);
+    ctx.save();
+    ctx.fillStyle = "rgba(4,9,14,0.86)"; ctx.fillRect(0, 0, W, this._top);
+    ctx.strokeStyle = "rgba(120,200,224,0.28)"; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(0, this._top - 0.5); ctx.lineTo(W, this._top - 0.5); ctx.stroke();
+    ctx.textAlign = "left"; ctx.textBaseline = "middle";
+    ctx.fillStyle = "#cfe7f0"; ctx.font = "700 13px ui-monospace, 'Consolas', monospace";
+    if ("letterSpacing" in ctx) ctx.letterSpacing = "3px";
+    ctx.fillText("◈ TACTICAL COMMAND — ARCHIPELAGO", 16, this._top / 2 + 1);
+    if ("letterSpacing" in ctx) ctx.letterSpacing = "1px";
+    ctx.textAlign = "right"; ctx.fillStyle = "#67798c"; ctx.font = "10px ui-monospace, 'Consolas', monospace";
+    ctx.fillText("DRAG PAN  ·  WHEEL ZOOM  ·  HOVER DETAIL  ·  ESC CLOSE", W - 14, this._top / 2 + 1);
+    ctx.restore();
   }
 
   // Faction allegiance lives here, not on the terrain.
   _sidebar() {
     const ctx = this.ctx, F = this.opts.getFactions();
     const x0 = this._w - this._right, H = this._h;
-    ctx.fillStyle = "rgba(6,11,17,0.82)"; ctx.fillRect(x0, this._top, this._right, H - this._top);
-    ctx.strokeStyle = "rgba(255,255,255,0.06)"; ctx.beginPath(); ctx.moveTo(x0, this._top); ctx.lineTo(x0, H); ctx.stroke();
-    let y = this._top + 16;
+    ctx.fillStyle = "rgba(5,9,14,0.86)"; ctx.fillRect(x0, this._top, this._right, H - this._top);
+    ctx.strokeStyle = "rgba(120,200,224,0.28)"; ctx.beginPath(); ctx.moveTo(x0 + 0.5, this._top); ctx.lineTo(x0 + 0.5, H); ctx.stroke();
+    const HEAD = (txt, yy) => { ctx.save(); ctx.fillStyle = "#7fb8c8"; ctx.font = "700 10px ui-monospace, 'Consolas', monospace"; if ("letterSpacing" in ctx) ctx.letterSpacing = "2px"; ctx.fillText(txt, x0 + 14, yy); ctx.restore(); };
+    let y = this._top + 18;
     ctx.textBaseline = "alphabetic"; ctx.textAlign = "left";
-    ctx.fillStyle = "#8aa0b8"; ctx.font = "700 11px system-ui, sans-serif";
-    ctx.fillText("FORCES", x0 + 14, y); y += 16;
+    HEAD("// FORCES", y); y += 17;
 
     // Group islands by current faction.
     const holdings = new Map();
@@ -486,22 +493,23 @@ export class MapView {
       const def = F.get(id), stance = F.vsPlayer(id);
       ctx.fillStyle = "#" + (((def && def.color) || 0x97a4ac) & 0xffffff).toString(16).padStart(6, "0");
       ctx.fillRect(x0 + 14, y - 9, 11, 11);
-      ctx.fillStyle = "#e7eefb"; ctx.font = "600 12px system-ui, sans-serif";
+      ctx.strokeStyle = "rgba(255,255,255,0.25)"; ctx.lineWidth = 1; ctx.strokeRect(x0 + 14, y - 9, 11, 11);
+      ctx.fillStyle = "#e7eefb"; ctx.font = "600 12px ui-monospace, 'Consolas', monospace";
       ctx.fillText((def && def.name) || id, x0 + 32, y);
       const sc = stance === "enemy" ? "#d9774a" : stance === "ally" ? "#62c98a" : "#97a4ac";
-      ctx.fillStyle = sc; ctx.font = "10px system-ui, sans-serif"; ctx.textAlign = "right";
+      ctx.fillStyle = sc; ctx.font = "9px ui-monospace, 'Consolas', monospace"; ctx.textAlign = "right";
       ctx.fillText(stance.toUpperCase(), this._w - 12, y);
       ctx.textAlign = "left"; y += 15;
-      ctx.fillStyle = "#9fb0c2"; ctx.font = "11px system-ui, sans-serif";
-      for (const nm of held) { ctx.fillText("· " + nm, x0 + 22, y); y += 14; }
-      y += 6;
+      ctx.fillStyle = "#9fb0c2"; ctx.font = "10px ui-monospace, 'Consolas', monospace";
+      for (const nm of held) { ctx.fillText("› " + nm.toUpperCase(), x0 + 22, y); y += 13; }
+      y += 7;
     }
 
     // Symbol key.
-    y = Math.max(y, H - 96);
-    ctx.fillStyle = "#8aa0b8"; ctx.font = "700 11px system-ui, sans-serif"; ctx.fillText("LEGEND", x0 + 14, y); y += 15;
-    const key = [["runway", "Airfield"], ["carrier", "Carrier"], ["sam", "SAM"], ["radar", "Radar"], ["aa", "AA"], ["powerplant", "Power plant"]];
-    ctx.font = "11px system-ui, sans-serif";
+    y = Math.max(y, H - 100);
+    HEAD("// LEGEND", y); y += 16;
+    const key = [["runway", "AIRFIELD"], ["carrier", "CARRIER"], ["sam", "SAM"], ["radar", "RADAR"], ["aa", "AA"], ["powerplant", "POWER PLANT"]];
+    ctx.font = "10px ui-monospace, 'Consolas', monospace";
     for (const [k, lbl] of key) {
       this._symbol(k, x0 + 20, y - 3, "#b9c6d2", false, false);
       ctx.fillStyle = "#b9c6d2"; ctx.fillText(lbl, x0 + 34, y); y += 14;
@@ -514,19 +522,19 @@ export class MapView {
     for (const k of this._markers) { const dx = k.x - m.x, dy = k.y - m.y, d = dx * dx + dy * dy; if (d < k.r * k.r && d < bd) { bd = d; best = k; } }
     if (!best) return;
     const ctx = this.ctx;
-    const lines = [best.label];
-    if (best.dead) lines.push("destroyed");
-    else if (best.range) lines.push("lethal radius " + (best.range / 1000).toFixed(1) + " km");
-    ctx.font = "12px system-ui, sans-serif";
+    const lines = [best.label.toUpperCase()];
+    if (best.dead) lines.push("DESTROYED");
+    else if (best.range) lines.push("LETHAL RADIUS " + (best.range / 1000).toFixed(1) + " KM");
+    ctx.font = "11px ui-monospace, 'Consolas', monospace";
     const tw = Math.max(...lines.map((l) => ctx.measureText(l).width)) + 16;
     const th = 6 + lines.length * 15;
     let tx = best.x + 12, ty = best.y - th - 8;
     if (tx + tw > this._w) tx = best.x - tw - 12;
     if (ty < this._top) ty = best.y + 12;
-    ctx.fillStyle = "rgba(10,16,24,0.94)"; ctx.strokeStyle = "rgba(255,255,255,0.14)"; ctx.lineWidth = 1;
+    ctx.fillStyle = "rgba(6,11,17,0.95)"; ctx.strokeStyle = "rgba(120,200,224,0.4)"; ctx.lineWidth = 1;
     ctx.fillRect(tx, ty, tw, th); ctx.strokeRect(tx, ty, tw, th);
     ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
-    lines.forEach((l, i) => { ctx.fillStyle = i ? "#d9774a" : "#eaf2ff"; ctx.font = i ? "11px system-ui, sans-serif" : "12px system-ui, sans-serif"; ctx.fillText(l, tx + 8, ty + 16 + i * 15); });
+    lines.forEach((l, i) => { ctx.fillStyle = i ? "#d9774a" : "#eaf4fb"; ctx.font = "11px ui-monospace, 'Consolas', monospace"; ctx.fillText(l, tx + 8, ty + 16 + i * 15); });
   }
 
   _hitIsland(px, py) {
@@ -544,22 +552,37 @@ export class MapView {
     // Full-screen navigation is drag-to-pan / wheel-to-zoom; clicks do nothing.
   }
 
-  // Place text labels with leader lines, greedily avoiding overlaps.
-  _drawLabels(isl, feats, tf, zoomed) {
-    const ctx = this.ctx, placed = [];
-    ctx.textBaseline = "alphabetic"; ctx.textAlign = "center";
+  // Island captions (always on, tactical caps) + zoom-gated item descriptors,
+  // both greedily placed to avoid overlap; items get leader lines.
+  _drawLabels(isl, feats, tf, showItems) {
+    const ctx = this.ctx, placed = [], F = this.opts.getFactions();
+    ctx.save();
+    ctx.textAlign = "center"; ctx.textBaseline = "alphabetic";
+    ctx.font = "700 12px ui-monospace, 'Consolas', monospace";
+    if ("letterSpacing" in ctx) ctx.letterSpacing = "2.5px";
     for (const is of isl) {
-      const x = tf.toX(is.center.x), y = tf.toY(is.center.z + is.outer) + 15;
-      if (x < -60 || x > this._w + 60 || y < this._top || y > this._h + 20) continue;
-      ctx.font = "600 13px system-ui, sans-serif";
-      const w = ctx.measureText(is.name).width;
-      placed.push({ x: x - w / 2, y: y - 13, w, h: 16 });
-      ctx.fillStyle = "#eaf2fb"; ctx.fillText(is.name, x, y);
+      const name = is.name.toUpperCase();
+      const x = tf.toX(is.center.x), y = tf.toY(is.center.z + is.outer) + 18;
+      if (x < -90 || x > this._w + 90 || y < this._top + 6 || y > this._h + 20) continue;
+      const w = ctx.measureText(name).width;
+      const stance = F ? F.vsPlayer(this.opts.factionOf(is.name)) : "neutral";
+      const sc = stance === "enemy" ? "#d9774a" : stance === "ally" ? "#62c98a" : "#9fb6c4";
+      const x0 = x - w / 2 - 7, x1 = x + w / 2 + 7, uy = y + 5;
+      ctx.strokeStyle = sc; ctx.lineWidth = 1.4; ctx.globalAlpha = 0.85; // bracket underline
+      ctx.beginPath(); ctx.moveTo(x0, uy - 4); ctx.lineTo(x0, uy); ctx.lineTo(x1, uy); ctx.lineTo(x1, uy - 4); ctx.stroke();
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = "rgba(2,6,10,0.7)"; ctx.fillText(name, x + 1, y + 1);
+      ctx.fillStyle = "#eef5fb"; ctx.fillText(name, x, y);
+      placed.push({ x: x0, y: y - 12, w: x1 - x0, h: 22 });
     }
-    ctx.textAlign = "left"; ctx.font = "12px system-ui, sans-serif";
-    for (const f of feats) {
-      if (f.x < -40 || f.x > this._w + 40 || f.y < this._top - 20 || f.y > this._h + 20) continue;
-      this._placeLabel(f.x, f.y, f.text, placed);
+    if ("letterSpacing" in ctx) ctx.letterSpacing = "0px";
+    ctx.restore();
+    if (showItems) {
+      ctx.font = "11px ui-monospace, 'Consolas', monospace"; ctx.textAlign = "left";
+      for (const f of feats) {
+        if (f.x < -40 || f.x > this._w + 40 || f.y < this._top - 20 || f.y > this._h + 20) continue;
+        this._placeLabel(f.x, f.y, f.text.toUpperCase(), placed);
+      }
     }
   }
   _overlap(a, b) { return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y; }
@@ -582,7 +605,8 @@ export class MapView {
     ctx.strokeStyle = "rgba(190,212,228,0.45)"; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(lx, ly); ctx.stroke();
     ctx.fillStyle = "rgba(190,212,228,0.9)"; ctx.beginPath(); ctx.arc(ax, ay, 1.5, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = "rgba(8,14,22,0.82)"; ctx.fillRect(rect.x, rect.y, w, h);
-    ctx.fillStyle = "#d7e3ef"; ctx.textBaseline = "middle"; ctx.fillText(text, rect.x + 4, rect.y + h / 2); ctx.textBaseline = "alphabetic";
+    ctx.fillStyle = "rgba(6,11,17,0.88)"; ctx.fillRect(rect.x, rect.y, w, h);
+    ctx.strokeStyle = "rgba(120,200,224,0.3)"; ctx.lineWidth = 1; ctx.strokeRect(rect.x + 0.5, rect.y + 0.5, w - 1, h - 1);
+    ctx.fillStyle = "#cfe1ee"; ctx.textBaseline = "middle"; ctx.fillText(text, rect.x + 5, rect.y + h / 2); ctx.textBaseline = "alphabetic";
   }
 }
