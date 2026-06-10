@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { AIRCRAFT, buildAircraftMesh } from "./aircraft.js";
 import { createState, step } from "./flight.js";
-import { buildWorld, terrainHeight, groundHeightAt, getCarriers, getIslandSpawns, getFactionConfig, SEA_LEVEL, lightPoolTexture } from "./world.js";
+import { buildWorld, terrainHeight, groundHeightAt, getCarriers, getIslandSpawns, getMissionBases, getFactionConfig, SEA_LEVEL, lightPoolTexture } from "./world.js";
 import { Factions } from "./factions.js";
 import { MapView } from "./mapview.js";
 import { Input } from "./input.js";
@@ -72,6 +72,32 @@ let factions = new Factions(getFactionConfig());
 const islandFaction = new Map();
 function factionOf(is) { return islandFaction.get(is.name) || is.faction; }
 function factionIdByName(name) { const is = (world.islands || []).find((i) => i.name === name); return is ? factionOf(is) : null; }
+
+// Tactical map site data: airfields + carriers (always), and either the live
+// ground defences (exact type + destroyed state, in a strike sortie) or the
+// planned defence-site clusters. Consumed by the map for symbols + hover detail.
+const SITE_LABEL = { sam: "SAM site", radar: "Radar", aa: "AA gun", bunker: "Bunker", tank: "Fuel depot", powerplant: "Power plant", carrier: "Carrier", runway: "Airfield", site: "Defence site" };
+function stanceSide(stance) { return stance === "enemy" ? "hostile" : stance === "ally" ? "friendly" : "neutral"; }
+function buildMapSites() {
+  const sites = [];
+  for (const isl of getIslandSpawns()) {
+    for (const s of isl.spawns) {
+      if (s.kind === "runway") sites.push({ x: s.x, z: s.z, kind: "runway", label: isl.name + " airfield", side: stanceSide(factions.vsPlayer(factionIdByName(isl.name))) });
+    }
+  }
+  for (const c of getCarriers()) sites.push({ x: c.x, z: c.z, kind: "carrier", label: (c.team === "ally" ? "Allied" : "Hostile") + " carrier", side: c.team === "ally" ? "friendly" : "hostile" });
+  const live = (flying && ground.targets && ground.targets.length) ? ground.targets : null;
+  if (live) {
+    for (const t of live) {
+      if (!t.type || t.type === "searchlight") continue; // carrier handled above; searchlights are clutter
+      const side = t.factionId ? stanceSide(factions.vsPlayer(t.factionId)) : "hostile";
+      sites.push({ x: t.position.x, z: t.position.z, kind: t.type, label: SITE_LABEL[t.type] || t.type, alive: t.alive !== false, side });
+    }
+  } else {
+    for (const [wx, wz] of getMissionBases()) sites.push({ x: wx, z: wz, kind: "site", label: "Defence site · SAM/radar/AA", side: "hostile" });
+  }
+  return sites;
+}
 function setIslandFaction(name, id) { if (name && id) islandFaction.set(name, id); }
 function seedIslandFactions() {
   islandFaction.clear();
@@ -614,6 +640,7 @@ const ui = new UI(input, {
 const mapView = new MapView(document.getElementById("map-canvas"), {
   factionOf: factionIdByName,
   getFactions: () => factions,
+  getSites: buildMapSites,
   getPlayer: () => {
     if (!flying || paused) return null;
     const f = new THREE.Vector3(0, 0, -1).applyQuaternion(state.quaternion);
@@ -635,6 +662,7 @@ const cqMap = new MapView(document.getElementById("cq-map"), {
   embedded: true,
   factionOf: factionIdByName,
   getFactions: () => factions,
+  getSites: buildMapSites,
   getNodes: () => (conquestRun ? conquestRun.nodes : null),
   getSelected: () => cqSelectedNodeId,
   onPick: (name) => ui.pickConquestIsland(name),
