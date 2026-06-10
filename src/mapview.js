@@ -1,34 +1,39 @@
 // Accurate top-down archipelago map. Unlike the stylized blobs in portrait.js,
 // this rasterizes the REAL terrain — sampling terrainHeight() across each
 // island's footprint and shading land above sea level — so the atolls, crescents,
-// spirals and shattered shards all read true to how they actually fly. Built to
-// be reused: a full-screen in-flight overlay now, the Conquest planner next.
+// spirals and shattered shards all read true to how they actually fly.
 //
-// Each island is baked once into its own offscreen canvas (tinted by its current
-// faction) and cached; re-baked only if that island changes hands. Overlays
-// (defences, carriers, labels, your jet) are drawn live on top every frame.
+// One renderer, two homes: a full-screen in-flight overlay (overview + click to
+// zoom) and an embedded panel for the Conquest planner (overview + click to pick
+// a beachhead, islands ringed by who holds them). The terrain rasters are baked
+// once per island (tinted by its current faction) into a shared module cache and
+// reused by every MapView, re-baked only when an island changes hands.
 
 import { getWorldConfig, terrainHeight, SEA_LEVEL, getMissionBases, getCarriers } from "./world.js";
 import { drawEmblem } from "./factionEmblems.js";
 
 const css = (n) => "#" + ((typeof n === "number" ? n : 0x8aa0b8) & 0xffffff).toString(16).padStart(6, "0");
 
+// Shared across instances: island name -> { canvas, faction, R }.
+const RASTERS = new Map();
+export function invalidateMap() { RASTERS.clear(); }
+
 export class MapView {
-  // opts: { factionOf(name)->id, getFactions()->Factions, getPlayer()->{x,z,heading}|null, onClose() }
+  // opts: { factionOf(name)->id, getFactions()->Factions, getPlayer()->{x,z,heading}|null,
+  //         embedded?, getNodes()->conquest nodes, getSelected()->nodeId, onPick(name), onClose() }
   constructor(canvas, opts = {}) {
     this.canvas = canvas;
     this.ctx = canvas.getContext("2d");
     this.opts = opts;
-    this.cache = new Map();      // island name -> { canvas, faction, R }
-    this.view = { island: null }; // null = overview, else island name
-    this.isOpen = false;
+    this.embedded = !!opts.embedded;
+    this.view = { island: null };          // null = overview, else island name
+    this.isOpen = this.embedded;            // embedded panels are always "live"
     this._tf = null;
     this._onResize = () => { if (this.isOpen) { this._size(); this.draw(); } };
     canvas.addEventListener("click", (e) => this._onClick(e));
     window.addEventListener("resize", this._onResize);
   }
 
-  // World-config islands with their outer footprint radius (for sampling/fit).
   _islands() {
     return getWorldConfig().islands.map((is) => ({
       name: is.name, center: { x: is.center.x, z: is.center.z },
@@ -40,35 +45,44 @@ export class MapView {
     return F ? F.get(this.opts.factionOf(name)) : null;
   }
 
-  invalidate() { this.cache.clear(); }
-
+  // --- full-screen overlay lifecycle (no-ops when embedded) ----------------
   open(islandName = null) {
+    if (this.embedded) return;
     this.view.island = islandName;
     this.isOpen = true;
     this.canvas.parentElement.classList.remove("hidden");
-    this._size();
-    this.draw();
+    this._size(); this.draw();
   }
   close() {
+    if (this.embedded) return;
     this.isOpen = false;
     this.canvas.parentElement.classList.add("hidden");
     if (this.opts.onClose) this.opts.onClose();
   }
   toggle() { this.isOpen ? this.close() : this.open(); }
+  // Embedded panels call this to (re)size to their box and redraw.
+  refresh() { this._size(); this.draw(); }
 
   _size() {
+    if (this.embedded) {
+      // Respect the canvas's own pixel size (set in HTML); draw 1:1, like the
+      // panel it replaces. Avoids resizing a canvas that has no CSS width.
+      this.ctx.setTransform(1, 0, 0, 1, 0, 0);
+      this._w = this.canvas.width; this._h = this.canvas.height;
+      return;
+    }
     const dpr = Math.min(2, window.devicePixelRatio || 1);
-    const w = this.canvas.clientWidth, h = this.canvas.clientHeight;
+    const w = this.canvas.clientWidth || this.canvas.width, h = this.canvas.clientHeight || this.canvas.height;
     this.canvas.width = Math.max(1, Math.round(w * dpr));
     this.canvas.height = Math.max(1, Math.round(h * dpr));
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     this._w = w; this._h = h;
   }
 
-  // --- terrain raster (cached per island) ----------------------------------
+  // --- terrain raster (shared cache) ---------------------------------------
   _raster(is) {
     const fac = this.opts.factionOf(is.name);
-    const hit = this.cache.get(is.name);
+    const hit = RASTERS.get(is.name);
     if (hit && hit.faction === fac) return hit;
     const N = 176, R = is.outer * 1.06;
     const cv = document.createElement("canvas"); cv.width = cv.height = N;
@@ -94,7 +108,7 @@ export class MapView {
     }
     c.putImageData(img, 0, 0);
     const rec = { canvas: cv, faction: fac, R };
-    this.cache.set(is.name, rec);
+    RASTERS.set(is.name, rec);
     return rec;
   }
 
@@ -113,7 +127,7 @@ export class MapView {
   }
   _setView() {
     const isl = this._islands();
-    if (this.view.island) {
+    if (!this.embedded && this.view.island) {
       const is = isl.find((i) => i.name === this.view.island) || isl[0];
       const R = is.outer * 1.28;
       this._fit(is.center.x - R, is.center.x + R, is.center.z - R, is.center.z + R, 0.06);
@@ -123,7 +137,7 @@ export class MapView {
         minX = Math.min(minX, is.center.x - is.outer); maxX = Math.max(maxX, is.center.x + is.outer);
         minZ = Math.min(minZ, is.center.z - is.outer); maxZ = Math.max(maxZ, is.center.z + is.outer);
       }
-      this._fit(minX, maxX, minZ, maxZ, 0.1);
+      this._fit(minX, maxX, minZ, maxZ, this.embedded ? 0.06 : 0.1);
     }
   }
 
@@ -133,6 +147,11 @@ export class MapView {
     const ctx = this.ctx, W = this._w, H = this._h;
     this._setView();
     const tf = this._tf, F = this.opts.getFactions();
+    const nodes = this.opts.getNodes && this.opts.getNodes();
+    const nodeByName = new Map();
+    if (nodes) for (const n of nodes) nodeByName.set(n.name, n);
+    const selId = this.opts.getSelected && this.opts.getSelected();
+    const zoomed = !this.embedded && this.view.island;
 
     // Ocean + grid.
     const og = ctx.createLinearGradient(0, 0, 0, H);
@@ -156,47 +175,66 @@ export class MapView {
       ctx.drawImage(r.canvas, x0, y0, x1 - x0, y1 - y0);
     }
 
-    // Carriers (faction/team coloured ships).
+    // Conquest: ring each island by who holds it (and halo the selected one).
+    if (nodes) {
+      for (const is of isl) {
+        const n = nodeByName.get(is.name); if (!n) continue;
+        const x = tf.toX(is.center.x), y = tf.toY(is.center.z), rr = is.outer * tf.s;
+        const owned = n.owner === "player";
+        const ringCol = owned ? "#5ee08a" : n.awake ? "#ffb44a" : "#ff6b6b";
+        if (selId != null && n.id === selId) {
+          ctx.strokeStyle = "#ffd23f"; ctx.lineWidth = 3.5; ctx.setLineDash([]);
+          ctx.beginPath(); ctx.arc(x, y, rr + 5, 0, Math.PI * 2); ctx.stroke();
+        }
+        ctx.strokeStyle = ringCol; ctx.lineWidth = 2; ctx.globalAlpha = 0.9;
+        ctx.setLineDash(owned ? [] : [5, 4]);
+        ctx.beginPath(); ctx.arc(x, y, rr, 0, Math.PI * 2); ctx.stroke();
+        ctx.setLineDash([]); ctx.globalAlpha = 1;
+      }
+    }
+
+    // Carriers (team-coloured ships).
     for (const c of getCarriers()) {
       const x = tf.toX(c.x), y = tf.toY(c.z);
       ctx.save(); ctx.translate(x, y);
-      ctx.fillStyle = c.team === "ally" ? "#5bc8ff" : "#ff6b6b";
-      ctx.globalAlpha = 0.9;
+      ctx.fillStyle = c.team === "ally" ? "#5bc8ff" : "#ff6b6b"; ctx.globalAlpha = 0.92;
       ctx.beginPath(); ctx.moveTo(-3, -7); ctx.lineTo(3, -7); ctx.lineTo(4, 7); ctx.lineTo(-4, 7); ctx.closePath(); ctx.fill();
       ctx.restore();
     }
 
-    // Defences (mission-base clusters) as small hostile diamonds.
-    const showDef = this.view.island == null ? tf.s > 0.004 : true;
+    // Defences (mission-base clusters).
+    const showDef = zoomed ? true : tf.s > 0.004;
     if (showDef) {
       for (const [wx, wz] of getMissionBases()) {
-        const x = tf.toX(wx), y = tf.toY(wz), s = this.view.island ? 5 : 3;
+        const x = tf.toX(wx), y = tf.toY(wz), s = zoomed ? 5 : 3;
         ctx.fillStyle = "rgba(255,90,90,0.92)";
         ctx.beginPath(); ctx.moveTo(x, y - s); ctx.lineTo(x + s, y); ctx.lineTo(x, y + s); ctx.lineTo(x - s, y); ctx.closePath(); ctx.fill();
         ctx.strokeStyle = "rgba(0,0,0,0.5)"; ctx.lineWidth = 1; ctx.stroke();
       }
     }
 
-    // Island labels + emblems, ringed by your stance toward them.
+    // Island labels + emblems.
+    const big = zoomed;
     for (const is of isl) {
       const def = this._factionDef(is.name);
       const fid = this.opts.factionOf(is.name);
       const stance = F ? F.vsPlayer(fid) : "neutral";
-      const ring = stance === "enemy" ? "#ff6b6b" : stance === "ally" ? "#5bc8ff" : "#cbd5e0";
-      const x = tf.toX(is.center.x), y = tf.toY(is.center.z);
-      const er = this.view.island ? 18 : 11;
+      const x = tf.toX(is.center.x);
+      const er = big ? 18 : this.embedded ? 9 : 11;
       if (def) drawEmblem(ctx, def.emblem, x, tf.toY(is.center.z - is.outer) - er - 4, er, def.color, { badge: true });
       ctx.fillStyle = "#e7eefb"; ctx.textAlign = "center"; ctx.textBaseline = "top";
-      ctx.font = `${this.view.island ? 15 : 12}px system-ui, sans-serif`;
+      ctx.font = `${big ? 15 : this.embedded ? 11 : 12}px system-ui, sans-serif`;
       const ly = tf.toY(is.center.z + is.outer) + 4;
       ctx.fillText(is.name, x, ly);
-      if (this.view.island === is.name && def) {
+      if (zoomed && this.view.island === is.name && def) {
         ctx.fillStyle = css(def.color); ctx.font = "12px system-ui, sans-serif";
         ctx.fillText(def.name + "  ·  " + stance.toUpperCase(), x, ly + 18);
       }
-      // stance tick under the label
-      ctx.fillStyle = ring;
-      ctx.fillRect(x - 9, ly - 4, 18, 2);
+      // Stance tick (only when not showing conquest ownership rings).
+      if (!nodes) {
+        ctx.fillStyle = stance === "enemy" ? "#ff6b6b" : stance === "ally" ? "#5bc8ff" : "#cbd5e0";
+        ctx.fillRect(x - 9, ly - 4, 18, 2);
+      }
     }
 
     // Your jet (in flight).
@@ -210,10 +248,10 @@ export class MapView {
       ctx.restore();
     }
 
-    this._chrome();
+    if (this.opts.chrome !== false && !this.embedded) this._chrome();
   }
 
-  // Header, legend, hint.
+  // Header, legend, hint (full-screen only).
   _chrome() {
     const ctx = this.ctx, W = this._w;
     ctx.fillStyle = "rgba(5,10,16,0.72)"; ctx.fillRect(0, 0, W, 40);
@@ -222,17 +260,15 @@ export class MapView {
     ctx.fillText(this.view.island ? `ARCHIPELAGO  ›  ${this.view.island}` : "ARCHIPELAGO  ·  OVERVIEW", 16, 20);
     ctx.textAlign = "right"; ctx.fillStyle = "#8aa0b8"; ctx.font = "12px system-ui, sans-serif";
     ctx.fillText(this.view.island ? "click to zoom out  ·  Esc/O to close" : "click an island to zoom  ·  Esc/O to close", W - 16, 20);
-
-    // Faction legend (bottom-left).
     const F = this.opts.getFactions();
-    if (F) {
-      const ids = F.list ? F.list() : [];
+    if (F && F.list) {
+      const ids = F.list();
       let ly = this._h - 12 - ids.length * 18;
       ctx.fillStyle = "rgba(5,10,16,0.66)"; ctx.fillRect(8, ly - 8, 188, ids.length * 18 + 14);
       ctx.textAlign = "left"; ctx.textBaseline = "middle"; ctx.font = "12px system-ui, sans-serif";
       for (const id of ids) {
-        const def = F.get(id); const stance = F.vsPlayer(id);
-        ctx.fillStyle = css(def && def.color); ctx.fillRect(16, ly + 9 - 5, 10, 10);
+        const def = F.get(id), stance = F.vsPlayer(id);
+        ctx.fillStyle = css(def && def.color); ctx.fillRect(16, ly + 4, 10, 10);
         ctx.fillStyle = "#cdd7e6";
         ctx.fillText(`${(def && def.name) || id}  · ${stance}`, 32, ly + 9);
         ly += 18;
@@ -240,18 +276,28 @@ export class MapView {
     }
   }
 
-  _onClick(e) {
-    if (!this.isOpen || !this._tf) return;
-    const rect = this.canvas.getBoundingClientRect();
-    const px = e.clientX - rect.left, py = e.clientY - rect.top;
-    if (this.view.island) { this.view.island = null; this.draw(); return; } // zoom out
-    // Overview: zoom into the nearest island whose footprint we clicked inside.
+  _hitIsland(px, py) {
     const wx = this._tf.toWX(px), wz = this._tf.toWZ(py);
     let best = null, bd = Infinity;
     for (const is of this._islands()) {
-      const dx = wx - is.center.x, dz = wz - is.center.z, d = Math.hypot(dx, dz);
+      const d = Math.hypot(wx - is.center.x, wz - is.center.z);
       if (d < is.outer * 1.15 && d < bd) { bd = d; best = is; }
     }
-    if (best) { this.view.island = best.name; this.draw(); }
+    return best;
+  }
+  _onClick(e) {
+    if (!this.isOpen || !this._tf) return;
+    const rect = this.canvas.getBoundingClientRect();
+    // Map CSS-pixel click into the coordinate space _tf draws in.
+    const sx = this._w / (rect.width || this._w), sy = this._h / (rect.height || this._h);
+    const px = (e.clientX - rect.left) * sx, py = (e.clientY - rect.top) * sy;
+    if (this.opts.onPick) {                 // embedded planner: click selects an island
+      const is = this._hitIsland(px, py);
+      if (is) this.opts.onPick(is.name);
+      return;
+    }
+    if (this.view.island) { this.view.island = null; this.draw(); return; } // zoom out
+    const is = this._hitIsland(px, py);
+    if (is) { this.view.island = is.name; this.draw(); }
   }
 }

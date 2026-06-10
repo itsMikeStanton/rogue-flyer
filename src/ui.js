@@ -830,6 +830,19 @@ export class UI {
   }
   hideConquest() { if (this.conquest) this.conquest.classList.add("hidden"); }
 
+  // Clicking an island on the planner map picks it as the beachhead (selecting a
+  // launchable spawn on it). Ignored if that island has no available launch point
+  // (e.g. an enemy island on the respawn screen).
+  pickConquestIsland(name) {
+    const run = this._cqRun; if (!run) return;
+    const node = run.nodes.find((n) => n.name === name); if (!node) return;
+    const list = this._cqMode === "setup" ? run.allSpawns() : run.ownedSpawns();
+    const pick = list.find((s) => s.node === node.id && s.kind === "runway") || list.find((s) => s.node === node.id);
+    if (!pick) return;
+    this._cqPick = pick;
+    this._buildConquest();
+  }
+
   _buildConquest() {
     const run = this._cqRun;
     if (!run) return;
@@ -839,9 +852,11 @@ export class UI {
     el("cq-dialogue").innerHTML = setup
       ? "<div>Pick an island to land and seize — that's your first foothold. From its runway, take the rest of the archipelago one island at a time.</div>"
       : "<div>Aircraft down. Choose a captured runway or carrier to get back in the fight.</div>";
-    // Strategic map.
+    // Strategic map — accurate terrain, islands ringed by who holds them.
     const mc = el("cq-map");
-    if (mc) drawArchipelago(mc.getContext("2d"), mc.width, run.nodes, { selectedNode: this._cqPick ? this._cqPick.node : run.startId });
+    const selNode = this._cqPick ? this._cqPick.node : run.startId;
+    if (mc && this.cb.drawConquestMap) this.cb.drawConquestMap(selNode);
+    else if (mc) drawArchipelago(mc.getContext("2d"), mc.width, run.nodes, { selectedNode: selNode });
     // Launch points (every island at setup; only owned ones on respawn).
     const sp = el("cq-spawns");
     if (sp) {

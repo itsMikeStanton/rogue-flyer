@@ -71,6 +71,7 @@ let factions = new Factions(getFactionConfig());
 // factionOf(), never island.faction directly.
 const islandFaction = new Map();
 function factionOf(is) { return islandFaction.get(is.name) || is.faction; }
+function factionIdByName(name) { const is = (world.islands || []).find((i) => i.name === name); return is ? factionOf(is) : null; }
 function setIslandFaction(name, id) { if (name && id) islandFaction.set(name, id); }
 function seedIslandFactions() {
   islandFaction.clear();
@@ -599,6 +600,10 @@ const ui = new UI(input, {
     for (const is of (world.islands || [])) (h[factionOf(is)] = h[factionOf(is)] || []).push(is.name);
     return h;
   },
+  drawConquestMap: (selectedNodeId) => {        // render the accurate planner map
+    cqSelectedNodeId = selectedNodeId;
+    cqMap.refresh();
+  },
   onOpenConquest: () => openConquest(),         // menu "Conquest" → map screen
   onConquestLaunch: (spawn, lives, diff) => beginConquest(spawn, lives, diff),
   onConquestRespawn: (spawn) => respawnConquest(spawn),
@@ -607,7 +612,7 @@ const ui = new UI(input, {
 // Accurate archipelago map — overview + click-to-zoom, on the menu and live in
 // flight (a tactical kneeboard; the sim keeps running underneath).
 const mapView = new MapView(document.getElementById("map-canvas"), {
-  factionOf: (name) => { const is = (world.islands || []).find((i) => i.name === name); return is ? factionOf(is) : null; },
+  factionOf: factionIdByName,
   getFactions: () => factions,
   getPlayer: () => {
     if (!flying || paused) return null;
@@ -622,6 +627,18 @@ const mapView = new MapView(document.getElementById("map-canvas"), {
   const mc = document.getElementById("map-close");
   if (mc) mc.addEventListener("click", () => mapView.close());
 }
+
+// Embedded accurate map for the Conquest planner: same renderer, with islands
+// ringed by who holds them; clicking one picks it as your beachhead.
+let cqSelectedNodeId = null;
+const cqMap = new MapView(document.getElementById("cq-map"), {
+  embedded: true,
+  factionOf: factionIdByName,
+  getFactions: () => factions,
+  getNodes: () => (conquestRun ? conquestRun.nodes : null),
+  getSelected: () => cqSelectedNodeId,
+  onPick: (name) => ui.pickConquestIsland(name),
+});
 
 // --- Multiplayer (LAN free-for-all) ---
 const net = new Net();
