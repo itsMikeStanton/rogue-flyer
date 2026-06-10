@@ -2,6 +2,9 @@
 
 import { AIRCRAFT, LIVERIES } from "./aircraft.js";
 import { INSIGNIA, insigniaDataURL } from "./markings.js";
+import { getFactionConfig } from "./world.js";
+import { Factions } from "./factions.js";
+import { drawEmblem } from "./factionEmblems.js";
 import { drawCaptainDad, drawMapPreview, drawArchipelago } from "./portrait.js";
 import * as campaign from "./campaign.js";
 
@@ -475,6 +478,60 @@ export class UI {
       this.buildBindingControls();
       this.buildButtonBindings();
     });
+    const facPanel = document.getElementById("factions");
+    const facBtn = document.getElementById("btn-factions");
+    if (facBtn && facPanel) {
+      facBtn.addEventListener("click", () => { this.populateFactions(); this.menu.classList.add("hidden"); facPanel.classList.remove("hidden"); });
+      const facBack = document.getElementById("fac-back");
+      if (facBack) facBack.addEventListener("click", () => { facPanel.classList.add("hidden"); this.menu.classList.remove("hidden"); });
+    }
+  }
+
+  // Build the faction dossier: a card per faction (emblem + lore + holdings) and
+  // a directional standings matrix. Reads the live faction registry, so editing
+  // the world's factions is reflected here.
+  populateFactions() {
+    const cfg = getFactionConfig();
+    const F = new Factions(cfg);
+    const ids = Object.keys(cfg.factions);
+    const css = (n) => "#" + ((typeof n === "number" ? n : 0xcbd5e0) & 0xffffff).toString(16).padStart(6, "0");
+    // Current holdings (island names per faction) come from the game via callback.
+    const holdings = (this.cb && this.cb.factionHoldings) ? this.cb.factionHoldings() : {};
+
+    const grid = document.getElementById("fac-grid");
+    if (grid) {
+      grid.innerHTML = "";
+      for (const id of ids) {
+        const f = cfg.factions[id], col = css(f.color);
+        const card = document.createElement("div");
+        card.className = "fac-card";
+        const cv = document.createElement("canvas"); cv.width = cv.height = 132; cv.className = "fac-emblem";
+        drawEmblem(cv.getContext("2d"), f.emblem, 66, 66, 64, f.color);
+        const you = id === F.playerFaction ? ` <span class="fac-you">YOU</span>` : "";
+        const terr = (holdings[id] || []).join(" · ") || "no territory";
+        const info = document.createElement("div");
+        info.className = "fac-info";
+        info.innerHTML = `<h4 style="color:${col}">${f.name || id}${you}</h4>
+          <p class="fac-blurb">${f.blurb || ""}</p>
+          <span class="fac-terr" style="color:${col}">${terr}</span>`;
+        card.append(cv, info);
+        grid.append(card);
+      }
+    }
+
+    const t = document.getElementById("fac-matrix");
+    if (t) {
+      const head = `<tr><th></th>${ids.map((id) => `<th style="color:${css(cfg.factions[id].color)}">${(cfg.factions[id].name || id).split(" ")[0]}</th>`).join("")}</tr>`;
+      const rows = ids.map((a) => {
+        const cells = ids.map((b) => {
+          if (a === b) return `<td class="fac-self">—</td>`;
+          const s = F.stance(a, b);
+          return `<td class="fac-s-${s}">${s}</td>`;
+        }).join("");
+        return `<tr><th class="fac-rowh" style="color:${css(cfg.factions[a].color)}">${cfg.factions[a].name || a}</th>${cells}</tr>`;
+      }).join("");
+      t.innerHTML = head + rows;
+    }
   }
 
   // The full digital-action list, grouped so the table reads as "flight controls

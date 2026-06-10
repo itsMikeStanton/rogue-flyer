@@ -593,6 +593,11 @@ const ui = new UI(input, {
     currentMission = m;
     startFlight(type, "campaign", m ? m.start : "air");
   },
+  factionHoldings: () => {                       // islands each faction holds (for the dossier)
+    const h = {};
+    for (const is of (world.islands || [])) (h[factionOf(is)] = h[factionOf(is)] || []).push(is.name);
+    return h;
+  },
   onOpenConquest: () => openConquest(),         // menu "Conquest" → map screen
   onConquestLaunch: (spawn, lives, diff) => beginConquest(spawn, lives, diff),
   onConquestRespawn: (spawn) => respawnConquest(spawn),
@@ -2069,7 +2074,8 @@ function frame(now) {
         if (dist < 9000) continue; // don't mark the island you're over
         const pr = projectHud(_v.set(isl.center.x, SEA_LEVEL + 1500, isl.center.z));
         const fid = factionOf(isl);
-        islandMarkers.push({ name: isl.name, faction: fid, stance: factions.vsPlayer(fid), dist, ...pr });
+        const fdef = factions.get(fid);
+        islandMarkers.push({ name: isl.name, faction: fid, stance: factions.vsPlayer(fid), emblem: fdef && fdef.emblem, factionColor: fdef ? fdef.color : 0xcbd5e0, dist, ...pr });
       }
     }
     // Air contacts: mark every aircraft (enemy jets, drones, other players) on

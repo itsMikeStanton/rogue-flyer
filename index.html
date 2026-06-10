@@ -36,6 +36,7 @@
       <button id="btn-sound" class="icon-btn" title="Toggle sound">🔊</button>
       <button id="btn-fullscreen" class="icon-btn" title="Fullscreen">⛶</button>
       <button id="btn-settings" class="icon-btn" title="Controls / joystick setup">🎮</button>
+      <button id="btn-factions" class="icon-btn" title="Factions / intel">🎖️</button>
       <button id="btn-editor" class="icon-btn" title="World editor">🗺</button>
     </div>
 
@@ -184,6 +185,19 @@
         <button id="btn-settings-reset">Reset to defaults</button>
       </div>
       <p class="hint">Tip: to find your throttle axis, push the throttle and watch which bar moves in <b>Live axes</b>, then pick it below. Settings are saved automatically.</p>
+    </div>
+  </div>
+
+  <!-- Faction dossier -->
+  <div id="factions" class="overlay hidden">
+    <div class="panel wide">
+      <h2>Factions of the Archipelago</h2>
+      <p class="tag">The powers contesting the islands. Your stance toward each drives who fires on you.</p>
+      <div id="fac-grid" class="fac-grid"></div>
+      <h3>Standings</h3>
+      <span class="hint">How each faction (row) regards the others (column). Directional &mdash; it need not be mutual.</span>
+      <div class="fac-matrix-wrap"><table id="fac-matrix" class="fac-matrix"></table></div>
+      <div class="menu-buttons"><button id="fac-back" class="primary">Done</button></div>
     </div>
   </div>
 

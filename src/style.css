@@ -717,3 +717,34 @@ button.vr:hover { background: rgba(46,230,166,0.26); }
 .ed-island button { padding: 5px 9px; }
 .ed-island label { display: flex; align-items: center; gap: 4px; font-size: 12px; color: #b9c8d6; }
 .ed-island label input { width: 78px; }
+
+/* --- Faction dossier --------------------------------------------------- */
+.fac-grid {
+  display: grid; gap: 12px; margin: 10px 0 4px;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+.fac-card {
+  display: flex; gap: 12px; align-items: flex-start;
+  background: rgba(10, 16, 26, 0.55); border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 12px; padding: 12px;
+}
+.fac-emblem { flex: 0 0 auto; width: 60px; height: 60px; border-radius: 9px; background: rgba(0, 0, 0, 0.22); }
+.fac-info { min-width: 0; }
+.fac-info h4 { margin: 1px 0 5px; font-size: 15px; letter-spacing: .02em; }
+.fac-you {
+  font-size: 10px; font-weight: 700; color: #0a0f18; background: #5bc8ff;
+  border-radius: 999px; padding: 1px 6px; vertical-align: middle; margin-left: 4px;
+}
+.fac-blurb { margin: 0; font-size: 12px; line-height: 1.45; color: #9fb0c6; }
+.fac-terr { display: inline-block; margin-top: 7px; font-size: 11px; opacity: .9; }
+
+.fac-matrix-wrap { overflow-x: auto; margin-top: 6px; }
+.fac-matrix { width: 100%; border-collapse: collapse; font-size: 12px; }
+.fac-matrix th, .fac-matrix td {
+  padding: 6px 8px; text-align: center; border-bottom: 1px solid rgba(255, 255, 255, 0.06); white-space: nowrap;
+}
+.fac-matrix th.fac-rowh { text-align: left; }
+.fac-s-enemy { color: #ff6b6b; font-weight: 700; }
+.fac-s-ally { color: #5bc8ff; font-weight: 700; }
+.fac-s-neutral { color: #9aa7ba; }
+.fac-self { color: #46506166; }

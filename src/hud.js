@@ -1,4 +1,5 @@
 // Canvas-2D heads-up display drawn over the 3D scene.
+import { drawEmblem } from "./factionEmblems.js";
 
 export class Hud {
   constructor(canvas) {
@@ -405,12 +406,15 @@ export class Hud {
     ctx.strokeStyle = col; ctx.fillStyle = col;
     ctx.font = "11px 'Consolas', monospace";
     if (m.onscreen && !m.behind) {
-      ctx.lineWidth = 1.5;
-      ctx.globalAlpha = 0.9;
-      ctx.beginPath(); ctx.arc(m.x, m.y, 7, 0, Math.PI * 2); ctx.stroke();
-      ctx.beginPath(); ctx.moveTo(m.x, m.y - 12); ctx.lineTo(m.x, m.y - 7); ctx.stroke();
+      ctx.globalAlpha = 0.95;
+      // Faction emblem (in its own colour) marks who holds the island; the ring
+      // falls back for factions without a logo.
+      if (m.emblem) drawEmblem(ctx, m.emblem, m.x, m.y, 9, m.factionColor, { badge: false, weight: 0.16 });
+      else { ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(m.x, m.y, 7, 0, Math.PI * 2); ctx.stroke(); }
+      ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(m.x, m.y - 15); ctx.lineTo(m.x, m.y - 11); ctx.stroke();
       ctx.textAlign = "center";
-      ctx.fillText(`${m.name}  ${km}km`, m.x, m.y - 18);
+      ctx.fillText(`${m.name}  ${km}km`, m.x, m.y - 21);
     } else {
       // off-screen / behind: arrow at the screen edge pointing toward it
       const e = this._edgePoint(m.dirx, m.diry, 64);
@@ -419,6 +423,8 @@ export class Hud {
       ctx.globalAlpha = 0.9;
       ctx.beginPath(); ctx.moveTo(14, 0); ctx.lineTo(-7, -8); ctx.lineTo(-7, 8); ctx.closePath(); ctx.fill();
       ctx.restore();
+      if (m.emblem) drawEmblem(ctx, m.emblem, e.x - 32, e.y - 14, 7, m.factionColor, { badge: false, weight: 0.18 });
+      ctx.strokeStyle = col; ctx.fillStyle = col;
       ctx.textAlign = "center";
       ctx.fillText(`${m.name}  ${km}km`, e.x, e.y - 14);
     }
