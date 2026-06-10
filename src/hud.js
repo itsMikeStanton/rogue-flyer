@@ -398,7 +398,8 @@ export class Hud {
   islandMarker(m) {
     const ctx = this.ctx;
     const cx = this.w / 2, cy = this.h / 2;
-    const col = m.faction === "enemy" ? "#ff6b6b" : m.faction === "ally" ? "#7fd2ff" : "#cbd5e0";
+    const st = m.stance || m.faction; // stance toward the player (enemy/ally/neutral)
+    const col = st === "enemy" ? "#ff6b6b" : st === "ally" ? "#7fd2ff" : "#cbd5e0";
     const km = (m.dist / 1000).toFixed(1);
     ctx.save();
     ctx.strokeStyle = col; ctx.fillStyle = col;

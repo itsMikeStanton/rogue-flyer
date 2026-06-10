@@ -65,6 +65,23 @@ function island(o) {
 export function defaultWorldConfig() {
   return {
     seaLevel: -180,
+    // ---- Factions: who is allied / neutral / hostile to whom. Each island below
+    //      carries a `faction` id; the player flies for `playerFaction`. Stances
+    //      are symmetric and sparse — a faction is allied with itself, an unlisted
+    //      pair uses `defaultStance`, and [a, b, stance] rows override a pair.
+    //      These three built-ins reproduce the classic world (you + allies vs. the
+    //      hostiles, with neutrals who only fight if provoked). To stage a new war,
+    //      add faction ids here and assign them to islands. ----
+    factions: {
+      ally:    { name: "Allied Command", color: 0x7fd2ff },
+      enemy:   { name: "Hostile Forces", color: 0xff6b6b },
+      neutral: { name: "Neutral States", color: 0xcbd5e0 },
+    },
+    playerFaction: "ally",
+    defaultStance: "neutral",         // unlisted faction pairs default to neutral
+    stances: [
+      ["ally", "enemy", "enemy"],     // the one standing hostility in the base world
+    ],
     islands: [
       // Home — your base, with the ally carrier offshore.
       island({

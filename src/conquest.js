@@ -17,12 +17,13 @@
 // Defenses stir once the player is this close (world units) to an enemy island.
 export const AWAKE_RANGE = 9000;
 
-// Base defense by island faction: fighters on patrol + an AI difficulty floor.
-// (Stationary SAM/radar/bunker targets come from the strike-target system; this
-// is the air picket that "wakes up" as you arrive.)
+// Base defense by an island's stance toward the player: fighters on patrol + an
+// AI difficulty floor. (Stationary SAM/radar/bunker targets come from the
+// strike-target system; this is the air picket that "wakes up" as you arrive.)
+// Neutrals field no air picket — they only fight back on the ground once provoked.
 const DEFENSE = {
   enemy:   { fighters: 4, diff: 1.2 },
-  neutral: { fighters: 2, diff: 1.0 },
+  neutral: { fighters: 0, diff: 1.0 },
   ally:    { fighters: 0, diff: 1.0 },
 };
 
@@ -33,18 +34,27 @@ export class ConquestRun {
   // islandSpawns: [{ name, faction, center:{x,z}, spawns:[{kind,name,x,z,...}] }]
   constructor(islandSpawns, opts = {}) {
     this.difficulty = opts.difficulty || "veteran";
-    this.nodes = (islandSpawns || []).map((is, i) => ({
-      id: i,
-      name: is.name,
-      faction: is.faction,
-      center: { x: is.center.x, z: is.center.z },
-      spawns: is.spawns.map((s) => ({ ...s })),
-      owner: "enemy",   // "player" once captured
-      captured: false,
-      awake: false,     // defenses have been triggered
-      defended: false,  // air pickets have actually been spawned (once)
-      targets: [],      // ground targets bound to this island (set at flight start)
-    }));
+    // Stance of each island toward the player. Friendly islands start in your
+    // hands; everything else (hostile + neutral) is a node to capture.
+    const stanceOf = (f) => (opts.factions ? opts.factions.vsPlayer(f)
+      : f === "enemy" ? "enemy" : f === "ally" ? "ally" : "neutral");
+    this.nodes = (islandSpawns || []).map((is, i) => {
+      const stance = stanceOf(is.faction);
+      const friendly = stance === "ally";
+      return {
+        id: i,
+        name: is.name,
+        faction: is.faction,
+        stance,                 // "enemy" | "neutral" | "ally" toward the player
+        center: { x: is.center.x, z: is.center.z },
+        spawns: is.spawns.map((s) => ({ ...s })),
+        owner: friendly ? "player" : "enemy", // "player" once captured / if friendly
+        captured: friendly,
+        awake: false,     // defenses have been triggered
+        defended: false,  // air pickets have actually been spawned (once)
+        targets: [],      // ground targets bound to this island (set at flight start)
+      };
+    });
     // Nothing is yours yet — you seize a single beachhead at setup and take the
     // rest of the map from there. (Faction still sets how hard each island hits;
     // see defenseFor.)
@@ -83,7 +93,7 @@ export class ConquestRun {
 
   // Air picket strength for an island, scaled by the chosen difficulty rule.
   defenseFor(n) {
-    const base = DEFENSE[n.faction] || DEFENSE.enemy;
+    const base = DEFENSE[n.stance] || DEFENSE.enemy;
     const k = DIFF_SCALE[this.difficulty] != null ? DIFF_SCALE[this.difficulty] : 1;
     return { fighters: Math.round(base.fighters * k), diff: base.diff * (0.85 + 0.3 * k) };
   }

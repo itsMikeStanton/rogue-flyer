@@ -30,11 +30,16 @@ const SHARE_DELAY = 1.3;     // after first detection, this long before guns joi
 const ARM_HOLD = 26;         // stay armed/hunting this long after losing contact
 const SEEN_DET = 0.12;       // detectability above this counts as "currently seen"
 
+// How an island engages the player, set from its faction's stance toward you:
+//   "hunt"   (hostile)  — passively scans for you and opens up once it has a fix.
+//   "defend" (neutral)  — sits quiet and only wakes if you provoke it (a hit lands).
+//   "hold"   (friendly) — never engages; stays unaware no matter what.
 export class Faction {
   constructor(id, center) {
     this.id = id;
     this.center = { x: center.x, z: center.z };
     this.lastKnown = new THREE.Vector3();
+    this.mode = "hunt";
     this.reset();
   }
   reset() {
@@ -62,18 +67,23 @@ export class Faction {
   }
 
   update(dt, player, ev) {
+    if (this.mode === "hold") return; // friendly ground never reacts to you
     const dx = player.position.x - this.center.x, dz = player.position.z - this.center.z;
     const inRange = (dx * dx + dz * dz) < SENSOR_RANGE * SENSOR_RANGE;
     const det = inRange ? this.detectability(player) : 0;
     this.litT = Math.max(0, this.litT - dt);
 
     if (!this.armed) {
-      let s = det * PASSIVE_RATE;
-      if (inRange) s += RANDOM_RATE * (0.3 + det);
-      if (ev.firing && inRange) s += FIRE_SUSPICION * (0.5 + 0.5 * det); // shooting gives you away
-      this.suspicion += (s - PASSIVE_COOL) * dt;
-      this.suspicion = THREE.MathUtils.clamp(this.suspicion, 0, 1);
-      if (this.suspicion >= 1) this.spot(player.position);
+      // Neutrals ("defend") never build suspicion on their own — only a direct
+      // provocation (a hit, via spot()) wakes them. Hostiles ("hunt") scan.
+      if (this.mode === "hunt") {
+        let s = det * PASSIVE_RATE;
+        if (inRange) s += RANDOM_RATE * (0.3 + det);
+        if (ev.firing && inRange) s += FIRE_SUSPICION * (0.5 + 0.5 * det); // shooting gives you away
+        this.suspicion += (s - PASSIVE_COOL) * dt;
+        this.suspicion = THREE.MathUtils.clamp(this.suspicion, 0, 1);
+        if (this.suspicion >= 1) this.spot(player.position);
+      }
     } else {
       const seen = det > SEEN_DET || this.litT > 0 || (ev.firing && inRange);
       if (seen) {
@@ -92,6 +102,7 @@ export class Faction {
 
   // Hard alert: a sensor positively has you (a hit landed, or a beam's on you).
   spot(pos) {
+    if (this.mode === "hold") return; // friendly ground never turns on you
     if (!this.armed) { this.armed = true; this.shareTimer = SHARE_DELAY; this.event = "spotted"; }
     this.contact = 1;
     this.lastKnown.copy(pos);
@@ -102,8 +113,11 @@ export class Faction {
   // A searchlight is holding you: keep the fix fresh (and spot if they didn't
   // already know).
   illuminate(pos) {
+    if (this.mode === "hold") return;
     this.litT = 0.5;
-    if (!this.armed) this.spot(pos);
+    // A searchlight catching you only trips a cold island if it's actively
+    // hunting; neutrals wake on a real hit, not on a stray beam.
+    if (!this.armed) { if (this.mode === "hunt") this.spot(pos); }
     else { this.contact = 1; this.lastKnown.copy(pos); this.armTimer = ARM_HOLD; }
   }
 
@@ -128,9 +142,10 @@ export class Faction {
 export class Awareness {
   constructor() { this.factions = new Map(); }
   reset() { this.factions.clear(); }
-  faction(id, center) {
+  faction(id, center, mode) {
     let f = this.factions.get(id);
     if (!f) { f = new Faction(id, center); this.factions.set(id, f); }
+    if (mode) f.mode = mode;
     return f;
   }
   update(dt, player, ev) {

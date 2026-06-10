@@ -70,6 +70,18 @@ export function setActiveIsland(i) { activeIsland = Math.max(0, Math.min(CFG.isl
 export function setWorldConfig(cfg) { CFG = migrate(cfg); if (activeIsland >= CFG.islands.length) activeIsland = 0; }
 export function getWorldConfig() { return CFG; }
 
+// Faction config (registry + player faction + stances) for the active world,
+// backfilled from defaults so worlds saved before factions existed still load.
+export function getFactionConfig() {
+  const def = defaultWorldConfig();
+  return {
+    factions: CFG.factions || def.factions,
+    playerFaction: CFG.playerFaction || def.playerFaction,
+    defaultStance: CFG.defaultStance || def.defaultStance,
+    stances: CFG.stances || def.stances,
+  };
+}
+
 // Carriers / mission targets flattened to WORLD coordinates across all islands.
 export function getCarriers() {
   const out = [];

@@ -1,7 +1,8 @@
 import * as THREE from "three";
 import { AIRCRAFT, buildAircraftMesh } from "./aircraft.js";
 import { createState, step } from "./flight.js";
-import { buildWorld, terrainHeight, groundHeightAt, getCarriers, getIslandSpawns, SEA_LEVEL, lightPoolTexture } from "./world.js";
+import { buildWorld, terrainHeight, groundHeightAt, getCarriers, getIslandSpawns, getFactionConfig, SEA_LEVEL, lightPoolTexture } from "./world.js";
+import { Factions } from "./factions.js";
 import { Input } from "./input.js";
 import { Hud } from "./hud.js";
 import { UI } from "./ui.js";
@@ -59,6 +60,9 @@ enemies.ordnance = enemyOrdnance;
 ground.ordnance = enemyOrdnance;
 // Shared per-island enemy awareness: detection + alert state every defence reads.
 const awareness = new Awareness();
+// Allegiance: who's hostile/neutral/friendly to the player. Rebuilt on each
+// flight start so live edits to the world's faction setup take effect.
+let factions = new Factions(getFactionConfig());
 let threatState = null; // nearest faction's state ("tracking"|"hunting"|null) for the HUD
 // Ambient moving traffic (train, container ships, war zeppelin) — alive in
 // every mode as roaming targets that the player can also crash into.
@@ -374,7 +378,8 @@ function openBriefing(missionId) {
 // --- Conquest: take the whole archipelago, island by island ----------------
 // Open the map screen to choose a beachhead + rules, then launch.
 function openConquest() {
-  conquestRun = new cq.ConquestRun(getIslandSpawns(), { difficulty: "veteran" });
+  factions = new Factions(getFactionConfig()); // current allegiances drive who you must take
+  conquestRun = new cq.ConquestRun(getIslandSpawns(), { difficulty: "veteran", factions });
   flying = false;
   ui.showConquest(conquestRun, world, { mode: "setup" });
 }
@@ -1015,6 +1020,7 @@ function resetFlight() {
   pendingMissionDef = null;
   enemyOrdnance.reset();
   awareness.reset();
+  factions = new Factions(getFactionConfig()); // pick up any live edits to allegiances
   assignFactions(); // hand every defence its island's shared awareness state
   threatState = null;
   prevDestroyed = 0; prevKills = 0; wasOnGround = true;
@@ -1036,9 +1042,16 @@ function assignFactions() {
     for (const is of islands) { const dx = x - is.center.x, dz = z - is.center.z, d = dx * dx + dz * dz; if (d < bd) { bd = d; best = is; } }
     return best;
   };
+  // Stance toward the player picks how an island's defences behave: hostile
+  // islands hunt you, neutrals only fight back once provoked, friendlies hold.
+  const modeFor = (s) => (s === "enemy" ? "hunt" : s === "neutral" ? "defend" : "hold");
   // Skip anything already dead/neutralised (e.g. a captured island's defences in
   // Conquest) so we don't spin up a phantom faction for friendly ground.
-  const tag = (obj) => { if (!obj.alive) return; const pos = obj.position; const is = nearest(pos.x, pos.z); if (is) obj.faction = awareness.faction(is.name, is.center); };
+  const tag = (obj) => {
+    if (!obj.alive) return;
+    const pos = obj.position; const is = nearest(pos.x, pos.z);
+    if (is) obj.faction = awareness.faction(is.name, is.center, modeFor(factions.vsPlayer(is.faction)));
+  };
   for (const t of ground.targets) tag(t);
   for (const e of enemies.targets) tag(e);
 }
@@ -2022,7 +2035,7 @@ function frame(now) {
         const dist = Math.hypot(dx, dz);
         if (dist < 9000) continue; // don't mark the island you're over
         const pr = projectHud(_v.set(isl.center.x, SEA_LEVEL + 1500, isl.center.z));
-        islandMarkers.push({ name: isl.name, faction: isl.faction, dist, ...pr });
+        islandMarkers.push({ name: isl.name, faction: isl.faction, stance: factions.vsPlayer(isl.faction), dist, ...pr });
       }
     }
     // Air contacts: mark every aircraft (enemy jets, drones, other players) on
