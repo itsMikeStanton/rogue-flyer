@@ -34,7 +34,7 @@ export class MapView {
     this.view = { island: null };
     this.isOpen = this.embedded;
     this._tf = null; this._mouse = null; this._markers = [];
-    this.cam = null; this._drag = null; this._dragMoved = false; this._sidebarHits = [];
+    this.cam = null; this._drag = null; this._dragMoved = false; this._sidebarHits = []; this.routeMode = false;
     this.labelsOn = true;
     try { this.labelsOn = localStorage.getItem("rf.mapLabels") !== "0"; } catch (_) { /* ignore */ }
     this._top = this.embedded ? 0 : 40;       // header band
@@ -47,6 +47,7 @@ export class MapView {
       canvas.addEventListener("mousedown", (e) => { if (this.cam) this._drag = { ...this._evtPos(e), cx: this.cam.cx, cz: this.cam.cz, moved: false }; });
       window.addEventListener("mouseup", () => { this._dragMoved = !!(this._drag && this._drag.moved); this._drag = null; });
       canvas.addEventListener("wheel", (e) => this._onWheel(e), { passive: false });
+      canvas.addEventListener("contextmenu", (e) => { if (this.routeMode && this.opts.onRouteUndo) { e.preventDefault(); this.opts.onRouteUndo(); this.draw(); } });
     }
     window.addEventListener("resize", this._onResize);
   }
@@ -68,6 +69,11 @@ export class MapView {
   setLabels(on) {
     this.labelsOn = !!on;
     try { localStorage.setItem("rf.mapLabels", on ? "1" : "0"); } catch (_) { /* ignore */ }
+    if (this.isOpen) this.draw();
+  }
+  setRouteMode(on) {
+    this.routeMode = !!on;
+    this.canvas.style.cursor = on ? "crosshair" : "";
     if (this.isOpen) this.draw();
   }
   close() {
@@ -382,6 +388,9 @@ export class MapView {
       if (showItems && !dead && LABEL_KINDS.has(f.kind)) labelFeats.push({ x, y, wx: f.x, wz: f.z, text: f.label });
     }
 
+    // Planned flight route (waypoints + legs).
+    this._drawRoute(tf);
+
     // Island names are always on (tactical caps); item descriptors only when
     // zoomed in past the overview and labels are enabled.
     this._drawLabels(isl, labelFeats, tf, showItems);
@@ -469,7 +478,8 @@ export class MapView {
     ctx.fillText("◈ TACTICAL COMMAND — ARCHIPELAGO", 16, this._top / 2 + 1);
     if ("letterSpacing" in ctx) ctx.letterSpacing = "1px";
     ctx.textAlign = "right"; ctx.fillStyle = "#67798c"; ctx.font = "10px ui-monospace, 'Consolas', monospace";
-    ctx.fillText("DRAG PAN  ·  WHEEL ZOOM  ·  HOVER DETAIL  ·  ESC CLOSE", W - 14, this._top / 2 + 1);
+    ctx.fillText(this.routeMode ? "ROUTE PLOT — CLICK: ADD WPT  ·  RIGHT-CLICK: UNDO  ·  ESC CLOSE"
+      : "DRAG PAN  ·  WHEEL ZOOM  ·  HOVER DETAIL  ·  ESC CLOSE", W - 14, this._top / 2 + 1);
     ctx.restore();
   }
 
@@ -552,6 +562,7 @@ export class MapView {
     const p = this._evtPos(e);
     if (this.opts.onPick) { const is = this._hitIsland(p.x, p.y); if (is) this.opts.onPick(is.name); return; }
     if (this._dragMoved) { this._dragMoved = false; return; } // that was a pan, not a click
+    if (this.routeMode && this.opts.onRouteAdd) { this.opts.onRouteAdd(this._tf.toWX(p.x), this._tf.toWZ(p.y)); this.draw(); return; }
     for (const h of this._sidebarHits) { if (p.x >= h.x && p.x <= h.x + h.w && p.y >= h.y && p.y <= h.y + h.h) { this._zoomToIsland(h.island); return; } }
     const is = this._hitIsland(p.x, p.y);
     if (is) this._zoomToIsland(is.name);
@@ -598,6 +609,25 @@ export class MapView {
         if (is) this._placeLabel(f, is, tf, placed);
       }
     }
+  }
+  // Planned route: dashed legs between numbered waypoint pucks.
+  _drawRoute(tf) {
+    const route = this.opts.getRoute && this.opts.getRoute();
+    if (!route || !route.length) return;
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.strokeStyle = "rgba(80,200,255,0.75)"; ctx.lineWidth = 1.6; ctx.setLineDash([7, 5]); ctx.lineJoin = "round";
+    ctx.beginPath();
+    for (let i = 0; i < route.length; i++) { const X = tf.toX(route[i].x), Y = tf.toY(route[i].z); i ? ctx.lineTo(X, Y) : ctx.moveTo(X, Y); }
+    ctx.stroke(); ctx.setLineDash([]);
+    ctx.font = "700 10px ui-monospace, 'Consolas', monospace"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    for (let i = 0; i < route.length; i++) {
+      const X = tf.toX(route[i].x), Y = tf.toY(route[i].z);
+      ctx.fillStyle = "rgba(6,14,22,0.92)"; ctx.strokeStyle = "#46c8ff"; ctx.lineWidth = 1.6;
+      ctx.beginPath(); ctx.arc(X, Y, 8, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = "#d4f0fb"; ctx.fillText(String(i + 1), X, Y + 0.5);
+    }
+    ctx.restore();
   }
   _overlap(a, b) { return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y; }
   _islandAt(wx, wz) { let best = null, bd = Infinity; for (const is of this._islands()) { const d = Math.hypot(wx - is.center.x, wz - is.center.z); if (d < bd) { bd = d; best = is; } } return best; }

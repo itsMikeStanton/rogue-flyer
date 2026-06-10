@@ -320,7 +320,11 @@
   <div id="mapview" class="mapview-overlay hidden">
     <canvas id="map-canvas"></canvas>
     <button id="map-close" class="map-close" title="Close (Esc / O)">✕</button>
-    <button id="map-labels" class="map-toggle on" title="Toggle item labels">◫ LABELS</button>
+    <div class="map-tools">
+      <button id="map-route" class="map-toggle" title="Plot a flight route: click to add waypoints, right-click to undo">◇ ROUTE</button>
+      <button id="map-route-clear" class="map-toggle" title="Clear the route">✕ CLR</button>
+      <button id="map-labels" class="map-toggle on" title="Toggle item labels">◫ LABELS</button>
+    </div>
   </div>
 
   <!-- Radio comms callout line (terse military chatter) -->

@@ -205,6 +205,48 @@ export class Hud {
 
     // Landing-approach guidance (gates, ILS deviation cross, callouts).
     if (extra.approach) this.approach(extra.approach);
+    // Flight-plan route: waypoint markers, legs, next-waypoint cue.
+    if (extra.route) this.route(extra.route);
+  }
+
+  // Planned route flown in-game: numbered waypoint diamonds joined by legs, the
+  // active waypoint highlighted (amber) with an edge arrow when off-screen, and a
+  // progress readout. Mirrors the approach aid but for arbitrary waypoints.
+  route(r) {
+    const ctx = this.ctx, cx = this.w / 2;
+    const CY = "#36c8ff", NX = "#ffd23f", DN = "rgba(110,170,140,0.5)";
+    ctx.save();
+    // Legs between consecutive on-screen waypoints.
+    ctx.lineWidth = 1.4; ctx.setLineDash([6, 5]);
+    for (let i = 0; i < r.wps.length - 1; i++) {
+      const a = r.wps[i], b = r.wps[i + 1];
+      if (a.behind || b.behind) continue;
+      ctx.strokeStyle = b.done ? DN : (b.next ? NX : "rgba(54,200,255,0.5)");
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
+    }
+    ctx.setLineDash([]);
+    // Waypoint pucks.
+    for (const w of r.wps) {
+      const col = w.done ? DN : (w.next ? NX : CY);
+      if (w.onscreen && !w.behind) {
+        const s = w.next ? 9 : 6;
+        ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = w.next ? 2.2 : 1.5;
+        ctx.beginPath(); ctx.moveTo(w.x, w.y - s); ctx.lineTo(w.x + s, w.y); ctx.lineTo(w.x, w.y + s); ctx.lineTo(w.x - s, w.y); ctx.closePath(); ctx.stroke();
+        ctx.font = "10px 'Consolas', monospace"; ctx.textAlign = "center";
+        ctx.fillText(String(w.idx), w.x, w.y - s - 5);
+        if (w.next) { ctx.globalAlpha = 0.5; ctx.beginPath(); ctx.arc(w.x, w.y, s + 5, 0, Math.PI * 2); ctx.stroke(); ctx.globalAlpha = 1; }
+      } else if (w.next) {
+        const e = this._edgePoint(w.dirx, w.diry, 60);
+        ctx.save(); ctx.translate(e.x, e.y); ctx.rotate(e.ang);
+        ctx.fillStyle = NX; ctx.beginPath(); ctx.moveTo(14, 0); ctx.lineTo(-7, -8); ctx.lineTo(-7, 8); ctx.closePath(); ctx.fill();
+        ctx.restore();
+      }
+    }
+    // Progress readout.
+    ctx.textAlign = "center"; ctx.font = "12px 'Consolas', monospace";
+    if (r.next) { ctx.fillStyle = NX; ctx.fillText(`ROUTE ▸ WPT ${r.next.idx}/${r.total}  ·  ${(r.next.dist / 1000).toFixed(1)} km`, cx, 96); }
+    else { ctx.fillStyle = "#36ff9a"; ctx.fillText("ROUTE COMPLETE", cx, 96); }
+    ctx.restore();
   }
 
   // ILS-style approach guidance: a tunnel of gates to fly through, a localizer/

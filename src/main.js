@@ -651,10 +651,25 @@ const ui = new UI(input, {
 
 // Accurate archipelago map — overview + click-to-zoom, on the menu and live in
 // flight (a tactical kneeboard; the sim keeps running underneath).
+// --- Flight-plan route: waypoints drawn on the map, flown in-game ------------
+const ROUTE_REACH = 450;   // pass within this (m) of a waypoint to tick it off
+let route = [];     // [{x, z, y}] world coords; y = planned altitude
+let routeIdx = 0;   // index of the current target waypoint (auto-advances)
+try { const r = JSON.parse(localStorage.getItem("rf.route") || "[]"); if (Array.isArray(r)) route = r.filter((w) => w && isFinite(w.x) && isFinite(w.z)); } catch (_) { /* ignore */ }
+function saveRoute() { try { localStorage.setItem("rf.route", JSON.stringify(route)); } catch (_) { /* ignore */ } }
+function routeAlt(x, z) { return Math.max(terrainHeight(x, z) + 300, SEA_LEVEL + 500); }
+function routeAdd(x, z) { route.push({ x, z, y: routeAlt(x, z) }); saveRoute(); }
+function routeUndo() { route.pop(); if (routeIdx > route.length) routeIdx = route.length; saveRoute(); }
+function routeClear() { route.length = 0; routeIdx = 0; saveRoute(); }
+
 const mapView = new MapView(document.getElementById("map-canvas"), {
   factionOf: factionIdByName,
   getFactions: () => factions,
   getSites: buildMapSites,
+  getRoute: () => route,
+  onRouteAdd: (x, z) => routeAdd(x, z),
+  onRouteUndo: () => routeUndo(),
+  onRouteClear: () => routeClear(),
   getPlayer: () => {
     if (!flying || paused) return null;
     const f = new THREE.Vector3(0, 0, -1).applyQuaternion(state.quaternion);
@@ -672,6 +687,10 @@ const mapView = new MapView(document.getElementById("map-canvas"), {
     ml.classList.toggle("on", mapView.labelsOn);
     ml.addEventListener("click", () => { mapView.setLabels(!mapView.labelsOn); ml.classList.toggle("on", mapView.labelsOn); });
   }
+  const mr = document.getElementById("map-route");
+  if (mr) mr.addEventListener("click", () => { mapView.setRouteMode(!mapView.routeMode); mr.classList.toggle("on", mapView.routeMode); });
+  const mrc = document.getElementById("map-route-clear");
+  if (mrc) mrc.addEventListener("click", () => { routeClear(); mapView.draw(); });
 }
 
 // Embedded accurate map for the Conquest planner: same renderer, with islands
@@ -1102,6 +1121,7 @@ function placePlayer() {
 // wreckage), then place the player. Used when launching from the main menu.
 function resetFlight() {
   ringsHit = 0;
+  routeIdx = 0; // restart the flight plan from the first waypoint
   world.rings.forEach((r) => { r.visible = true; r.userData.hit = false; });
   const strike = gameMode === "mission" || gameMode === "campaign" || gameMode === "conquest";
   enemies.setMode(gameMode);
@@ -2214,6 +2234,22 @@ function frame(now) {
       });
     }
 
+    // Flight-plan route: project each waypoint, auto-advance as you reach them.
+    let routeHud = null;
+    if (route.length) {
+      while (routeIdx < route.length) {
+        const w = route[routeIdx];
+        if (Math.hypot(state.position.x - w.x, state.position.z - w.z) < ROUTE_REACH) routeIdx++; else break;
+      }
+      const wps = route.map((w, i) => ({ idx: i + 1, done: i < routeIdx, next: i === routeIdx, ...projectHud(_v.set(w.x, w.y, w.z)) }));
+      let next = null;
+      if (routeIdx < route.length) {
+        const w = route[routeIdx];
+        next = { idx: routeIdx + 1, dist: Math.hypot(state.position.x - w.x, state.position.z - w.z) };
+      }
+      routeHud = { wps, next, total: route.length, remaining: Math.max(0, route.length - routeIdx) };
+    }
+
     // Attitude for the HUD horizon ladder.
     _v.set(0, 0, -1).applyQuaternion(state.quaternion);
     const pitchAng = Math.asin(THREE.MathUtils.clamp(_v.y, -1, 1));
@@ -2254,6 +2290,7 @@ function frame(now) {
       contacts: radarOff ? null : contacts,
       radar: radarOff ? null : radar,
       approach: approachHud,
+      route: radarOff ? null : routeHud,
     });
   } else {
     hud.ctx.clearRect(0, 0, hud.w, hud.h);
