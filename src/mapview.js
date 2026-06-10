@@ -81,33 +81,84 @@ export class MapView {
     return { x: (e.clientX - rect.left) * sx, y: (e.clientY - rect.top) * sy };
   }
 
-  // --- terrain raster (neutral; shared cache) ------------------------------
+  // --- terrain raster (neutral hillshade + vector coastline; shared cache) --
+  // Bakes a slope-shaded relief image so ridges/valleys read, plus a crisp
+  // coastline traced from the real height field (marching squares) that stays
+  // sharp at any zoom — the two things that make the land legible.
   _raster(is) {
     const hit = RASTERS.get(is.name);
     if (hit) return hit;
-    const N = 176, R = is.outer * 1.06;
-    const cv = document.createElement("canvas"); cv.width = cv.height = N;
+    const G = 192, R = is.outer * 1.06, sea = SEA_LEVEL;
+    // Sample the height field on a (G+1)² grid (shared by shading + contour).
+    const H = new Float32Array((G + 1) * (G + 1));
+    const pos = (k) => (k / G - 0.5) * 2 * R;
+    for (let j = 0; j <= G; j++) {
+      const wz = is.center.z + pos(j);
+      for (let i = 0; i <= G; i++) H[j * (G + 1) + i] = terrainHeight(is.center.x + pos(i), wz);
+    }
+    // Hillshade image (light from the NW), tinted muted olive, with a teal shelf.
+    const cell = (2 * R) / G;
+    let Lx = -0.55, Ly = 0.74, Lz = -0.38; const Ll = Math.hypot(Lx, Ly, Lz); Lx /= Ll; Ly /= Ll; Lz /= Ll;
+    const cv = document.createElement("canvas"); cv.width = cv.height = G;
     const c = cv.getContext("2d");
-    const img = c.createImageData(N, N), d = img.data;
-    for (let j = 0; j < N; j++) {
-      const lz = (j / (N - 1) - 0.5) * 2 * R;
-      for (let i = 0; i < N; i++) {
-        const lx = (i / (N - 1) - 0.5) * 2 * R;
-        const h = terrainHeight(is.center.x + lx, is.center.z + lz);
-        const idx = (j * N + i) * 4;
-        if (h > SEA_LEVEL) {
-          const e = Math.min(1, (h - SEA_LEVEL) / 1500);
-          const k = 0.46 + 0.6 * e;                  // muted olive-grey relief
-          d[idx] = 74 * k; d[idx + 1] = 90 * k; d[idx + 2] = 76 * k; d[idx + 3] = 255;
-        } else if (h > SEA_LEVEL - 150) {            // shore shelf
-          d[idx] = 32; d[idx + 1] = 58; d[idx + 2] = 70; d[idx + 3] = 130;
+    const img = c.createImageData(G, G), d = img.data;
+    const at = (i, j) => H[j * (G + 1) + i];
+    for (let j = 0; j < G; j++) {
+      for (let i = 0; i < G; i++) {
+        const h = at(i, j), idx = (j * G + i) * 4;
+        if (h > sea) {
+          const hx = at(Math.min(G, i + 1), j) - at(Math.max(0, i - 1), j);
+          const hz = at(i, Math.min(G, j + 1)) - at(i, Math.max(0, j - 1));
+          let nx = -hx, nz = -hz, ny = 2 * cell; const nl = Math.hypot(nx, ny, nz) || 1;
+          const shade = Math.max(0, (nx * Lx + ny * Ly + nz * Lz) / nl);
+          const b = 0.32 + 0.85 * shade;                 // relief brightness
+          const e = Math.min(1, (h - sea) / 2200);       // peaks a touch lighter
+          d[idx] = Math.min(255, (62 + 34 * e) * b);
+          d[idx + 1] = Math.min(255, (78 + 30 * e) * b);
+          d[idx + 2] = Math.min(255, (60 + 24 * e) * b);
+          d[idx + 3] = 255;
+        } else if (h > sea - 160) {                      // shore shelf
+          d[idx] = 26; d[idx + 1] = 52; d[idx + 2] = 64; d[idx + 3] = 120;
         } else { d[idx + 3] = 0; }
       }
     }
     c.putImageData(img, 0, 0);
-    const rec = { canvas: cv, R };
+    const rec = { canvas: cv, R, coast: this._coastline(H, G, sea, R, is.center) };
     RASTERS.set(is.name, rec);
     return rec;
+  }
+
+  // Marching-squares isocontour of the shoreline -> world-space line segments
+  // [x0,z0,x1,z1, ...]. Drawn as a crisp stroke, so it scales without blur.
+  _coastline(H, G, t, R, center) {
+    const segs = [];
+    const pos = (k) => (k / G - 0.5) * 2 * R;
+    const lerp = (a, b, ha, hb) => { const dd = hb - ha; const tt = Math.abs(dd) < 1e-6 ? 0.5 : (t - ha) / dd; return a + (b - a) * tt; };
+    for (let j = 0; j < G; j++) {
+      for (let i = 0; i < G; i++) {
+        const h00 = H[j * (G + 1) + i], h10 = H[j * (G + 1) + i + 1];
+        const h01 = H[(j + 1) * (G + 1) + i], h11 = H[(j + 1) * (G + 1) + i + 1];
+        let cse = 0; if (h00 > t) cse |= 1; if (h10 > t) cse |= 2; if (h11 > t) cse |= 4; if (h01 > t) cse |= 8;
+        if (cse === 0 || cse === 15) continue;
+        const xL = pos(i), xR = pos(i + 1), zT = pos(j), zB = pos(j + 1);
+        const top = () => [lerp(xL, xR, h00, h10), zT];
+        const right = () => [xR, lerp(zT, zB, h10, h11)];
+        const bottom = () => [lerp(xL, xR, h01, h11), zB];
+        const left = () => [xL, lerp(zT, zB, h00, h01)];
+        const push = (a, b) => segs.push(center.x + a[0], center.z + a[1], center.x + b[0], center.z + b[1]);
+        switch (cse) {
+          case 1: case 14: push(left(), top()); break;
+          case 2: case 13: push(top(), right()); break;
+          case 3: case 12: push(left(), right()); break;
+          case 4: case 11: push(right(), bottom()); break;
+          case 6: case 9: push(top(), bottom()); break;
+          case 7: case 8: push(left(), bottom()); break;
+          case 5: push(left(), top()); push(right(), bottom()); break;
+          case 10: push(top(), right()); push(bottom(), left()); break;
+        }
+      }
+    }
+    return segs;
   }
 
   // --- view transform (leaves room for header + sidebar) -------------------
@@ -159,15 +210,27 @@ export class MapView {
       for (let y = y0; y < H; y += step) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke(); }
     }
 
-    // Land (accurate, neutral terrain).
+    // Land (accurate hillshaded terrain).
     const isl = this._islands();
     ctx.imageSmoothingEnabled = true;
-    for (const is of isl) {
-      const r = this._raster(is);
+    const rasters = isl.map((is) => this._raster(is));
+    for (let k = 0; k < isl.length; k++) {
+      const is = isl[k], r = rasters[k];
       const x0 = tf.toX(is.center.x - r.R), y0 = tf.toY(is.center.z - r.R);
       const x1 = tf.toX(is.center.x + r.R), y1 = tf.toY(is.center.z + r.R);
       ctx.drawImage(r.canvas, x0, y0, x1 - x0, y1 - y0);
     }
+    // Crisp vector coastline on top — the big legibility win, sharp at any zoom.
+    ctx.strokeStyle = "#aed6df"; ctx.lineWidth = zoomed ? 1.8 : 1.2; ctx.globalAlpha = 0.85;
+    ctx.lineJoin = "round"; ctx.beginPath();
+    for (const r of rasters) {
+      const seg = r.coast;
+      for (let s = 0; s < seg.length; s += 4) {
+        ctx.moveTo(tf.toX(seg[s]), tf.toY(seg[s + 1]));
+        ctx.lineTo(tf.toX(seg[s + 2]), tf.toY(seg[s + 3]));
+      }
+    }
+    ctx.stroke(); ctx.globalAlpha = 1;
 
     // Conquest: ring islands by who holds them; halo the selected beachhead.
     if (nodes) {
