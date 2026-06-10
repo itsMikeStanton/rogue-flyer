@@ -222,6 +222,77 @@ function riverCenterXLocal(is, z) {
 // Editor convenience (operates on the active island, in its local coords).
 export function riverCenterX(z) { return riverCenterXLocal(getActiveIsland(), z); }
 
+// Per-island MACRO SHAPE. Returns { mask, add }: `mask` is the sea blend
+// (0 = solid land .. 1 = open sea/deep floor) and `add` is a height bonus layered
+// onto the land (ridges, peaks). With no `is.shape` this reproduces the original
+// radial blob, so existing islands are untouched. The runway always sits on the
+// flat hub at the local origin (see islandHeight), so every shape keeps the
+// centre as land — even the atoll grows a little airstrip islet in its lagoon.
+function shapeField(is, x, z, d) {
+  const t = is.terrain;
+  const ss = THREE.MathUtils.smoothstep;
+  const s = is.shape;
+  if (!s) return { mask: ss(d, t.islandInner, t.islandOuter), add: 0 };
+  const ang = Math.atan2(z, x);
+
+  if (s.type === "lobes") {
+    // Starfish / medusa: the coastline radius swells and pinches with angle, so
+    // the island grows N reaching arms with deep channels carved between them.
+    const k = 1 + (s.amp ?? 0.42) * Math.cos((s.arms ?? 6) * ang + (s.phase ?? 0));
+    return { mask: ss(d, t.islandInner * k, t.islandOuter * k), add: 0 };
+  }
+  if (s.type === "atoll") {
+    // A reef ring: land only in a band around `ring`; open sea outside AND a
+    // lagoon inside. The ring wobbles so the reef isn't a perfect O.
+    const wob = 1 + 0.16 * Math.sin(ang * (s.wobble ?? 5) + 1.3);
+    const R = (s.ring ?? t.islandInner * 0.78) * wob, W = s.width ?? 1500;
+    const outerSea = ss(d, R + W, R + W + (s.ramp ?? 650));
+    const lagoonSea = 1 - ss(d, R - W - (s.lagoon ?? 800), R - W);
+    return { mask: Math.max(outerSea, lagoonSea), add: 0 };
+  }
+  if (s.type === "crescent") {
+    // A C: a normal blob with a big circular bite taken out of one side, leaving
+    // a sheltered horseshoe harbour.
+    const base = ss(d, t.islandInner, t.islandOuter);
+    const dB = Math.hypot(x - (s.biteX ?? 0), z - (s.biteZ ?? -6500));
+    const bite = 1 - ss(dB, s.biteR ?? 5000, (s.biteR ?? 5000) + 350);
+    return { mask: Math.max(base, bite), add: 0 };
+  }
+  if (s.type === "spiral") {
+    // A maelstrom of stone: a ridge winding inward over the blob.
+    const base = ss(d, t.islandInner, t.islandOuter);
+    let add = 0;
+    const R = s.spiralR ?? t.islandInner;
+    if (d < R) {
+      const phase = (ang / (Math.PI * 2)) * (s.turns ?? 2.6) + d / (s.pitch ?? 1500);
+      const fr = phase - Math.floor(phase);
+      const ridge = Math.exp(-((fr - 0.5) * (fr - 0.5)) / (2 * 0.15 * 0.15));
+      add = ridge * (s.height ?? 800) * (1 - ss(d, R * 0.82, R)) * ss(d, R * 0.12, R * 0.3);
+    }
+    return { mask: base, add };
+  }
+  if (s.type === "ridges") {
+    // Gaussian mountains set into a blob — twin peaks with a saddle between.
+    const base = ss(d, t.islandInner, t.islandOuter);
+    let add = 0;
+    for (const p of (s.peaks || [])) {
+      const dp = Math.hypot(x - p.x, z - p.z);
+      add += p.h * Math.exp(-(dp * dp) / (2 * p.r * p.r));
+    }
+    return { mask: base, add };
+  }
+  if (s.type === "shatter") {
+    // A shattered archipelago: scattered islets where a blobby noise crosses a
+    // threshold, all fading to sea past the region edge — weave between them.
+    const region = ss(d, s.regionInner ?? t.islandInner * 0.6, s.regionOuter ?? t.islandOuter);
+    const wx = x + is.center.x, wz = z + is.center.z, sc = s.scale ?? 0.00085;
+    const patch = smoothNoise(wx * sc, wz * sc) * 0.7 + smoothNoise(wx * sc * 2.3, wz * sc * 2.3) * 0.3;
+    const land = THREE.MathUtils.clamp((patch - (s.thresh ?? 0.5)) * (s.sharp ?? 9), 0, 1);
+    return { mask: Math.max(1 - land, region), add: 0 };
+  }
+  return { mask: ss(d, t.islandInner, t.islandOuter), add: 0 };
+}
+
 // Local height field for one island. x,z are island-LOCAL; the base fractal
 // noise samples world coords (center-offset) so islands don't look identical.
 function islandHeight(is, x, z) {
@@ -233,8 +304,9 @@ function islandHeight(is, x, z) {
   h += smoothNoise(wx * f * 8.0, wz * f * 8.0) * 70;
   h -= 600;
   const d = Math.sqrt(x * x + z * z);
-  const isl = THREE.MathUtils.smoothstep(d, is.terrain.islandInner, is.terrain.islandOuter);
-  h = THREE.MathUtils.lerp(h, is.terrain.deep, isl);
+  const sf = shapeField(is, x, z, d);
+  h = THREE.MathUtils.lerp(h, is.terrain.deep, sf.mask);
+  h += sf.add;
   const cf = is.cliff;
   const cdist = Math.hypot(x - cf.x, z - cf.z);
   if (cdist < cf.r + 230) {

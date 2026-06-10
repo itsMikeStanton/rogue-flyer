@@ -52,6 +52,9 @@ function island(o) {
     bridges: o.bridges || [-1600, 2600],
     roads: o.roads || HOME_ROADS.map((r) => r.map((p) => [...p])),
     missionBases: o.missionBases || [],
+    // Macro coastline shape (atoll / lobes / crescent / spiral / ridges /
+    // shatter); null = the original radial blob. Read by world.js islandHeight.
+    shape: o.shape || null,
     // Signature props. Home keeps the radio tower + lighthouse; other islands
     // can opt out (landmarks:false) and/or grow a glowing spire monument.
     landmarks: o.landmarks !== false,
@@ -107,6 +110,146 @@ export function defaultWorldConfig() {
           [[-1600, -3600], [-200, -1400]],
           [[3000, -2800], [1100, -1100]],
         ],
+      }),
+
+      // ============ 7 wild islands — distinct macro shapes (world.js shapeField) ============
+
+      // Coral Halo — an ATOLL: a wobbling reef ring around a turquoise lagoon,
+      // with a lone airstrip islet flattened at its heart. Neutral free port.
+      island({
+        name: "Coral Halo", faction: "neutral", seed: 0x10ffa3, center: { x: -38000, z: 8000 },
+        terrain: { islandInner: 6000, islandOuter: 9000, deep: -650 },
+        shape: { type: "atoll", ring: 5200, width: 1500, ramp: 650, lagoon: 900, wobble: 5 },
+        cliff: { x: 0, z: 5200, r: 850, h: 460 }, // a beacon knoll on the reef
+        spawn: { flattenRadius: 1700, x: 0, z: 0, flatCore: 1100, flatRamp: 550 },
+        forest: { extent: 9000, gridN: 80, maxTrees: 7000, perCell: 10, density: null },
+        river: null, landmarks: false, roads: [], bridges: [],
+        settlements: [
+          { kind: "town", x: 5000, z: 700, radius: 2, spacing: 110, maxHeight: 120 },
+          { kind: "town", x: -3700, z: 3700, radius: 2, spacing: 110, maxHeight: 110 },
+          { kind: "village", x: 900, z: -5100, radius: 1, spacing: 90, maxHeight: 70 },
+          { kind: "village", x: -5000, z: -1400, radius: 1, spacing: 90, maxHeight: 70 },
+          { kind: "village", x: 3600, z: -3700, radius: 1, spacing: 90, maxHeight: 70 },
+        ],
+        missionBases: [[5000, 600], [-3800, 3700], [800, -5100]],
+      }),
+
+      // Medusa — a 6-armed STARFISH reaching long peninsulas into deep channels,
+      // a central massif beside the strip. Enemy stronghold (glowing spire).
+      island({
+        name: "Medusa", faction: "enemy", seed: 0x6a11dd, center: { x: 12000, z: 40000 },
+        terrain: { islandInner: 4400, islandOuter: 7800, deep: -950 },
+        shape: { type: "lobes", arms: 6, amp: 0.42, phase: 0.4 },
+        cliff: { x: 2200, z: 0, r: 1500, h: 880 },
+        spawn: { flattenRadius: 1650, x: 0, z: 0, flatCore: 1050, flatRamp: 550 },
+        forest: { extent: 11000, gridN: 96, maxTrees: 16000, perCell: 14, density: null },
+        river: null, landmarks: false, spire: true, roads: [], bridges: [],
+        settlements: [
+          { kind: "city", x: 9000, z: 0, radius: 3, spacing: 128, maxHeight: 260 },
+          { kind: "town", x: 4500, z: 7800, radius: 2, spacing: 120, maxHeight: 170 },
+          { kind: "town", x: -4500, z: 7800, radius: 2, spacing: 120, maxHeight: 170 },
+          { kind: "city", x: -9000, z: 0, radius: 3, spacing: 128, maxHeight: 250 },
+          { kind: "town", x: -4500, z: -7800, radius: 2, spacing: 120, maxHeight: 170 },
+          { kind: "town", x: 4500, z: -7800, radius: 2, spacing: 120, maxHeight: 170 },
+        ],
+        missionBases: [[8500, 0], [4200, 7300], [-8500, 0], [-4200, -7300]],
+      }),
+
+      // Halfmoon — a CRESCENT: a horseshoe wrapping a sheltered south bay. Ally
+      // outpost.
+      island({
+        name: "Halfmoon", faction: "ally", seed: 0x33aa77, center: { x: -20000, z: -38000 },
+        terrain: { islandInner: 6500, islandOuter: 10000, deep: -800 },
+        shape: { type: "crescent", biteX: 0, biteZ: -7200, biteR: 5200 },
+        cliff: { x: 0, z: 5600, r: 1200, h: 600 }, // headland on the back of the horseshoe
+        spawn: { flattenRadius: 1650, x: 0, z: 0, flatCore: 1050, flatRamp: 550 },
+        forest: { extent: 10000, gridN: 96, maxTrees: 20000, perCell: 16, density: null },
+        river: null, landmarks: false, roads: [], bridges: [],
+        settlements: [
+          { kind: "city", x: 0, z: 5200, radius: 3, spacing: 130, maxHeight: 240 },
+          { kind: "town", x: 5200, z: 1600, radius: 2, spacing: 120, maxHeight: 160 },
+          { kind: "town", x: -5200, z: 1600, radius: 2, spacing: 120, maxHeight: 160 },
+          { kind: "town", x: 6200, z: -3200, radius: 2, spacing: 115, maxHeight: 140 },
+          { kind: "town", x: -6200, z: -3200, radius: 2, spacing: 115, maxHeight: 140 },
+          { kind: "village", x: 3200, z: 4200, radius: 1, spacing: 90, maxHeight: 80 },
+        ],
+        missionBases: [],
+      }),
+
+      // Gemini — TWIN PEAKS flanking a valley airstrip in the saddle; one summit
+      // is a sheer cliff topped by a spire. Enemy.
+      island({
+        name: "Gemini", faction: "enemy", seed: 0x9e2255, center: { x: 54000, z: -30000 },
+        terrain: { islandInner: 6000, islandOuter: 9500, deep: -1000 },
+        shape: { type: "ridges", peaks: [{ x: -2900, z: 200, h: 980, r: 1700 }, { x: 2900, z: -200, h: 900, r: 1600 }] },
+        cliff: { x: -2900, z: 200, r: 1000, h: 1010 },
+        spawn: { flattenRadius: 1700, x: 0, z: 0, flatCore: 1100, flatRamp: 550 },
+        forest: { extent: 9500, gridN: 96, maxTrees: 22000, perCell: 16, density: null },
+        river: null, landmarks: false, spire: true, roads: [], bridges: [],
+        settlements: [
+          { kind: "city", x: 0, z: 3600, radius: 3, spacing: 130, maxHeight: 230 },
+          { kind: "town", x: 0, z: -4200, radius: 2, spacing: 120, maxHeight: 170 },
+          { kind: "town", x: 5200, z: 3200, radius: 2, spacing: 120, maxHeight: 160 },
+          { kind: "town", x: -5200, z: 3200, radius: 2, spacing: 120, maxHeight: 160 },
+          { kind: "village", x: 5000, z: -3600, radius: 1, spacing: 95, maxHeight: 90 },
+        ],
+        missionBases: [[0, 3600], [-4400, -3000], [4400, -3000]],
+      }),
+
+      // Aerie — a SKY MESA: a tiny footprint rising as sheer cliffs to a flat
+      // tableland city at 900m, runway right on the deck. Enemy eyrie.
+      island({
+        name: "Aerie", faction: "enemy", seed: 0xc0ffee, center: { x: 70000, z: 18000 },
+        terrain: { islandInner: 2700, islandOuter: 3500, deep: -1200 },
+        cliff: { x: 0, z: 0, r: 2400, h: 900 }, // the whole top is one flat table at 900m
+        spawn: { flattenRadius: 0, x: 0, z: 0 }, // no flatten — the cliff top IS the flat runway deck
+        forest: { extent: 3500, gridN: 64, maxTrees: 2500, perCell: 8, density: null },
+        river: null, landmarks: false, roads: [], bridges: [],
+        settlements: [
+          { kind: "city", x: 0, z: 1100, radius: 3, spacing: 120, maxHeight: 300 },
+          { kind: "town", x: 1300, z: -1100, radius: 2, spacing: 110, maxHeight: 200 },
+          { kind: "town", x: -1300, z: -1100, radius: 2, spacing: 110, maxHeight: 200 },
+        ],
+        missionBases: [[0, 1100], [1300, -1000], [-1300, -1000]],
+      }),
+
+      // Maelstrom — a SPIRAL ridge of stone winding inward to a calm "eye" where
+      // the runway sits; a headland on the outer arm wears a spire. Enemy.
+      island({
+        name: "Maelstrom", faction: "enemy", seed: 0x5e7a91, center: { x: -58000, z: -10000 },
+        terrain: { islandInner: 6000, islandOuter: 9200, deep: -1000 },
+        shape: { type: "spiral", spiralR: 6200, turns: 2.6, pitch: 1500, height: 820 },
+        cliff: { x: 4400, z: 2600, r: 1100, h: 980 },
+        spawn: { flattenRadius: 1650, x: 0, z: 0, flatCore: 1050, flatRamp: 550 },
+        forest: { extent: 9200, gridN: 96, maxTrees: 14000, perCell: 13, density: null },
+        river: null, landmarks: false, spire: true, roads: [], bridges: [],
+        settlements: [
+          { kind: "city", x: 4400, z: 2600, radius: 3, spacing: 128, maxHeight: 240 },
+          { kind: "town", x: -3800, z: 3400, radius: 2, spacing: 120, maxHeight: 160 },
+          { kind: "town", x: -3600, z: -3800, radius: 2, spacing: 120, maxHeight: 160 },
+          { kind: "village", x: 2600, z: -3600, radius: 1, spacing: 95, maxHeight: 90 },
+        ],
+        missionBases: [[4400, 2600], [-3800, 3400], [-3600, -3800]],
+      }),
+
+      // The Splinters — a SHATTERED archipelago: scattered islets and shallow
+      // channels you weave between, a sea-stack on one shard. Neutral.
+      island({
+        name: "The Splinters", faction: "neutral", seed: 0x2b7733, center: { x: 28000, z: -52000 },
+        terrain: { islandInner: 6000, islandOuter: 9500, deep: -600 },
+        shape: { type: "shatter", regionInner: 5000, regionOuter: 9500, scale: 0.0009, thresh: 0.5, sharp: 8 },
+        cliff: { x: 3400, z: -2200, r: 700, h: 580 }, // a sea-stack (guaranteed land for the strike base)
+        spawn: { flattenRadius: 1650, x: 0, z: 0, flatCore: 1050, flatRamp: 550 },
+        forest: { extent: 9500, gridN: 88, maxTrees: 9000, perCell: 11, density: null },
+        river: null, landmarks: false, roads: [], bridges: [],
+        settlements: [
+          { kind: "town", x: 3200, z: 2400, radius: 2, spacing: 110, maxHeight: 130 },
+          { kind: "town", x: -3600, z: -1800, radius: 2, spacing: 110, maxHeight: 120 },
+          { kind: "village", x: 1600, z: -4200, radius: 1, spacing: 90, maxHeight: 70 },
+          { kind: "village", x: -2400, z: 3800, radius: 1, spacing: 90, maxHeight: 70 },
+          { kind: "village", x: 5200, z: 600, radius: 1, spacing: 90, maxHeight: 70 },
+        ],
+        missionBases: [[3400, -2200], [800, 800]],
       }),
     ],
   };
