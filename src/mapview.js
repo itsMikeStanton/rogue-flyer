@@ -34,7 +34,7 @@ export class MapView {
     this.view = { island: null };
     this.isOpen = this.embedded;
     this._tf = null; this._mouse = null; this._markers = [];
-    this.cam = null; this._drag = null;        // free pan/zoom camera (full-screen)
+    this.cam = null; this._drag = null; this._dragMoved = false; this._sidebarHits = [];
     this.labelsOn = true;
     try { this.labelsOn = localStorage.getItem("rf.mapLabels") !== "0"; } catch (_) { /* ignore */ }
     this._top = this.embedded ? 0 : 40;       // header band
@@ -45,7 +45,7 @@ export class MapView {
     canvas.addEventListener("mouseleave", () => { this._mouse = null; this._drag = null; if (this.isOpen) this.draw(); });
     if (!this.embedded) {
       canvas.addEventListener("mousedown", (e) => { if (this.cam) this._drag = { ...this._evtPos(e), cx: this.cam.cx, cz: this.cam.cz, moved: false }; });
-      window.addEventListener("mouseup", () => { this._drag = null; });
+      window.addEventListener("mouseup", () => { this._dragMoved = !!(this._drag && this._drag.moved); this._drag = null; });
       canvas.addEventListener("wheel", (e) => this._onWheel(e), { passive: false });
     }
     window.addEventListener("resize", this._onResize);
@@ -379,7 +379,7 @@ export class MapView {
       const col = dead ? "#5a6066" : (SIDE_COL[f.side] || SIDE_COL.neutral);
       this._symbol(f.kind, x, y, col, dead, big);
       this._markers.push({ x, y, r: (big ? 9 : 6) + 3, label: f.label, dead, range: f.range });
-      if (showItems && !dead && LABEL_KINDS.has(f.kind)) labelFeats.push({ x, y, text: f.label });
+      if (showItems && !dead && LABEL_KINDS.has(f.kind)) labelFeats.push({ x, y, wx: f.x, wz: f.z, text: f.label });
     }
 
     // Island names are always on (tactical caps); item descriptors only when
@@ -477,6 +477,7 @@ export class MapView {
   _sidebar() {
     const ctx = this.ctx, F = this.opts.getFactions();
     const x0 = this._w - this._right, H = this._h;
+    this._sidebarHits = [];
     ctx.fillStyle = "rgba(5,9,14,0.86)"; ctx.fillRect(x0, this._top, this._right, H - this._top);
     ctx.strokeStyle = "rgba(120,200,224,0.28)"; ctx.beginPath(); ctx.moveTo(x0 + 0.5, this._top); ctx.lineTo(x0 + 0.5, H); ctx.stroke();
     const HEAD = (txt, yy) => { ctx.save(); ctx.fillStyle = "#7fb8c8"; ctx.font = "700 10px ui-monospace, 'Consolas', monospace"; if ("letterSpacing" in ctx) ctx.letterSpacing = "2px"; ctx.fillText(txt, x0 + 14, yy); ctx.restore(); };
@@ -501,7 +502,7 @@ export class MapView {
       ctx.fillText(stance.toUpperCase(), this._w - 12, y);
       ctx.textAlign = "left"; y += 15;
       ctx.fillStyle = "#9fb0c2"; ctx.font = "10px ui-monospace, 'Consolas', monospace";
-      for (const nm of held) { ctx.fillText("› " + nm.toUpperCase(), x0 + 22, y); y += 13; }
+      for (const nm of held) { ctx.fillText("› " + nm.toUpperCase(), x0 + 22, y); this._sidebarHits.push({ x: x0 + 18, y: y - 10, w: this._right - 26, h: 13, island: nm }); y += 13; }
       y += 7;
     }
 
@@ -548,8 +549,20 @@ export class MapView {
   }
   _onClick(e) {
     if (!this.isOpen || !this._tf) return;
-    if (this.opts.onPick) { const p = this._evtPos(e); const is = this._hitIsland(p.x, p.y); if (is) this.opts.onPick(is.name); }
-    // Full-screen navigation is drag-to-pan / wheel-to-zoom; clicks do nothing.
+    const p = this._evtPos(e);
+    if (this.opts.onPick) { const is = this._hitIsland(p.x, p.y); if (is) this.opts.onPick(is.name); return; }
+    if (this._dragMoved) { this._dragMoved = false; return; } // that was a pan, not a click
+    for (const h of this._sidebarHits) { if (p.x >= h.x && p.x <= h.x + h.w && p.y >= h.y && p.y <= h.y + h.h) { this._zoomToIsland(h.island); return; } }
+    const is = this._hitIsland(p.x, p.y);
+    if (is) this._zoomToIsland(is.name);
+  }
+  _zoomToIsland(name) {
+    const is = this._islands().find((i) => i.name === name);
+    if (!is || !this.cam) return;
+    const availW = this._w - this._right, availH = this._h - this._top;
+    const s = Math.min(availW, availH) / (is.outer * 2 * 1.35);
+    this.cam = { cx: is.center.x, cz: is.center.z, s: Math.max(this._minS, Math.min(this._maxS, s)) };
+    this.draw();
   }
 
   // Island captions (always on, tactical caps) + zoom-gated item descriptors,
@@ -581,30 +594,43 @@ export class MapView {
       ctx.font = "11px ui-monospace, 'Consolas', monospace"; ctx.textAlign = "left";
       for (const f of feats) {
         if (f.x < -40 || f.x > this._w + 40 || f.y < this._top - 20 || f.y > this._h + 20) continue;
-        this._placeLabel(f.x, f.y, f.text.toUpperCase(), placed);
+        const is = this._islandAt(f.wx, f.wz);
+        if (is) this._placeLabel(f, is, tf, placed);
       }
     }
   }
   _overlap(a, b) { return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y; }
-  _placeLabel(ax, ay, text, placed) {
-    const ctx = this.ctx, w = ctx.measureText(text).width + 8, h = 16;
-    const cands = [[14, -h / 2], [14, h / 2 + 1], [-14 - w, -h / 2], [-14 - w, h / 2 + 1], [-w / 2, -22], [-w / 2, 18], [24, -24], [-24 - w, -24], [24, 24], [-24 - w, 24]];
-    const right = this._w - this._right;
-    let rect = null;
-    for (const [ox, oy] of cands) {
-      const rx = ax + ox, ry = ay + oy;
-      if (rx < 2 || rx + w > right - 2 || ry < this._top + 2 || ry + h > this._h - 2) continue;
-      const cand = { x: rx, y: ry, w, h };
-      if (placed.some((p) => this._overlap(p, cand))) continue;
-      rect = cand; break;
+  _islandAt(wx, wz) { let best = null, bd = Infinity; for (const is of this._islands()) { const d = Math.hypot(wx - is.center.x, wz - is.center.z); if (d < bd) { bd = d; best = is; } } return best; }
+  // Place an item label OUTSIDE its island, pushed radially out from the island
+  // centre (with a leader line back), so the island itself stays unobstructed.
+  _placeLabel(f, is, tf, placed) {
+    const ctx = this.ctx, text = f.text.toUpperCase();
+    const w = ctx.measureText(text).width + 8, h = 16, right = this._w - this._right;
+    const cxS = tf.toX(is.center.x), cyS = tf.toY(is.center.z), R = is.outer * tf.s;
+    let ux = f.x - cxS, uy = f.y - cyS; const len = Math.hypot(ux, uy) || 1;
+    if (len < 1) { ux = 0; uy = -1; } else { ux /= len; uy /= len; }
+    let rect = null, ax = 0, ay = 0;
+    for (const dStep of [12, 26, 42, 60, 80, 104]) {
+      for (const aoff of [0, 0.22, -0.22, 0.45, -0.45, 0.72, -0.72, 1.0, -1.0]) {
+        const ca = Math.cos(aoff), sa = Math.sin(aoff);
+        const rx = ux * ca - uy * sa, ry = ux * sa + uy * ca;
+        const D = Math.min(Math.max(len, R), len + 72) + dStep; // outside the island, but stay near the item when zoomed in
+        ax = cxS + rx * D; ay = cyS + ry * D;
+        const bx = rx >= 0 ? ax : ax - w, by = ay - h / 2;
+        if (bx < 2 || bx + w > right - 2 || by < this._top + 2 || by + h > this._h - 2) continue;
+        const cand = { x: bx, y: by, w, h };
+        if (placed.some((p) => this._overlap(p, cand))) continue;
+        rect = cand; break;
+      }
+      if (rect) break;
     }
-    if (!rect) rect = { x: Math.min(ax + 14, right - w - 2), y: ay - h / 2, w, h };
+    if (!rect) return; // no clean spot — drop it rather than cover the island
     placed.push(rect);
-    const lx = ax < rect.x ? rect.x : (ax > rect.x + rect.w ? rect.x + rect.w : ax);
-    const ly = ay < rect.y ? rect.y : (ay > rect.y + rect.h ? rect.y + rect.h : ay);
-    ctx.strokeStyle = "rgba(190,212,228,0.45)"; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(lx, ly); ctx.stroke();
-    ctx.fillStyle = "rgba(190,212,228,0.9)"; ctx.beginPath(); ctx.arc(ax, ay, 1.5, 0, Math.PI * 2); ctx.fill();
+    const lx = f.x < rect.x ? rect.x : (f.x > rect.x + rect.w ? rect.x + rect.w : f.x);
+    const ly = f.y < rect.y ? rect.y : (f.y > rect.y + rect.h ? rect.y + rect.h : f.y);
+    ctx.strokeStyle = "rgba(190,212,228,0.4)"; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(f.x, f.y); ctx.lineTo(lx, ly); ctx.stroke();
+    ctx.fillStyle = "rgba(190,212,228,0.9)"; ctx.beginPath(); ctx.arc(f.x, f.y, 1.5, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = "rgba(6,11,17,0.88)"; ctx.fillRect(rect.x, rect.y, w, h);
     ctx.strokeStyle = "rgba(120,200,224,0.3)"; ctx.lineWidth = 1; ctx.strokeRect(rect.x + 0.5, rect.y + 0.5, w - 1, h - 1);
     ctx.fillStyle = "#cfe1ee"; ctx.textBaseline = "middle"; ctx.fillText(text, rect.x + 5, rect.y + h / 2); ctx.textBaseline = "alphabetic";
