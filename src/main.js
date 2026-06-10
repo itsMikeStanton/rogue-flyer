@@ -469,7 +469,13 @@ function wakeIsland(node) {
   if (!node.defended) {
     node.defended = true;
     const d = conquestRun.defenseFor(node);
-    if (d.fighters > 0) { enemies.spawnDefenders(d.fighters, d.diff, { x: node.center.x, z: node.center.z }); assignFactions(); }
+    if (d.fighters > 0) {
+      const isl = getIslandSpawns().find((s) => s.name === node.name);
+      const rw = isl && isl.spawns.find((s) => s.kind === "runway");
+      const patrol = d.fighters >= 4 ? 1 : 0; // a small standing CAP already up
+      enemies.spawnDefenders(d.fighters, d.diff, { x: node.center.x, z: node.center.z }, { runway: rw, patrol });
+      assignFactions();
+    }
   }
   missionDone = false;
   missions.load({ objectives: [{ type: "destroy", priority: "primary", label: "Seize " + node.name, match: (t) => t._node === node.id }] }, ground);

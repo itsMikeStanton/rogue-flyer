@@ -101,6 +101,7 @@ class Entity {
     } else {
       this.dir.set((Math.random() - 0.5), 0, -1).normalize();
       this.speed = 190;
+      this.takingOff = false;
       this.fireCd = 0.5 + Math.random();
       // Rearm the missile/rocket loadout each (re)spawn. Tougher fighters carry
       // (and cycle) ordnance more aggressively — see the firing logic in update.
@@ -115,6 +116,19 @@ class Entity {
     if (!this.alive) return;
     this.health -= dmg;
     if (this.health <= 0) this.die();
+  }
+
+  // Scramble: park on a runway and roll/climb out, instead of air-spawning.
+  scrambleFrom(rw, idx = 0) {
+    const gy = groundHeightAt(rw.x, rw.z);
+    this.dir.set((Math.random() - 0.5) * 0.25, 0, -1).normalize();
+    this.position.set(rw.x - this.dir.x * idx * 150, gy + 2, rw.z - this.dir.z * idx * 150); // queued down the strip
+    this.speed = 0;
+    this.takingOff = true;
+    this.takeoffDelay = idx * 1.4; // staggered departures
+    if (this.mesh.userData.gear) this.mesh.userData.gear.visible = true;
+    this.mesh.position.copy(this.position);
+    this.mesh.lookAt(_look.copy(this.position).add(this.dir));
   }
 
   die() {
@@ -169,6 +183,31 @@ class Entity {
       );
       this.mesh.position.copy(this.position);
       this.mesh.rotation.y += dt * 0.8;
+      return;
+    }
+
+    // Scramble: ground roll, rotate, climb out — then join the fight.
+    if (this.takingOff) {
+      const gy = groundHeightAt(this.position.x, this.position.z);
+      if (this.takeoffDelay > 0) { // holding on the strip, awaiting departure
+        this.takeoffDelay -= dt; this.position.y = gy + 2; this.mesh.position.copy(this.position); return;
+      }
+      this.speed += (235 - this.speed) * Math.min(1, dt * 0.5);
+      if (this.position.y <= gy + 3 && this.speed < 95) {           // ground roll
+        this.dir.y = 0; this.dir.normalize();
+        this.position.addScaledVector(this.dir, this.speed * dt);
+        this.position.y = gy + 2;
+      } else {                                                       // rotate + climb
+        _desired.copy(this.dir); _desired.y = 0;
+        if (_desired.lengthSq() < 1e-4) _desired.set(0, 0, -1);
+        _desired.normalize(); _desired.y = 0.6; _desired.normalize();
+        steer(this.dir, _desired, 1.1 * dt);
+        this.position.addScaledVector(this.dir, this.speed * dt);
+        if (this.position.y > gy + 35 && this.mesh.userData.gear) this.mesh.userData.gear.visible = false;
+        if (this.position.y > gy + 680) this.takingOff = false;      // climb-out complete
+      }
+      this.mesh.position.copy(this.position);
+      this.mesh.lookAt(_look.copy(this.position).add(this.dir));
       return;
     }
 
@@ -293,9 +332,17 @@ export class Enemies {
 
   // Mission defenders: a fixed group of fighters that do NOT wave or respawn,
   // clustered around `center` (the mission island).
-  spawnDefenders(n, diff = 1, center = null) {
+  // opts.runway = {x,z} to take off from; opts.patrol = how many start airborne
+  // (a standing CAP) instead of scrambling off the deck.
+  spawnDefenders(n, diff = 1, center = null, opts = {}) {
     if (center) this.spawnCenter = center;
-    for (let i = 0; i < n; i++) this.entities.push(new Entity(this, "fighter", diff));
+    const patrol = Math.min(n, opts.patrol || 0), rw = opts.runway;
+    let grounded = 0;
+    for (let i = 0; i < n; i++) {
+      const e = new Entity(this, "fighter", diff);
+      if (rw && i >= patrol) e.scrambleFrom(rw, grounded++);
+      this.entities.push(e);
+    }
   }
 
   // Entities still in play (alive or mid-death-spiral) — drives wave clearing.
