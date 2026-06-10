@@ -11,7 +11,7 @@ import { TouchControls } from "./touch.js";
 import { TiltControls } from "./tilt.js";
 import { Weapons } from "./weapons.js";
 import { Enemies } from "./enemies.js";
-import { GroundTargets } from "./ground.js";
+import { GroundTargets, THREAT_RANGE } from "./ground.js";
 import { EnemyOrdnance } from "./enemyWeapons.js";
 import { Awareness } from "./awareness.js";
 import { Traffic } from "./traffic.js";
@@ -91,10 +91,10 @@ function buildMapSites() {
     for (const t of live) {
       if (!t.type || t.type === "searchlight") continue; // carrier handled above; searchlights are clutter
       const side = t.factionId ? stanceSide(factions.vsPlayer(t.factionId)) : "hostile";
-      sites.push({ x: t.position.x, z: t.position.z, kind: t.type, label: SITE_LABEL[t.type] || t.type, alive: t.alive !== false, side });
+      sites.push({ x: t.position.x, z: t.position.z, kind: t.type, label: SITE_LABEL[t.type] || t.type, alive: t.alive !== false, side, range: THREAT_RANGE[t.type] });
     }
   } else {
-    for (const [wx, wz] of getMissionBases()) sites.push({ x: wx, z: wz, kind: "site", label: "Defence site · SAM/radar/AA", side: "hostile" });
+    for (const [wx, wz] of getMissionBases()) sites.push({ x: wx, z: wz, kind: "site", label: "Defence site · SAM/radar/AA", side: "hostile", range: THREAT_RANGE.site });
   }
   return sites;
 }

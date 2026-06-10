@@ -187,16 +187,32 @@ export class MapView {
       }
     }
 
-    // Installations (typed symbols, coloured only by threat).
     const sites = (this.opts.getSites && this.opts.getSites()) || [];
     const big = !!zoomed;
+
+    // Threat envelopes first (under the symbols): the lethal SAM/AA radius, for
+    // planning an ingress that threads between the bubbles.
+    for (const f of sites) {
+      if (!f.range || f.side === "friendly" || f.alive === false) continue;
+      const rr = f.range * tf.s;
+      if (rr < 7) continue; // sub-pixel at extreme overview — skip the clutter
+      const x = tf.toX(f.x), y = tf.toY(f.z);
+      const col = SIDE_COL[f.side] || SIDE_COL.neutral;
+      ctx.save();
+      ctx.beginPath(); ctx.arc(x, y, rr, 0, Math.PI * 2);
+      ctx.fillStyle = col; ctx.globalAlpha = 0.05; ctx.fill();
+      ctx.globalAlpha = 0.5; ctx.strokeStyle = col; ctx.lineWidth = 1; ctx.setLineDash([4, 4]); ctx.stroke();
+      ctx.restore();
+    }
+
+    // Installations (typed symbols, coloured only by threat).
     for (const f of sites) {
       const x = tf.toX(f.x), y = tf.toY(f.z);
       if (x < -8 || x > W + 8 || y < -8 || y > H + 8) continue;
       const dead = f.alive === false;
       const col = dead ? "#5a6066" : (SIDE_COL[f.side] || SIDE_COL.neutral);
       this._symbol(f.kind, x, y, col, dead, big);
-      this._markers.push({ x, y, r: (big ? 9 : 6) + 3, label: f.label, dead });
+      this._markers.push({ x, y, r: (big ? 9 : 6) + 3, label: f.label, dead, range: f.range });
     }
 
     // Island name labels.
@@ -325,7 +341,9 @@ export class MapView {
     for (const k of this._markers) { const dx = k.x - m.x, dy = k.y - m.y, d = dx * dx + dy * dy; if (d < k.r * k.r && d < bd) { bd = d; best = k; } }
     if (!best) return;
     const ctx = this.ctx;
-    const lines = [best.label]; if (best.dead) lines.push("destroyed");
+    const lines = [best.label];
+    if (best.dead) lines.push("destroyed");
+    else if (best.range) lines.push("lethal radius " + (best.range / 1000).toFixed(1) + " km");
     ctx.font = "12px system-ui, sans-serif";
     const tw = Math.max(...lines.map((l) => ctx.measureText(l).width)) + 16;
     const th = 6 + lines.length * 15;

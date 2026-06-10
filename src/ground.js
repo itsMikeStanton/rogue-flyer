@@ -65,6 +65,10 @@ const AA_DAMAGE = 6;
 // but wildly inaccurate and barely scratch the paint. Pure atmosphere.
 const AA_GUN_RANGE = 4600;     // they open up from a long way off
 const AA_GUN_MIN_ALT = 45;     // ignore a target hugging the deck
+
+// Lethal/engagement radii surfaced for the tactical map's threat rings, so the
+// drawn envelopes match what actually shoots at you.
+export const THREAT_RANGE = { sam: SAM_RANGE, aa: AA_GUN_RANGE, site: AA_GUN_RANGE };
 const AA_GUN_SHOT = 0.1;       // seconds between rounds in a burst (a stream)
 const AA_GUN_BURST = 5;        // base rounds per burst (+0..4)
 const AA_GUN_BURST_VAR = 5;
