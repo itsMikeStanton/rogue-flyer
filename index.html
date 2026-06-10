@@ -37,6 +37,7 @@
       <button id="btn-fullscreen" class="icon-btn" title="Fullscreen">⛶</button>
       <button id="btn-settings" class="icon-btn" title="Controls / joystick setup">🎮</button>
       <button id="btn-factions" class="icon-btn" title="Factions / intel">🎖️</button>
+      <button id="btn-map" class="icon-btn" title="Archipelago map (O)">🌐</button>
       <button id="btn-editor" class="icon-btn" title="World editor">🗺</button>
     </div>
 
@@ -313,6 +314,12 @@
         </div>
       </div>
     </div>
+  </div>
+
+  <!-- Archipelago map (accurate terrain; overview + click-to-zoom) -->
+  <div id="mapview" class="mapview-overlay hidden">
+    <canvas id="map-canvas"></canvas>
+    <button id="map-close" class="map-close" title="Close (Esc / O)">✕</button>
   </div>
 
   <!-- Radio comms callout line (terse military chatter) -->

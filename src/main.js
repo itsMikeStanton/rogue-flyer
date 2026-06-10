@@ -3,6 +3,7 @@ import { AIRCRAFT, buildAircraftMesh } from "./aircraft.js";
 import { createState, step } from "./flight.js";
 import { buildWorld, terrainHeight, groundHeightAt, getCarriers, getIslandSpawns, getFactionConfig, SEA_LEVEL, lightPoolTexture } from "./world.js";
 import { Factions } from "./factions.js";
+import { MapView } from "./mapview.js";
 import { Input } from "./input.js";
 import { Hud } from "./hud.js";
 import { UI } from "./ui.js";
@@ -603,6 +604,25 @@ const ui = new UI(input, {
   onConquestRespawn: (spawn) => respawnConquest(spawn),
 }, touch, tilt);
 
+// Accurate archipelago map — overview + click-to-zoom, on the menu and live in
+// flight (a tactical kneeboard; the sim keeps running underneath).
+const mapView = new MapView(document.getElementById("map-canvas"), {
+  factionOf: (name) => { const is = (world.islands || []).find((i) => i.name === name); return is ? factionOf(is) : null; },
+  getFactions: () => factions,
+  getPlayer: () => {
+    if (!flying || paused) return null;
+    const f = new THREE.Vector3(0, 0, -1).applyQuaternion(state.quaternion);
+    const fl = Math.hypot(f.x, f.z) || 1;
+    return { x: state.position.x, z: state.position.z, heading: Math.atan2(f.x / fl, -f.z / fl) };
+  },
+});
+{
+  const mb = document.getElementById("btn-map");
+  if (mb) mb.addEventListener("click", () => mapView.open());
+  const mc = document.getElementById("map-close");
+  if (mc) mc.addEventListener("click", () => mapView.close());
+}
+
 // --- Multiplayer (LAN free-for-all) ---
 const net = new Net();
 const netMeshes = new Map(); // remote player id -> jet mesh
@@ -710,6 +730,8 @@ window.addEventListener("keydown", (e) => {
   // through input.getControls. Fullscreen / mute stay as fixed utility keys.
   if (e.code === "KeyF") toggleFullscreen();
   if (e.code === "KeyM") updateSoundButton(sound.toggleMute());
+  if (e.code === "KeyO") mapView.toggle();
+  if (e.code === "Escape" && mapView.isOpen) mapView.close();
 });
 
 // Floating in-flight button to reopen the vehicle bay.
@@ -1711,7 +1733,7 @@ function frame(now) {
 
   // Vehicle bay / pause from the joystick (Back/Select & Start).
   if (flying && !inXR && controls.hangarPressed) { hangarMode ? exitHangar() : enterHangar(true); }
-  if (flying && controls.pausePressed) openPause();
+  if (controls.pausePressed) { if (mapView.isOpen) mapView.close(); else if (flying) openPause(); }
 
   // Throttle-arming gate: hold the sim until the player engages the throttle.
   if (flying && !hangarMode && !paused && !state.crashed && armActive) updateArming(controls);
@@ -2172,6 +2194,8 @@ function frame(now) {
   } else {
     hud.ctx.clearRect(0, 0, hud.w, hud.h);
   }
+
+  if (mapView.isOpen) mapView.draw(); // live tactical map redraw (player marker tracks)
 }
 
 window.addEventListener("resize", () => {
