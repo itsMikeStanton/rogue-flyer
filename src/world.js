@@ -129,6 +129,11 @@ function forestDensityArr(is) {
   return f.density;
 }
 export function getForestDensity() { return forestDensityArr(getActiveIsland()); }
+// Forest cover (0..1) at a WORLD position — for the tactical map's tree overlay.
+export function forestAt(wx, wz) {
+  const is = nearestIsland(wx, wz);
+  return forestDensityForLocal(is, wx - is.center.x, wz - is.center.z);
+}
 function forestDensityForLocal(is, x, z) {
   // Bilinear so the tree field (and its painted edges) are smooth, not blocky.
   const f = is.forest, g = f.gridN, e = f.extent, d = forestDensityArr(is);

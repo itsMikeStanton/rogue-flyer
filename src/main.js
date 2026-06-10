@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { AIRCRAFT, buildAircraftMesh } from "./aircraft.js";
 import { createState, step } from "./flight.js";
-import { buildWorld, terrainHeight, groundHeightAt, getCarriers, getIslandSpawns, getMissionBases, getFactionConfig, SEA_LEVEL, lightPoolTexture } from "./world.js";
+import { buildWorld, terrainHeight, groundHeightAt, getCarriers, getIslandSpawns, getMissionBases, getWorldConfig, getFactionConfig, SEA_LEVEL, lightPoolTexture } from "./world.js";
 import { Factions } from "./factions.js";
 import { MapView } from "./mapview.js";
 import { Input } from "./input.js";
@@ -95,6 +95,20 @@ function buildMapSites() {
     }
   } else {
     for (const [wx, wz] of getMissionBases()) sites.push({ x: wx, z: wz, kind: "site", label: "Defence site · SAM/radar/AA", side: "hostile", range: THREAT_RANGE.site });
+  }
+  // Signature landmarks/structures, derived from the world config (so editor
+  // additions show up too): radio tower + lighthouse on landmark islands, a
+  // glowing spire on spire islands, and the power plant by each city.
+  for (const is of getWorldConfig().islands) {
+    const c = is.center, cf = is.cliff, side = stanceSide(factions.vsPlayer(factionIdByName(is.name)));
+    if (cf && is.landmarks !== false) {
+      sites.push({ x: c.x + cf.x, z: c.z + cf.z, kind: "radio", label: is.name + " radio tower", side: "neutral" });
+      const cd = Math.hypot(cf.x, cf.z) || 1;
+      sites.push({ x: c.x + (-cf.x / cd) * 6900, z: c.z + (-cf.z / cd) * 6900, kind: "lighthouse", label: is.name + " lighthouse", side: "neutral" });
+    }
+    if (cf && is.spire) sites.push({ x: c.x + cf.x, z: c.z + cf.z, kind: "spire", label: is.name + " spire", side });
+    const px = c.x + 4900, pz = c.z + 5200;
+    if (terrainHeight(px, pz) > SEA_LEVEL + 2) sites.push({ x: px, z: pz, kind: "powerplant", label: is.name + " power plant", side });
   }
   return sites;
 }

@@ -13,7 +13,7 @@
 // click to pick a beachhead). Terrain rasters are baked once per island into a
 // shared module cache and reused by every MapView.
 
-import { getWorldConfig, terrainHeight, SEA_LEVEL } from "./world.js";
+import { getWorldConfig, terrainHeight, SEA_LEVEL, forestAt } from "./world.js";
 
 const SIDE_COL = { hostile: "#d9774a", friendly: "#62c98a", neutral: "#97a4ac" };
 
@@ -103,11 +103,15 @@ export class MapView {
     const cv = document.createElement("canvas"); cv.width = cv.height = G;
     const c = cv.getContext("2d");
     const img = c.createImageData(G, G), d = img.data;
+    const fcv = document.createElement("canvas"); fcv.width = fcv.height = G; // forest overlay
+    const fimg = c.createImageData(G, G), fd = fimg.data;
     const at = (i, j) => H[j * (G + 1) + i];
     for (let j = 0; j < G; j++) {
       for (let i = 0; i < G; i++) {
         const h = at(i, j), idx = (j * G + i) * 4;
         if (h > sea) {
+          const fv = forestAt(is.center.x + pos(i), is.center.z + pos(j));
+          if (fv > 0.16) { fd[idx] = 42; fd[idx + 1] = 90; fd[idx + 2] = 50; fd[idx + 3] = Math.min(215, fv * 240); }
           const hx = at(Math.min(G, i + 1), j) - at(Math.max(0, i - 1), j);
           const hz = at(i, Math.min(G, j + 1)) - at(i, Math.max(0, j - 1));
           let nx = -hx, nz = -hz, ny = 2 * cell; const nl = Math.hypot(nx, ny, nz) || 1;
@@ -125,8 +129,9 @@ export class MapView {
       }
     }
     c.putImageData(img, 0, 0);
+    fcv.getContext("2d").putImageData(fimg, 0, 0);
     const rec = {
-      canvas: cv, R,
+      canvas: cv, forest: fcv, R,
       coast: this._iso(H, G, sea, R, is.center),
       contours: [300, 700, 1300].map((dz) => this._iso(H, G, sea + dz, R, is.center)),
     };
@@ -222,13 +227,12 @@ export class MapView {
     const isl = this._islands();
     ctx.imageSmoothingEnabled = true;
     const rasters = isl.map((is) => this._raster(is));
-    ctx.globalAlpha = 0.5;
-    for (let k = 0; k < isl.length; k++) {
-      const is = isl[k], r = rasters[k];
-      const x0 = tf.toX(is.center.x - r.R), y0 = tf.toY(is.center.z - r.R);
-      const x1 = tf.toX(is.center.x + r.R), y1 = tf.toY(is.center.z + r.R);
-      ctx.drawImage(r.canvas, x0, y0, x1 - x0, y1 - y0);
-    }
+    const rect = (r) => [tf.toX(r.is.center.x - r.R), tf.toY(r.is.center.z - r.R), tf.toX(r.is.center.x + r.R), tf.toY(r.is.center.z + r.R)];
+    for (let k = 0; k < isl.length; k++) rasters[k].is = isl[k];
+    ctx.globalAlpha = 0.3; // faint relief underlay
+    for (const r of rasters) { const [x0, y0, x1, y1] = rect(r); ctx.drawImage(r.canvas, x0, y0, x1 - x0, y1 - y0); }
+    ctx.globalAlpha = 0.55; // forest cover
+    for (const r of rasters) { const [x0, y0, x1, y1] = rect(r); ctx.drawImage(r.forest, x0, y0, x1 - x0, y1 - y0); }
     ctx.globalAlpha = 1;
     const strokeSegs = (segs) => { for (let s = 0; s < segs.length; s += 4) { ctx.moveTo(tf.toX(segs[s]), tf.toY(segs[s + 1])); ctx.lineTo(tf.toX(segs[s + 2]), tf.toY(segs[s + 3])); } };
 
@@ -374,6 +378,18 @@ export class MapView {
       case "powerplant": // high value: square with inner dot
         ctx.strokeRect(x - s, y - s, s * 2, s * 2);
         ctx.beginPath(); ctx.arc(x, y, 1.8, 0, Math.PI * 2); ctx.fill();
+        break;
+      case "lighthouse": // tower with a beacon + rays
+        ctx.moveTo(x - s * 0.55, y + s); ctx.lineTo(x - s * 0.3, y - s * 0.5); ctx.lineTo(x + s * 0.3, y - s * 0.5); ctx.lineTo(x + s * 0.55, y + s); ctx.stroke();
+        ctx.beginPath(); ctx.arc(x, y - s * 0.7, 1.6, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.moveTo(x - s * 1.1, y - s * 1.1); ctx.lineTo(x - s * 0.5, y - s * 0.8); ctx.moveTo(x + s * 1.1, y - s * 1.1); ctx.lineTo(x + s * 0.5, y - s * 0.8); ctx.stroke();
+        break;
+      case "radio": // antenna mast with signal arcs
+        ctx.moveTo(x, y + s); ctx.lineTo(x, y - s); ctx.moveTo(x - s * 0.5, y + s); ctx.lineTo(x, y + s * 0.2); ctx.lineTo(x + s * 0.5, y + s); ctx.stroke();
+        ctx.beginPath(); ctx.arc(x, y - s, s * 0.7, -2.4, -0.7); ctx.stroke();
+        break;
+      case "spire": // tall thin obelisk
+        ctx.moveTo(x - s * 0.4, y + s); ctx.lineTo(x, y - s * 1.1); ctx.lineTo(x + s * 0.4, y + s); ctx.closePath(); ctx.fill();
         break;
       default: // generic defence cluster: hollow diamond
         ctx.moveTo(x, y - s); ctx.lineTo(x + s, y); ctx.lineTo(x, y + s); ctx.lineTo(x - s, y); ctx.closePath(); ctx.stroke();
