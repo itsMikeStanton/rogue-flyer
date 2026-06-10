@@ -667,6 +667,11 @@ const mapView = new MapView(document.getElementById("map-canvas"), {
   if (mb) mb.addEventListener("click", () => mapView.open());
   const mc = document.getElementById("map-close");
   if (mc) mc.addEventListener("click", () => mapView.close());
+  const ml = document.getElementById("map-labels");
+  if (ml) {
+    ml.classList.toggle("on", mapView.labelsOn);
+    ml.addEventListener("click", () => { mapView.setLabels(!mapView.labelsOn); ml.classList.toggle("on", mapView.labelsOn); });
+  }
 }
 
 // Embedded accurate map for the Conquest planner: same renderer, with islands

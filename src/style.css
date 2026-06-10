@@ -763,3 +763,12 @@ button.vr:hover { background: rgba(46,230,166,0.26); }
   border: 1px solid rgba(255,255,255,0.12); font-size: 15px; cursor: pointer;
 }
 .map-close:hover { background: rgba(30,42,60,0.9); color: #fff; }
+
+.map-toggle {
+  position: absolute; top: 6px; right: 48px; z-index: 2;
+  height: 30px; padding: 0 10px; border-radius: 8px;
+  background: rgba(10,16,26,0.7); color: #9fb0c2;
+  border: 1px solid rgba(255,255,255,0.12); font-size: 12px; cursor: pointer;
+}
+.map-toggle:hover { background: rgba(30,42,60,0.9); }
+.map-toggle.on { color: #cfe7f0; border-color: rgba(120,200,224,0.5); }

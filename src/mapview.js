@@ -16,6 +16,9 @@
 import { getWorldConfig, terrainHeight, SEA_LEVEL, forestAt } from "./world.js";
 
 const SIDE_COL = { hostile: "#d9774a", friendly: "#62c98a", neutral: "#97a4ac" };
+// Which installation kinds get a persistent text label (the rest are hover-only,
+// so the map isn't buried under every AA gun).
+const LABEL_KINDS = new Set(["runway", "carrier", "lighthouse", "radio", "spire", "powerplant", "site", "sam"]);
 
 const RASTERS = new Map(); // island name -> { canvas, R } (terrain is faction-agnostic now)
 export function invalidateMap() { RASTERS.clear(); }
@@ -31,12 +34,20 @@ export class MapView {
     this.view = { island: null };
     this.isOpen = this.embedded;
     this._tf = null; this._mouse = null; this._markers = [];
+    this.cam = null; this._drag = null;        // free pan/zoom camera (full-screen)
+    this.labelsOn = true;
+    try { this.labelsOn = localStorage.getItem("rf.mapLabels") !== "0"; } catch (_) { /* ignore */ }
     this._top = this.embedded ? 0 : 40;       // header band
     this._right = this.embedded ? 0 : 216;     // sidebar width
     this._onResize = () => { if (this.isOpen) { this._size(); this.draw(); } };
     canvas.addEventListener("click", (e) => this._onClick(e));
-    canvas.addEventListener("mousemove", (e) => { this._mouse = this._evtPos(e); if (this.isOpen) this.draw(); });
-    canvas.addEventListener("mouseleave", () => { this._mouse = null; if (this.isOpen) this.draw(); });
+    canvas.addEventListener("mousemove", (e) => this._onMove(e));
+    canvas.addEventListener("mouseleave", () => { this._mouse = null; this._drag = null; if (this.isOpen) this.draw(); });
+    if (!this.embedded) {
+      canvas.addEventListener("mousedown", (e) => { if (this.cam) this._drag = { ...this._evtPos(e), cx: this.cam.cx, cz: this.cam.cz, moved: false }; });
+      window.addEventListener("mouseup", () => { this._drag = null; });
+      canvas.addEventListener("wheel", (e) => this._onWheel(e), { passive: false });
+    }
     window.addEventListener("resize", this._onResize);
   }
 
@@ -50,9 +61,14 @@ export class MapView {
 
   open(islandName = null) {
     if (this.embedded) return;
-    this.view.island = islandName; this.isOpen = true;
+    this.view.island = islandName; this.isOpen = true; this.cam = null; // start at overview
     this.canvas.parentElement.classList.remove("hidden");
     this._size(); this.draw();
+  }
+  setLabels(on) {
+    this.labelsOn = !!on;
+    try { localStorage.setItem("rf.mapLabels", on ? "1" : "0"); } catch (_) { /* ignore */ }
+    if (this.isOpen) this.draw();
   }
   close() {
     if (this.embedded) return;
@@ -182,20 +198,58 @@ export class MapView {
     const oy = this._top + (H - spanZ * s) / 2 - minZ * s;
     this._tf = { s, toX: (x) => x * s + ox, toY: (z) => z * s + oy, toWX: (px) => (px - ox) / s, toWZ: (py) => (py - oy) / s };
   }
-  _setView() {
-    const isl = this._islands();
-    if (!this.embedded && this.view.island) {
-      const is = isl.find((i) => i.name === this.view.island) || isl[0];
-      const R = is.outer * 1.28;
-      this._fit(is.center.x - R, is.center.x + R, is.center.z - R, is.center.z + R, 0.06);
-    } else {
-      let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
-      for (const is of isl) {
-        minX = Math.min(minX, is.center.x - is.outer); maxX = Math.max(maxX, is.center.x + is.outer);
-        minZ = Math.min(minZ, is.center.z - is.outer); maxZ = Math.max(maxZ, is.center.z + is.outer);
-      }
-      this._fit(minX, maxX, minZ, maxZ, this.embedded ? 0.06 : 0.08);
+  _bounds() {
+    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+    for (const is of this._islands()) {
+      minX = Math.min(minX, is.center.x - is.outer); maxX = Math.max(maxX, is.center.x + is.outer);
+      minZ = Math.min(minZ, is.center.z - is.outer); maxZ = Math.max(maxZ, is.center.z + is.outer);
     }
+    return { minX, maxX, minZ, maxZ };
+  }
+  // Embedded planners fit to the canvas; the full-screen map uses a free camera
+  // (drag to pan, wheel to zoom).
+  _setView() {
+    if (this.embedded) {
+      const b = this._bounds();
+      this._fit(b.minX, b.maxX, b.minZ, b.maxZ, 0.06);
+      return;
+    }
+    if (!this.cam) this._initCam();
+    const s = this.cam.s, cx = this.cam.cx, cz = this.cam.cz;
+    const acx = (this._w - this._right) / 2, acy = this._top + (this._h - this._top) / 2;
+    this._tf = { s, toX: (x) => (x - cx) * s + acx, toY: (z) => (z - cz) * s + acy, toWX: (px) => (px - acx) / s + cx, toWZ: (py) => (py - acy) / s + cz };
+  }
+  _initCam() {
+    const b = this._bounds();
+    const availW = this._w - this._right, availH = this._h - this._top;
+    const s = Math.min(availW / Math.max(1, b.maxX - b.minX), availH / Math.max(1, b.maxZ - b.minZ)) * 0.86;
+    this.cam = { cx: (b.minX + b.maxX) / 2, cz: (b.minZ + b.maxZ) / 2, s };
+    this._fitS = s; this._minS = s * 0.55; this._maxS = s * 48;
+  }
+  _onWheel(e) {
+    if (!this.isOpen || !this._tf) return;
+    e.preventDefault();
+    const p = this._evtPos(e);
+    const wx = this._tf.toWX(p.x), wz = this._tf.toWZ(p.y);
+    this.cam.s = Math.max(this._minS, Math.min(this._maxS, this.cam.s * Math.exp(-e.deltaY * 0.0016)));
+    const acx = (this._w - this._right) / 2, acy = this._top + (this._h - this._top) / 2;
+    this.cam.cx = wx - (p.x - acx) / this.cam.s;     // keep the point under the cursor fixed
+    this.cam.cz = wz - (p.y - acy) / this.cam.s;
+    this.draw();
+  }
+  _onMove(e) {
+    if (!this.isOpen) return;
+    const p = this._evtPos(e);
+    if (this._drag && this.cam) {
+      const dx = p.x - this._drag.x, dy = p.y - this._drag.y;
+      if (Math.abs(dx) + Math.abs(dy) > 3) this._drag.moved = true;
+      this.cam.cx = this._drag.cx - dx / this.cam.s;
+      this.cam.cz = this._drag.cz - dy / this.cam.s;
+      this._mouse = null;
+    } else {
+      this._mouse = p;
+    }
+    this.draw();
   }
 
   // --- drawing -------------------------------------------------------------
@@ -207,8 +261,8 @@ export class MapView {
     const nodes = this.opts.getNodes && this.opts.getNodes();
     const nodeByName = new Map(); if (nodes) for (const n of nodes) nodeByName.set(n.name, n);
     const selId = this.opts.getSelected && this.opts.getSelected();
-    const zoomed = !this.embedded && this.view.island;
-    this._markers = [];
+    const zoomed = this.embedded ? false : (this.cam && this.cam.s > this._fitS * 2.2);
+    this._markers = []; const labelFeats = [];
 
     // Ocean + range grid.
     const og = ctx.createLinearGradient(0, 0, 0, H);
@@ -239,7 +293,11 @@ export class MapView {
     // Elevation contour lines (zoomed-in only — too busy at overview).
     if (zoomed) {
       ctx.strokeStyle = "rgba(150,172,150,0.30)"; ctx.lineWidth = 0.8; ctx.beginPath();
-      for (let k = 0; k < isl.length; k++) { if (isl[k].name !== this.view.island) continue; for (const seg of rasters[k].contours) strokeSegs(seg); }
+      for (let k = 0; k < isl.length; k++) {
+        const is = isl[k], sx = tf.toX(is.center.x), sy = tf.toY(is.center.z), m = is.outer * tf.s;
+        if (sx < -m || sx > W + m || sy < -m || sy > H + m) continue; // off-screen island
+        for (const seg of rasters[k].contours) strokeSegs(seg);
+      }
       ctx.stroke();
     }
 
@@ -320,15 +378,12 @@ export class MapView {
       const col = dead ? "#5a6066" : (SIDE_COL[f.side] || SIDE_COL.neutral);
       this._symbol(f.kind, x, y, col, dead, big);
       this._markers.push({ x, y, r: (big ? 9 : 6) + 3, label: f.label, dead, range: f.range });
+      if (!this.embedded && this.labelsOn && !dead && LABEL_KINDS.has(f.kind)) labelFeats.push({ x, y, text: f.label });
     }
 
-    // Island name labels.
-    for (const is of isl) {
-      const x = tf.toX(is.center.x), ly = tf.toY(is.center.z + is.outer) + 4;
-      ctx.fillStyle = "#d6e0ea"; ctx.textAlign = "center"; ctx.textBaseline = "top";
-      ctx.font = `${zoomed ? 15 : this.embedded ? 11 : 12}px system-ui, sans-serif`;
-      ctx.fillText(is.name, x, ly);
-    }
+    // Text labels — island names (always on the planner) + item descriptors with
+    // leader lines (full-screen, toggleable).
+    if (this.embedded || this.labelsOn) this._drawLabels(isl, labelFeats, tf, zoomed);
 
     // Your jet (in flight).
     const p = this.opts.getPlayer && this.opts.getPlayer();
@@ -408,8 +463,7 @@ export class MapView {
     ctx.font = "700 15px system-ui, sans-serif";
     ctx.fillText(this.view.island ? `TACTICAL  ›  ${this.view.island}` : "TACTICAL MAP  ·  ARCHIPELAGO", 14, this._top / 2);
     ctx.textAlign = "right"; ctx.fillStyle = "#7e8da3"; ctx.font = "11px system-ui, sans-serif";
-    ctx.fillText(this.view.island ? "click to zoom out  ·  hover a site for detail  ·  Esc/O close"
-      : "click an island to zoom  ·  hover a site for detail  ·  Esc/O close", W - 14, this._top / 2);
+    ctx.fillText("drag to pan  ·  scroll to zoom  ·  hover for detail  ·  Esc/O close", W - 14, this._top / 2);
   }
 
   // Faction allegiance lives here, not on the terrain.
@@ -486,10 +540,49 @@ export class MapView {
   }
   _onClick(e) {
     if (!this.isOpen || !this._tf) return;
-    const p = this._evtPos(e);
-    if (this.opts.onPick) { const is = this._hitIsland(p.x, p.y); if (is) this.opts.onPick(is.name); return; }
-    if (this.view.island) { this.view.island = null; this.draw(); return; }
-    const is = this._hitIsland(p.x, p.y);
-    if (is) { this.view.island = is.name; this.draw(); }
+    if (this.opts.onPick) { const p = this._evtPos(e); const is = this._hitIsland(p.x, p.y); if (is) this.opts.onPick(is.name); }
+    // Full-screen navigation is drag-to-pan / wheel-to-zoom; clicks do nothing.
+  }
+
+  // Place text labels with leader lines, greedily avoiding overlaps.
+  _drawLabels(isl, feats, tf, zoomed) {
+    const ctx = this.ctx, placed = [];
+    ctx.textBaseline = "alphabetic"; ctx.textAlign = "center";
+    for (const is of isl) {
+      const x = tf.toX(is.center.x), y = tf.toY(is.center.z + is.outer) + 15;
+      if (x < -60 || x > this._w + 60 || y < this._top || y > this._h + 20) continue;
+      ctx.font = "600 13px system-ui, sans-serif";
+      const w = ctx.measureText(is.name).width;
+      placed.push({ x: x - w / 2, y: y - 13, w, h: 16 });
+      ctx.fillStyle = "#eaf2fb"; ctx.fillText(is.name, x, y);
+    }
+    ctx.textAlign = "left"; ctx.font = "12px system-ui, sans-serif";
+    for (const f of feats) {
+      if (f.x < -40 || f.x > this._w + 40 || f.y < this._top - 20 || f.y > this._h + 20) continue;
+      this._placeLabel(f.x, f.y, f.text, placed);
+    }
+  }
+  _overlap(a, b) { return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y; }
+  _placeLabel(ax, ay, text, placed) {
+    const ctx = this.ctx, w = ctx.measureText(text).width + 8, h = 16;
+    const cands = [[14, -h / 2], [14, h / 2 + 1], [-14 - w, -h / 2], [-14 - w, h / 2 + 1], [-w / 2, -22], [-w / 2, 18], [24, -24], [-24 - w, -24], [24, 24], [-24 - w, 24]];
+    const right = this._w - this._right;
+    let rect = null;
+    for (const [ox, oy] of cands) {
+      const rx = ax + ox, ry = ay + oy;
+      if (rx < 2 || rx + w > right - 2 || ry < this._top + 2 || ry + h > this._h - 2) continue;
+      const cand = { x: rx, y: ry, w, h };
+      if (placed.some((p) => this._overlap(p, cand))) continue;
+      rect = cand; break;
+    }
+    if (!rect) rect = { x: Math.min(ax + 14, right - w - 2), y: ay - h / 2, w, h };
+    placed.push(rect);
+    const lx = ax < rect.x ? rect.x : (ax > rect.x + rect.w ? rect.x + rect.w : ax);
+    const ly = ay < rect.y ? rect.y : (ay > rect.y + rect.h ? rect.y + rect.h : ay);
+    ctx.strokeStyle = "rgba(190,212,228,0.45)"; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(lx, ly); ctx.stroke();
+    ctx.fillStyle = "rgba(190,212,228,0.9)"; ctx.beginPath(); ctx.arc(ax, ay, 1.5, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = "rgba(8,14,22,0.82)"; ctx.fillRect(rect.x, rect.y, w, h);
+    ctx.fillStyle = "#d7e3ef"; ctx.textBaseline = "middle"; ctx.fillText(text, rect.x + 4, rect.y + h / 2); ctx.textBaseline = "alphabetic";
   }
 }
