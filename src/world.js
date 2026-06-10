@@ -44,7 +44,7 @@ function migrate(cfg) {
   return {
     seaLevel: c.seaLevel != null ? c.seaLevel : -180,
     islands: [{
-      name: "Home", faction: "ally", seed: c.seed || 0x1f2e3d, center: { x: 0, z: 0 },
+      name: "Home", faction: "vanguard", seed: c.seed || 0x1f2e3d, center: { x: 0, z: 0 },
       terrain: c.terrain, cliff: c.cliff, river: c.river, spawn: c.spawn,
       carriers: c.carriers || [], settlements: c.settlements || [], bridges: c.bridges || [],
       roads: c.roads || [], missionBases: c.missionBases || [], forest: c.forest, paint: c.paint,

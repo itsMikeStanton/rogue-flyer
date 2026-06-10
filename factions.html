@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Rogue Flyer — Faction Dossier</title>
+<style>
+  :root { color-scheme: dark; }
+  body {
+    margin: 0; padding: 28px 18px 64px;
+    background: radial-gradient(1200px 700px at 50% -10%, #16223a, #070b12 60%) fixed;
+    color: #cdd7e6; font: 15px/1.5 ui-sans-serif, system-ui, "Segoe UI", Roboto, sans-serif;
+  }
+  h1 { font-weight: 800; letter-spacing: .04em; text-align: center; margin: 0 0 2px; color: #eaf2ff; }
+  .sub { text-align: center; color: #7e8da3; margin: 0 0 28px; font-size: 13px; }
+  .wrap { max-width: 980px; margin: 0 auto; }
+  .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+  .card {
+    background: rgba(16,22,34,0.72); border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 14px; padding: 16px; display: flex; gap: 14px; align-items: flex-start;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.35);
+  }
+  .card canvas { flex: 0 0 auto; width: 72px; height: 72px; border-radius: 10px; background: rgba(0,0,0,0.25); }
+  .card h2 { margin: 2px 0 6px; font-size: 17px; letter-spacing: .02em; }
+  .card .blurb { color: #9fb0c6; font-size: 13px; margin: 0; }
+  .chip { display: inline-block; font-size: 11px; padding: 1px 8px; border-radius: 999px; margin-top: 8px;
+          border: 1px solid currentColor; opacity: .85; }
+  h3 { margin: 38px 0 10px; color: #eaf2ff; letter-spacing: .03em; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th, td { padding: 8px 6px; text-align: center; border-bottom: 1px solid rgba(255,255,255,0.06); }
+  th.row, td.row { text-align: left; color: #c9d4e4; white-space: nowrap; }
+  .s-enemy { color: #ff6b6b; font-weight: 700; }
+  .s-ally { color: #5bc8ff; font-weight: 700; }
+  .s-neutral { color: #9aa7ba; }
+  .self { color: #46506180; }
+  .note { color: #7e8da3; font-size: 12px; margin-top: 10px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>FACTION DOSSIER</h1>
+  <p class="sub">The powers contesting the archipelago — Rogue Flyer</p>
+  <div class="grid" id="grid"></div>
+
+  <h3>STANDINGS</h3>
+  <table id="matrix"></table>
+  <p class="note">Rows = how that faction regards each column. Stances are directional, so the table need not be symmetric.
+     Every island's stance toward <b>you</b> (Vanguard) is what drives combat; the rest is the world's own politics.</p>
+</div>
+
+<script type="module">
+import { defaultWorldConfig } from "./src/worldConfig.js";
+import { drawEmblem } from "./src/factionEmblems.js";
+import { Factions } from "./src/factions.js";
+
+const cfg = defaultWorldConfig();
+const F = new Factions(cfg);
+const css = (n) => "#" + (n & 0xffffff).toString(16).padStart(6, "0");
+const ids = Object.keys(cfg.factions);
+
+// Which islands each faction holds at the start.
+const holdings = {};
+for (const is of cfg.islands) (holdings[is.faction] ||= []).push(is.name);
+
+const grid = document.getElementById("grid");
+for (const id of ids) {
+  const f = cfg.factions[id], col = css(f.color);
+  const card = document.createElement("div");
+  card.className = "card";
+  const cv = document.createElement("canvas"); cv.width = cv.height = 144;
+  drawEmblem(cv.getContext("2d"), f.emblem, 72, 72, 70, f.color);
+  const body = document.createElement("div");
+  const player = id === F.playerFaction ? ' <span class="chip" style="color:#5bc8ff">YOU</span>' : "";
+  body.innerHTML = `<h2 style="color:${col}">${f.name}${player}</h2>
+    <p class="blurb">${f.blurb}</p>
+    <span class="chip" style="color:${col}">${(holdings[id]||[]).join(" · ") || "no territory"}</span>`;
+  card.append(cv, body);
+  grid.append(card);
+}
+
+// Relations matrix.
+const t = document.getElementById("matrix");
+const head = ["<tr><th class='row'></th>", ...ids.map(id => `<th style="color:${css(cfg.factions[id].color)}">${cfg.factions[id].name.split(" ")[0]}</th>`), "</tr>"].join("");
+const rows = ids.map(a => {
+  const cells = ids.map(b => {
+    if (a === b) return `<td class="self">—</td>`;
+    const s = F.stance(a, b);
+    return `<td class="s-${s}">${s}</td>`;
+  }).join("");
+  return `<tr><th class="row" style="color:${css(cfg.factions[a].color)}">${cfg.factions[a].name}</th>${cells}</tr>`;
+}).join("");
+t.innerHTML = head + rows;
+</script>
+</body>
+</html>

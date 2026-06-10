@@ -63,6 +63,18 @@ const awareness = new Awareness();
 // Allegiance: who's hostile/neutral/friendly to the player. Rebuilt on each
 // flight start so live edits to the world's faction setup take effect.
 let factions = new Factions(getFactionConfig());
+// Runtime island→faction assignment. Islands are NOT permanently bound to a
+// faction: the world config only seeds the starting allegiance, and gameplay
+// reassigns from there (conquest flips a captured island to your colours; modes
+// can re-side islands on the fly). Everything reads allegiance through
+// factionOf(), never island.faction directly.
+const islandFaction = new Map();
+function factionOf(is) { return islandFaction.get(is.name) || is.faction; }
+function setIslandFaction(name, id) { if (name && id) islandFaction.set(name, id); }
+function seedIslandFactions() {
+  islandFaction.clear();
+  for (const is of (world.islands || [])) islandFaction.set(is.name, is.faction);
+}
 let threatState = null; // nearest faction's state ("tracking"|"hunting"|null) for the HUD
 // Ambient moving traffic (train, container ships, war zeppelin) — alive in
 // every mode as roaming targets that the player can also crash into.
@@ -422,6 +434,7 @@ function wakeIsland(node) {
 }
 function captureIsland(node) {
   conquestRun.capture(node);
+  setIslandFaction(node.name, factions.playerFaction); // it flies your colours now
   awareness.factions.delete(node.name); // its defences are yours/dead — stop detecting
   missions.active = false; missions.status = "idle";
   if (conquestRun.checkWon()) {
@@ -1026,6 +1039,7 @@ function resetFlight() {
   enemyOrdnance.reset();
   awareness.reset();
   factions = new Factions(getFactionConfig()); // pick up any live edits to allegiances
+  seedIslandFactions(); // reset island allegiances to the world's starting state
   assignFactions(); // hand every defence its island's shared awareness state
   threatState = null;
   prevDestroyed = 0; prevKills = 0; wasOnGround = true;
@@ -1055,7 +1069,7 @@ function assignFactions() {
   const tag = (obj) => {
     if (!obj.alive) return;
     const pos = obj.position; const is = nearest(pos.x, pos.z);
-    if (is) { obj.factionId = is.faction; obj.faction = awareness.faction(is.name, is.center, modeFor(factions.vsPlayer(is.faction))); }
+    if (is) { const fid = factionOf(is); obj.factionId = fid; obj.faction = awareness.faction(is.name, is.center, modeFor(factions.vsPlayer(fid))); }
   };
   for (const t of ground.targets) tag(t);
   for (const e of enemies.targets) tag(e);
@@ -1069,7 +1083,7 @@ function provokeByPlayer(factionId) {
   if (!factionId) return;
   if (!factions.provoke(factionId, factions.playerFaction)) return; // already at war
   for (const is of (world.islands || [])) {
-    if (is.faction !== factionId) continue;
+    if (factionOf(is) !== factionId) continue;
     const f = awareness.factions.get(is.name);
     if (f) { f.mode = "hunt"; f.spot(state.position); }
   }
@@ -2054,7 +2068,8 @@ function frame(now) {
         const dist = Math.hypot(dx, dz);
         if (dist < 9000) continue; // don't mark the island you're over
         const pr = projectHud(_v.set(isl.center.x, SEA_LEVEL + 1500, isl.center.z));
-        islandMarkers.push({ name: isl.name, faction: isl.faction, stance: factions.vsPlayer(isl.faction), dist, ...pr });
+        const fid = factionOf(isl);
+        islandMarkers.push({ name: isl.name, faction: fid, stance: factions.vsPlayer(fid), dist, ...pr });
       }
     }
     // Air contacts: mark every aircraft (enemy jets, drones, other players) on

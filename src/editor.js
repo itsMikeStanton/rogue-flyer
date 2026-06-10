@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { getWorldConfig, setWorldConfig, getActiveIsland, getActiveIslandIndex, setActiveIsland, newIsland, riverCenterX, getForestDensity, getForestTypes, FOREST_TYPES, getPaintGrid, PAINT_MATERIALS, getSculptGrid, resculptTerrain } from "./world.js";
+import { getWorldConfig, setWorldConfig, getFactionConfig, getActiveIsland, getActiveIslandIndex, setActiveIsland, newIsland, riverCenterX, getForestDensity, getForestTypes, FOREST_TYPES, getPaintGrid, PAINT_MATERIALS, getSculptGrid, resculptTerrain } from "./world.js";
 
 // In-browser world editor: a top-down map view with draggable markers for the
 // editable objects (settlements, carriers, bridges, mission bases, spawn,
@@ -124,7 +124,7 @@ export class Editor {
     this.pushUndo();
     const o = this.origin;
     const cfg = getWorldConfig();
-    const is = newIsland({ x: o.x + 36000, z: o.z }, "Island " + (cfg.islands.length + 1), "neutral");
+    const is = newIsland({ x: o.x + 36000, z: o.z }, "Island " + (cfg.islands.length + 1), "coral");
     cfg.islands.push(is);
     this.switchIsland(cfg.islands.length - 1);
   }
@@ -764,9 +764,7 @@ export class Editor {
       <div class="ed-isl-row">
         <input id="isl-name" value="${c.name}" placeholder="name">
         <select id="isl-fac">
-          <option ${c.faction === "ally" ? "selected" : ""}>ally</option>
-          <option ${c.faction === "enemy" ? "selected" : ""}>enemy</option>
-          <option ${c.faction === "neutral" ? "selected" : ""}>neutral</option>
+          ${Object.keys(getFactionConfig().factions).map((id) => `<option value="${id}" ${c.faction === id ? "selected" : ""}>${id}</option>`).join("")}
         </select>
       </div>
       <div class="ed-isl-row">

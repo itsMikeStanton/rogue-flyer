@@ -65,27 +65,54 @@ function island(o) {
 export function defaultWorldConfig() {
   return {
     seaLevel: -180,
-    // ---- Factions: who is allied / neutral / hostile to whom. Each island below
-    //      carries a `faction` id; the player flies for `playerFaction`. Stances
-    //      are symmetric and sparse — a faction is allied with itself, an unlisted
-    //      pair uses `defaultStance`, and [a, b, stance] rows override a pair.
-    //      These three built-ins reproduce the classic world (you + allies vs. the
-    //      hostiles, with neutrals who only fight if provoked). To stage a new war,
-    //      add faction ids here and assign them to islands. ----
+    // ---- Factions: the powers contesting the archipelago. Islands are assigned
+    //      to factions at runtime (see main.js) — these are only the STARTING
+    //      allegiances; conquest and other modes reassign them on the fly. The
+    //      player flies for `playerFaction`. Stances are directional and sparse:
+    //      a faction is allied with itself, an unlisted pair uses `defaultStance`,
+    //      a 3-tuple [a,b,stance] sets a pair both ways, a 4-tuple [a,b,ab,ba]
+    //      sets each direction. `emblem` selects the procedural logo (factionEmblems.js).
+    //      The default relations leave every island's stance toward YOU exactly as
+    //      the classic world — allies, hostiles, and neutrals all read the same —
+    //      while giving the map real internal politics (an axis, a lone-wolf
+    //      hold-out, a neutral trade bloc) for richer dynamics. ----
     factions: {
-      ally:    { name: "Allied Command", color: 0x7fd2ff },
-      enemy:   { name: "Hostile Forces", color: 0xff6b6b },
-      neutral: { name: "Neutral States", color: 0xcbd5e0 },
+      vanguard: {
+        name: "Vanguard Coalition", color: 0x5bc8ff, emblem: "aegis",
+        blurb: "A federation of free islands that banded together after the Dominion's first raids. Disciplined, defensive, and home. You fly for the Coalition.",
+      },
+      aerival: {
+        name: "Aerival Dominion", color: 0xff4d4d, emblem: "spire",
+        blurb: "A spire-crowned empire convinced the whole archipelago should answer to one throne. Expansionist, relentless, and the war's prime mover.",
+      },
+      stormcrown: {
+        name: "Stormcrown Legion", color: 0xff9f1c, emblem: "bolt",
+        blurb: "Highland war-clans of the twin peaks and the spiral coast who sell their storms to the Dominion's cause — for now. Loyalty lasts as long as the spoils.",
+      },
+      skyguard: {
+        name: "The Aerie", color: 0xb07cff, emblem: "talon",
+        blurb: "A reclusive cliff-top city that trusts no one. Its guns answer anything that climbs toward the mesa — Dominion, Coalition, or Legion alike.",
+      },
+      coral: {
+        name: "Coral League", color: 0x2ad6a5, emblem: "ring",
+        blurb: "A merchant confederation of free ports linked by radio and a single harbour-master's council. Trades with every side and shoots only when shot at.",
+      },
     },
-    playerFaction: "ally",
-    defaultStance: "neutral",         // unlisted faction pairs default to neutral
+    playerFaction: "vanguard",
+    defaultStance: "neutral",            // unlisted faction pairs default to neutral
     stances: [
-      ["ally", "enemy", "enemy"],     // the one standing hostility in the base world
+      ["vanguard", "aerival", "enemy"],   // the Coalition's war with the Dominion
+      ["vanguard", "stormcrown", "enemy"],// ...and the Dominion's hired storm-clans
+      ["vanguard", "skyguard", "enemy"],  // the paranoid Aerie fires on you too
+      ["aerival", "stormcrown", "ally"],  // the axis: Dominion + Legion march together
+      ["aerival", "skyguard", "enemy"],   // but the Aerie answers to no empire
+      ["stormcrown", "skyguard", "enemy"],
+      // Coral League stays neutral to everyone via the default stance.
     ],
     islands: [
       // Home — your base, with the ally carrier offshore.
       island({
-        name: "Vanguard", faction: "ally", seed: 0x1f2e3d, center: { x: 0, z: 0 },
+        name: "Vanguard", faction: "vanguard", seed: 0x1f2e3d, center: { x: 0, z: 0 },
         carriers: [{ team: "ally", x: -1200, z: 11200, halfL: 330, halfW: 40 }],
       }),
       // Enemy island — Aerival: a colossal central peak crowned by a glowing
@@ -93,7 +120,7 @@ export function defaultWorldConfig() {
       // lighthouse/radio tower (those are home's signature); sparse forest on
       // the steep slopes. A flight east of home.
       island({
-        name: "Aerival", faction: "enemy", seed: 0x9d34f1, center: { x: 36000, z: 4000 },
+        name: "Aerival", faction: "aerival", seed: 0x9d34f1, center: { x: 36000, z: 4000 },
         carriers: [{ team: "enemy", x: 1200, z: -12800, halfL: 330, halfW: 40 }],
         missionBases: [[0, -4400], [3200, -6800], [-3400, -5600]],
         terrain: { islandInner: 6200, islandOuter: 11200, deep: -1000 },
@@ -134,7 +161,7 @@ export function defaultWorldConfig() {
       // Coral Halo — an ATOLL: a wobbling reef ring around a turquoise lagoon,
       // with a lone airstrip islet flattened at its heart. Neutral free port.
       island({
-        name: "Coral Halo", faction: "neutral", seed: 0x10ffa3, center: { x: -38000, z: 8000 },
+        name: "Coral Halo", faction: "coral", seed: 0x10ffa3, center: { x: -38000, z: 8000 },
         terrain: { islandInner: 6000, islandOuter: 9000, deep: -650 },
         shape: { type: "atoll", ring: 5200, width: 1500, ramp: 650, lagoon: 900, wobble: 5 },
         cliff: { x: 0, z: 5200, r: 850, h: 460 }, // a beacon knoll on the reef
@@ -154,7 +181,7 @@ export function defaultWorldConfig() {
       // Medusa — a 6-armed STARFISH reaching long peninsulas into deep channels,
       // a central massif beside the strip. Enemy stronghold (glowing spire).
       island({
-        name: "Medusa", faction: "enemy", seed: 0x6a11dd, center: { x: 12000, z: 40000 },
+        name: "Medusa", faction: "aerival", seed: 0x6a11dd, center: { x: 12000, z: 40000 },
         terrain: { islandInner: 4400, islandOuter: 7800, deep: -950 },
         shape: { type: "lobes", arms: 6, amp: 0.42, phase: 0.4 },
         cliff: { x: 2200, z: 0, r: 1500, h: 880 },
@@ -175,7 +202,7 @@ export function defaultWorldConfig() {
       // Halfmoon — a CRESCENT: a horseshoe wrapping a sheltered south bay. Ally
       // outpost.
       island({
-        name: "Halfmoon", faction: "ally", seed: 0x33aa77, center: { x: -20000, z: -38000 },
+        name: "Halfmoon", faction: "vanguard", seed: 0x33aa77, center: { x: -20000, z: -38000 },
         terrain: { islandInner: 6500, islandOuter: 10000, deep: -800 },
         shape: { type: "crescent", biteX: 0, biteZ: -7200, biteR: 5200 },
         cliff: { x: 0, z: 5600, r: 1200, h: 600 }, // headland on the back of the horseshoe
@@ -196,7 +223,7 @@ export function defaultWorldConfig() {
       // Gemini — TWIN PEAKS flanking a valley airstrip in the saddle; one summit
       // is a sheer cliff topped by a spire. Enemy.
       island({
-        name: "Gemini", faction: "enemy", seed: 0x9e2255, center: { x: 54000, z: -30000 },
+        name: "Gemini", faction: "stormcrown", seed: 0x9e2255, center: { x: 54000, z: -30000 },
         terrain: { islandInner: 6000, islandOuter: 9500, deep: -1000 },
         shape: { type: "ridges", peaks: [{ x: -2900, z: 200, h: 980, r: 1700 }, { x: 2900, z: -200, h: 900, r: 1600 }] },
         cliff: { x: -2900, z: 200, r: 1000, h: 1010 },
@@ -216,7 +243,7 @@ export function defaultWorldConfig() {
       // Aerie — a SKY MESA: a tiny footprint rising as sheer cliffs to a flat
       // tableland city at 900m, runway right on the deck. Enemy eyrie.
       island({
-        name: "Aerie", faction: "enemy", seed: 0xc0ffee, center: { x: 70000, z: 18000 },
+        name: "Aerie", faction: "skyguard", seed: 0xc0ffee, center: { x: 70000, z: 18000 },
         terrain: { islandInner: 2700, islandOuter: 3500, deep: -1200 },
         cliff: { x: 0, z: 0, r: 2400, h: 900 }, // the whole top is one flat table at 900m
         spawn: { flattenRadius: 0, x: 0, z: 0 }, // no flatten — the cliff top IS the flat runway deck
@@ -233,7 +260,7 @@ export function defaultWorldConfig() {
       // Maelstrom — a SPIRAL ridge of stone winding inward to a calm "eye" where
       // the runway sits; a headland on the outer arm wears a spire. Enemy.
       island({
-        name: "Maelstrom", faction: "enemy", seed: 0x5e7a91, center: { x: -58000, z: -10000 },
+        name: "Maelstrom", faction: "stormcrown", seed: 0x5e7a91, center: { x: -58000, z: -10000 },
         terrain: { islandInner: 6000, islandOuter: 9200, deep: -1000 },
         shape: { type: "spiral", spiralR: 6200, turns: 2.6, pitch: 1500, height: 820 },
         cliff: { x: 4400, z: 2600, r: 1100, h: 980 },
@@ -252,7 +279,7 @@ export function defaultWorldConfig() {
       // The Splinters — a SHATTERED archipelago: scattered islets and shallow
       // channels you weave between, a sea-stack on one shard. Neutral.
       island({
-        name: "The Splinters", faction: "neutral", seed: 0x2b7733, center: { x: 28000, z: -52000 },
+        name: "The Splinters", faction: "coral", seed: 0x2b7733, center: { x: 28000, z: -52000 },
         terrain: { islandInner: 6000, islandOuter: 9500, deep: -600 },
         shape: { type: "shatter", regionInner: 5000, regionOuter: 9500, scale: 0.0009, thresh: 0.5, sharp: 8 },
         cliff: { x: 3400, z: -2200, r: 700, h: 580 }, // a sea-stack (guaranteed land for the strike base)
