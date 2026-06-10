@@ -234,7 +234,10 @@ export class Hud {
         ctx.beginPath(); ctx.moveTo(w.x, w.y - s); ctx.lineTo(w.x + s, w.y); ctx.lineTo(w.x, w.y + s); ctx.lineTo(w.x - s, w.y); ctx.closePath(); ctx.stroke();
         ctx.font = "10px 'Consolas', monospace"; ctx.textAlign = "center";
         ctx.fillText(String(w.idx), w.x, w.y - s - 5);
-        if (w.next) { ctx.globalAlpha = 0.5; ctx.beginPath(); ctx.arc(w.x, w.y, s + 5, 0, Math.PI * 2); ctx.stroke(); ctx.globalAlpha = 1; }
+        if (w.next) {
+          ctx.globalAlpha = 0.5; ctx.beginPath(); ctx.arc(w.x, w.y, s + 5, 0, Math.PI * 2); ctx.stroke(); ctx.globalAlpha = 1;
+          if (r.next) { ctx.font = "9px 'Consolas', monospace"; ctx.fillText(r.next.label + (r.next.snap ? " ▸ " + r.next.snap.toUpperCase() : ""), w.x, w.y - s - 17); }
+        }
       } else if (w.next) {
         const e = this._edgePoint(w.dirx, w.diry, 60);
         ctx.save(); ctx.translate(e.x, e.y); ctx.rotate(e.ang);
@@ -242,10 +245,17 @@ export class Hud {
         ctx.restore();
       }
     }
-    // Progress readout.
+    // Progress readout + attack callout.
     ctx.textAlign = "center"; ctx.font = "12px 'Consolas', monospace";
-    if (r.next) { ctx.fillStyle = NX; ctx.fillText(`ROUTE ▸ WPT ${r.next.idx}/${r.total}  ·  ${(r.next.dist / 1000).toFixed(1)} km`, cx, 96); }
-    else { ctx.fillStyle = "#36ff9a"; ctx.fillText("ROUTE COMPLETE", cx, 96); }
+    if (r.next) {
+      const tgt = r.next.snap ? " ▸ " + r.next.snap.toUpperCase() : "";
+      ctx.fillStyle = r.next.attack ? "#ff7a5b" : NX;
+      ctx.fillText(`ROUTE ▸ WPT ${r.next.idx}/${r.total} · ${r.next.label}${tgt} · ${(r.next.dist / 1000).toFixed(1)} km`, cx, 96);
+      if (r.next.attack && r.next.dist < 5000) {
+        ctx.font = "700 15px 'Consolas', monospace"; ctx.fillStyle = "#ff5b5b";
+        ctx.fillText("◤ ATTACK POINT ◢", cx, 116);
+      }
+    } else { ctx.fillStyle = "#36ff9a"; ctx.fillText("ROUTE COMPLETE", cx, 96); }
     ctx.restore();
   }
 

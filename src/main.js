@@ -683,6 +683,19 @@ function routeSnap(i) {
 function routeUndo() { route.pop(); if (routeIdx > route.length) routeIdx = route.length; saveRoute(); }
 function routeClear() { route.length = 0; routeIdx = 0; saveRoute(); }
 
+// A glowing world beam at the active waypoint, so it's findable in the air.
+const routeBeam = (() => {
+  const g = new THREE.Group();
+  const beamMat = new THREE.MeshBasicMaterial({ color: 0xffd23f, transparent: true, opacity: 0.22, blending: THREE.AdditiveBlending, depthWrite: false });
+  const beam = new THREE.Mesh(new THREE.CylinderGeometry(16, 16, 1400, 12, 1, true), beamMat);
+  beam.position.y = 700; g.add(beam);
+  const ringMat = new THREE.MeshBasicMaterial({ color: 0xffd23f, transparent: true, opacity: 0.7, blending: THREE.AdditiveBlending, depthWrite: false });
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(46, 3, 6, 28), ringMat);
+  ring.rotation.x = Math.PI / 2; ring.position.y = 4; g.add(ring);
+  g.visible = false; scene.add(g);
+  return { group: g, beamMat, ringMat, ring };
+})();
+
 const mapView = new MapView(document.getElementById("map-canvas"), {
   factionOf: factionIdByName,
   getFactions: () => factions,
@@ -869,6 +882,7 @@ window.addEventListener("keydown", (e) => {
   if (e.code === "KeyM") updateSoundButton(sound.toggleMute());
   if (e.code === "KeyO") mapView.toggle();
   if (e.code === "Escape" && mapView.isOpen) mapView.close();
+  if (e.code === "KeyP" && route.length) { routeOn = !routeOn; flashBanner(routeOn ? "ROUTE ON" : "ROUTE OFF", routeOn ? "Following the flight plan" : "Flight plan hidden", 1.6); }
 });
 
 // Floating in-flight button to reopen the vehicle bay.
@@ -1845,6 +1859,7 @@ function damageFx(obj, dyn) {
 }
 
 function frame(now) {
+  routeBeam.group.visible = false; // shown only while a route is being flown
   let dt = (now - last) / 1000;
   last = now;
   if (dt > 0.1) dt = 0.1; // clamp after tab-out
@@ -2300,6 +2315,12 @@ function frame(now) {
       if (routeIdx < route.length) {
         const w = route[routeIdx], ty = wptType(w.type);
         next = { idx: routeIdx + 1, dist: Math.hypot(state.position.x - w.x, state.position.z - w.z), type: w.type, label: ty.label, attack: w.type === "attack", snap: w.snap, alt: Math.round(w.alt) };
+        // Drive the world beam to the active waypoint.
+        const gy = Math.max(terrainHeight(w.x, w.z), SEA_LEVEL);
+        routeBeam.group.position.set(w.x, gy, w.z);
+        routeBeam.beamMat.color.setHex(ty.color); routeBeam.ringMat.color.setHex(ty.color);
+        routeBeam.ring.rotation.z += simDt * 1.2;
+        routeBeam.group.visible = true;
       }
       routeHud = { wps, next, total: route.length, remaining: Math.max(0, route.length - routeIdx) };
     }
