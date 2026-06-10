@@ -2208,13 +2208,15 @@ function frame(now) {
       _v4.set(vec.x, vec.y, vec.z, 1).applyMatrix4(camera.matrixWorldInverse).applyMatrix4(camera.projectionMatrix);
       const w = _v4.w;
       const inv = 1 / (Math.abs(w) < 1e-6 ? (w < 0 ? -1e-6 : 1e-6) : w);
-      const ndcx = _v4.x * inv, ndcy = _v4.y * inv, ndcz = _v4.z * inv;
+      const ndcx = _v4.x * inv, ndcy = _v4.y * inv;
       const s = w < 0 ? -1 : 1; // behind the camera: flip so the arrow points the right way
       return {
         x: (ndcx * 0.5 + 0.5) * hud.w, y: (-ndcy * 0.5 + 0.5) * hud.h,
         dirx: _v4.x * s, diry: _v4.y * s,
         behind: w < 0,
-        onscreen: w > 0 && Math.abs(ndcx) <= 1 && Math.abs(ndcy) <= 1 && ndcz <= 1,
+        // On-screen test ignores depth: a nav marker for an island past the camera
+        // far plane is still "ahead and in frame" and should pin to it, not the edge.
+        onscreen: w > 0 && Math.abs(ndcx) <= 1 && Math.abs(ndcy) <= 1,
       };
     };
     // Project the locked target to screen space for the lock box.
