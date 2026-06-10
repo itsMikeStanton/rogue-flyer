@@ -22,6 +22,8 @@ const FIGHTER_GAP = 1.1;          // base pause between bursts
 const _to = new THREE.Vector3();
 const _desired = new THREE.Vector3();
 const _look = new THREE.Vector3();
+const _aimPt = new THREE.Vector3();
+const _pre = new THREE.Vector3();
 
 // Rotate `dir` toward `desired` by at most maxRad; returns alignment dot.
 function steer(dir, desired, maxRad) {
@@ -102,6 +104,9 @@ class Entity {
       this.dir.set((Math.random() - 0.5), 0, -1).normalize();
       this.speed = 190;
       this.takingOff = false;
+      this.bank = 0;
+      this.vphase = Math.random() * Math.PI * 2;   // vertical-weave phase
+      this.vrate = 0.5 + Math.random() * 0.5;       // ...and rate (per jet)
       this.fireCd = 0.5 + Math.random();
       // Rearm the missile/rocket loadout each (re)spawn. Tougher fighters carry
       // (and cycle) ordnance more aggressively — see the firing logic in update.
@@ -211,20 +216,35 @@ class Entity {
       return;
     }
 
-    // Fighter AI: turn toward the player, hold altitude, fire when aligned.
+    // Fighter AI: turn toward the player, work the vertical, fire when aligned.
     _to.copy(player.position).sub(this.position);
     const dist = _to.length();
-    _desired.copy(_to).normalize();
-    if (this.position.y < 500) _desired.y += 0.6;      // don't fly into the dirt
+    // Aim at a moving perch around the player: weave in the vertical, and sit a
+    // little high at range (a perch to dive from) so they don't just pace you.
+    this.vphase += dt * this.vrate;
+    const weave = (dist > 1400 ? 320 : 70) * Math.sin(this.vphase);
+    _aimPt.copy(player.position); _aimPt.y += weave + (dist > 2600 ? 280 : 0);
+    _desired.copy(_aimPt).sub(this.position).normalize();
     if (dist < 350) _desired.multiplyScalar(-1);        // overshoot: extend for another pass
+    // Terrain-relative floor: pull up harder the closer to the deck they get.
+    const agl = this.position.y - groundHeightAt(this.position.x, this.position.z);
+    if (agl < 360) _desired.y += (360 - agl) / 360 * 1.3;
+
+    _pre.copy(this.dir);
     const aim = steer(this.dir, _desired, 1.3 * dt);
 
-    const topSpeed = 215 + (this.diff - 1) * 45; // later waves fly faster
+    // Energy: bleed speed in the climb, gain it in the dive.
+    const topSpeed = (215 + (this.diff - 1) * 45) * (1 - THREE.MathUtils.clamp(this.dir.y, -1, 1) * 0.25);
     this.speed += (topSpeed - this.speed) * Math.min(1, dt * 0.5);
     this.position.addScaledVector(this.dir, this.speed * dt);
 
+    // Bank into the turn: roll proportional to the horizontal turn rate.
+    const yawRate = (_pre.z * this.dir.x - _pre.x * this.dir.z) / Math.max(dt, 1e-3);
+    const targetBank = THREE.MathUtils.clamp(yawRate * 0.85, -1.2, 1.2);
+    this.bank += (targetBank - this.bank) * Math.min(1, dt * 4);
     this.mesh.position.copy(this.position);
     this.mesh.lookAt(_look.copy(this.position).add(this.dir));
+    this.mesh.rotateZ(this.bank);
 
     // Awareness: a fighter with you in visual range calls the contact in (which
     // trips the island's alert if it didn't already know), and only opens fire
