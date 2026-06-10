@@ -88,7 +88,7 @@ export class MapView {
   _raster(is) {
     const hit = RASTERS.get(is.name);
     if (hit) return hit;
-    const G = 192, R = is.outer * 1.06, sea = SEA_LEVEL;
+    const G = 320, R = is.outer * 1.06, sea = SEA_LEVEL;
     // Sample the height field on a (G+1)² grid (shared by shading + contour).
     const H = new Float32Array((G + 1) * (G + 1));
     const pos = (k) => (k / G - 0.5) * 2 * R;
@@ -110,12 +110,13 @@ export class MapView {
           const hx = at(Math.min(G, i + 1), j) - at(Math.max(0, i - 1), j);
           const hz = at(i, Math.min(G, j + 1)) - at(i, Math.max(0, j - 1));
           let nx = -hx, nz = -hz, ny = 2 * cell; const nl = Math.hypot(nx, ny, nz) || 1;
-          const shade = Math.max(0, (nx * Lx + ny * Ly + nz * Lz) / nl);
-          const b = 0.32 + 0.85 * shade;                 // relief brightness
-          const e = Math.min(1, (h - sea) / 2200);       // peaks a touch lighter
-          d[idx] = Math.min(255, (62 + 34 * e) * b);
-          d[idx + 1] = Math.min(255, (78 + 30 * e) * b);
-          d[idx + 2] = Math.min(255, (60 + 24 * e) * b);
+          let shade = Math.max(0, (nx * Lx + ny * Ly + nz * Lz) / nl);
+          shade = Math.min(1, (shade - 0.5) * 1.7 + 0.5);  // steepen: deep shadows, bright faces
+          const b = 0.1 + 1.32 * Math.max(0, shade);       // high-contrast relief
+          const e = Math.min(1, (h - sea) / 2000);         // peaks clearly lighter
+          d[idx] = Math.min(255, (54 + 50 * e) * b);
+          d[idx + 1] = Math.min(255, (74 + 44 * e) * b);
+          d[idx + 2] = Math.min(255, (54 + 32 * e) * b);
           d[idx + 3] = 255;
         } else if (h > sea - 160) {                      // shore shelf
           d[idx] = 26; d[idx + 1] = 52; d[idx + 2] = 64; d[idx + 3] = 120;
@@ -220,9 +221,10 @@ export class MapView {
       const x1 = tf.toX(is.center.x + r.R), y1 = tf.toY(is.center.z + r.R);
       ctx.drawImage(r.canvas, x0, y0, x1 - x0, y1 - y0);
     }
-    // Crisp vector coastline on top — the big legibility win, sharp at any zoom.
-    ctx.strokeStyle = "#aed6df"; ctx.lineWidth = zoomed ? 1.8 : 1.2; ctx.globalAlpha = 0.85;
-    ctx.lineJoin = "round"; ctx.beginPath();
+    // Crisp vector coastline on top — sharp at any zoom. Two passes: a dark
+    // underlay to deepen the water at the shore, then a bright line, so the
+    // island pops off the ocean.
+    ctx.lineJoin = "round"; ctx.lineCap = "round"; ctx.beginPath();
     for (const r of rasters) {
       const seg = r.coast;
       for (let s = 0; s < seg.length; s += 4) {
@@ -230,7 +232,8 @@ export class MapView {
         ctx.lineTo(tf.toX(seg[s + 2]), tf.toY(seg[s + 3]));
       }
     }
-    ctx.stroke(); ctx.globalAlpha = 1;
+    ctx.strokeStyle = "#040d14"; ctx.lineWidth = zoomed ? 4 : 2.6; ctx.globalAlpha = 0.9; ctx.stroke();
+    ctx.strokeStyle = "#cfeaf2"; ctx.lineWidth = zoomed ? 1.6 : 1.0; ctx.globalAlpha = 1; ctx.stroke();
 
     // Conquest: ring islands by who holds them; halo the selected beachhead.
     if (nodes) {
