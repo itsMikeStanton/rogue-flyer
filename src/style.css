@@ -773,3 +773,30 @@ button.vr:hover { background: rgba(46,230,166,0.26); }
 }
 .map-toggle:hover { background: rgba(20,34,48,0.92); color: #aac6d4; }
 .map-toggle.on { color: #cfe7f0; border-color: rgba(120,200,224,0.6); box-shadow: inset 0 0 0 1px rgba(120,200,224,0.12); }
+
+/* --- Waypoint inspector (map route planner) ---------------------------- */
+.wpt-inspector {
+  position: absolute; bottom: 56px; right: 16px; z-index: 3; width: 216px;
+  background: rgba(6,11,17,0.92); border: 1px solid rgba(120,200,224,0.35);
+  border-radius: 8px; padding: 10px; color: #cfe1ee;
+  font: 11px ui-monospace, "Consolas", monospace; letter-spacing: 0.5px;
+}
+.wpt-inspector.hidden { display: none; }
+.wi-head { display: flex; align-items: center; justify-content: space-between; color: #cfe7f0; font-weight: 700; letter-spacing: 1.5px; margin-bottom: 8px; }
+.wi-head button { background: none; border: none; color: #6f8295; cursor: pointer; font-size: 13px; }
+.wi-head button:hover { color: #fff; }
+.wi-types { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; margin-bottom: 7px; }
+.wi-types button {
+  background: rgba(14,22,32,0.9); border: 1px solid rgba(120,200,224,0.2); color: #8aa0b2;
+  border-radius: 5px; padding: 5px 0; cursor: pointer; font: 700 10px ui-monospace, monospace; letter-spacing: 1px;
+}
+.wi-types button.on { color: #06121a; background: #46c8ff; border-color: #46c8ff; }
+.wi-desc { color: #8aa0b2; font-size: 10px; line-height: 1.35; margin-bottom: 8px; min-height: 26px; }
+.wi-row { display: flex; align-items: center; gap: 8px; margin: 5px 0; }
+.wi-k { color: #6f8295; width: 30px; }
+.wi-v { color: #eaf2fb; flex: 1; }
+.wi-row button { width: 24px; height: 22px; background: rgba(14,22,32,0.9); border: 1px solid rgba(120,200,224,0.25); color: #cfe1ee; border-radius: 5px; cursor: pointer; }
+.wi-actions { display: flex; gap: 6px; margin-top: 9px; }
+.wi-actions button { flex: 1; padding: 6px 0; background: rgba(14,22,32,0.9); border: 1px solid rgba(120,200,224,0.25); color: #cfe1ee; border-radius: 5px; cursor: pointer; font: 700 10px ui-monospace, monospace; letter-spacing: 1px; }
+.wi-actions button:hover { background: rgba(28,44,60,0.95); }
+.wi-actions .wi-danger { border-color: rgba(217,119,74,0.5); color: #e08a5a; }

@@ -321,9 +321,17 @@
     <canvas id="map-canvas"></canvas>
     <button id="map-close" class="map-close" title="Close (Esc / O)">✕</button>
     <div class="map-tools">
-      <button id="map-route" class="map-toggle" title="Plot a flight route: click to add waypoints, right-click to undo">◇ ROUTE</button>
+      <button id="map-route" class="map-toggle" title="Plot a flight route: click to add/insert waypoints, drag to move, right-click to undo">◇ ROUTE</button>
       <button id="map-route-clear" class="map-toggle" title="Clear the route">✕ CLR</button>
       <button id="map-labels" class="map-toggle on" title="Toggle item labels">◫ LABELS</button>
+    </div>
+    <div id="wpt-inspector" class="wpt-inspector hidden">
+      <div class="wi-head">WAYPOINT <span id="wi-num"></span><button id="wi-close" title="Close">✕</button></div>
+      <div class="wi-types" id="wi-types"></div>
+      <div class="wi-desc" id="wi-desc"></div>
+      <div class="wi-row"><span class="wi-k">ALT</span><button id="wi-alt-dn">−</button><span id="wi-alt" class="wi-v"></span><button id="wi-alt-up">+</button></div>
+      <div class="wi-row"><span class="wi-k">TGT</span><span id="wi-snap" class="wi-v"></span></div>
+      <div class="wi-actions"><button id="wi-snap-btn">SNAP TO TARGET</button><button id="wi-del" class="wi-danger">DELETE</button></div>
     </div>
   </div>
 

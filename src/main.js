@@ -4,6 +4,7 @@ import { createState, step } from "./flight.js";
 import { buildWorld, terrainHeight, groundHeightAt, getCarriers, getIslandSpawns, getMissionBases, getWorldConfig, getFactionConfig, SEA_LEVEL, lightPoolTexture } from "./world.js";
 import { Factions } from "./factions.js";
 import { MapView } from "./mapview.js";
+import { WPT_TYPES, WPT_ORDER, wptType } from "./waypoints.js";
 import { Input } from "./input.js";
 import { Hud } from "./hud.js";
 import { UI } from "./ui.js";
@@ -653,12 +654,32 @@ const ui = new UI(input, {
 // flight (a tactical kneeboard; the sim keeps running underneath).
 // --- Flight-plan route: waypoints drawn on the map, flown in-game ------------
 const ROUTE_REACH = 450;   // pass within this (m) of a waypoint to tick it off
-let route = [];     // [{x, z, y}] world coords; y = planned altitude
+let route = [];     // [{x, z, alt, type, snap}] world coords
 let routeIdx = 0;   // index of the current target waypoint (auto-advances)
-try { const r = JSON.parse(localStorage.getItem("rf.route") || "[]"); if (Array.isArray(r)) route = r.filter((w) => w && isFinite(w.x) && isFinite(w.z)); } catch (_) { /* ignore */ }
-function saveRoute() { try { localStorage.setItem("rf.route", JSON.stringify(route)); } catch (_) { /* ignore */ } }
+let routeOn = true; // in-game route visibility (toggle with P)
 function routeAlt(x, z) { return Math.max(terrainHeight(x, z) + 300, SEA_LEVEL + 500); }
-function routeAdd(x, z) { route.push({ x, z, y: routeAlt(x, z) }); saveRoute(); }
+function normWpt(w) {
+  return { x: +w.x, z: +w.z, alt: isFinite(w.alt) ? w.alt : (isFinite(w.y) ? w.y : routeAlt(+w.x, +w.z)),
+    type: WPT_TYPES[w.type] ? w.type : "nav", snap: w.snap || null };
+}
+try { const r = JSON.parse(localStorage.getItem("rf.route") || "[]"); if (Array.isArray(r)) route = r.filter((w) => w && isFinite(w.x) && isFinite(w.z)).map(normWpt); } catch (_) { /* ignore */ }
+function saveRoute() { try { localStorage.setItem("rf.route", JSON.stringify(route)); } catch (_) { /* ignore */ } }
+function routeAdd(x, z, index) {
+  const w = { x, z, alt: routeAlt(x, z), type: "nav", snap: null };
+  if (index == null || index >= route.length) route.push(w); else route.splice(index, 0, w);
+  saveRoute(); return w;
+}
+function routeMove(i, x, z) { const w = route[i]; if (w) { w.x = x; w.z = z; } }     // live drag, no save
+function routeCommit() { saveRoute(); }
+function routeDeleteAt(i) { if (route[i]) { route.splice(i, 1); if (routeIdx > route.length) routeIdx = route.length; saveRoute(); } }
+function routeUpdate(i, patch) { if (route[i]) { Object.assign(route[i], patch); saveRoute(); } }
+function routeSnap(i) {
+  const w = route[i]; if (!w) return null;
+  const sites = buildMapSites(); let best = null, bd = Infinity;
+  for (const s of sites) { const d = Math.hypot(s.x - w.x, s.z - w.z); if (d < bd) { bd = d; best = s; } }
+  if (best && bd < 6000) { w.x = best.x; w.z = best.z; w.snap = best.label; if (w.type === "nav") w.type = best.side === "friendly" ? "rtb" : "attack"; saveRoute(); }
+  return best && bd < 6000 ? best.label : null;
+}
 function routeUndo() { route.pop(); if (routeIdx > route.length) routeIdx = route.length; saveRoute(); }
 function routeClear() { route.length = 0; routeIdx = 0; saveRoute(); }
 
@@ -667,7 +688,13 @@ const mapView = new MapView(document.getElementById("map-canvas"), {
   getFactions: () => factions,
   getSites: buildMapSites,
   getRoute: () => route,
-  onRouteAdd: (x, z) => routeAdd(x, z),
+  onRouteAdd: (x, z, index) => routeAdd(x, z, index),
+  onRouteMove: (i, x, z) => routeMove(i, x, z),
+  onRouteCommit: () => routeCommit(),
+  onRouteDelete: (i) => routeDeleteAt(i),
+  onRouteSnap: (i) => routeSnap(i),
+  onSelectWaypoint: (i) => showWptInspector(i),
+  onClose: () => showWptInspector(null),
   onRouteUndo: () => routeUndo(),
   onRouteClear: () => routeClear(),
   getPlayer: () => {
@@ -688,9 +715,36 @@ const mapView = new MapView(document.getElementById("map-canvas"), {
     ml.addEventListener("click", () => { mapView.setLabels(!mapView.labelsOn); ml.classList.toggle("on", mapView.labelsOn); });
   }
   const mr = document.getElementById("map-route");
-  if (mr) mr.addEventListener("click", () => { mapView.setRouteMode(!mapView.routeMode); mr.classList.toggle("on", mapView.routeMode); });
+  if (mr) mr.addEventListener("click", () => { const on = !mapView.routeMode; mapView.setRouteMode(on); mr.classList.toggle("on", on); if (!on) showWptInspector(null); });
   const mrc = document.getElementById("map-route-clear");
-  if (mrc) mrc.addEventListener("click", () => { routeClear(); mapView.draw(); });
+  if (mrc) mrc.addEventListener("click", () => { routeClear(); showWptInspector(null); mapView.draw(); });
+}
+
+// Selected-waypoint inspector (type / altitude / snap / delete) on the map.
+let wptSel = null;
+function showWptInspector(i) {
+  wptSel = (i == null || !route[i]) ? null : i;
+  const panel = document.getElementById("wpt-inspector");
+  if (!panel) return;
+  if (wptSel == null) { panel.classList.add("hidden"); if (mapView) mapView.clearWptSel(); return; }
+  const w = route[wptSel];
+  document.getElementById("wi-num").textContent = String(wptSel + 1);
+  const tb = document.getElementById("wi-types");
+  tb.innerHTML = WPT_ORDER.map((t) => `<button data-t="${t}" class="${w.type === t ? "on" : ""}">${WPT_TYPES[t].label}</button>`).join("");
+  tb.querySelectorAll("button").forEach((b) => b.addEventListener("click", () => { routeUpdate(wptSel, { type: b.dataset.t }); showWptInspector(wptSel); mapView.draw(); }));
+  document.getElementById("wi-desc").textContent = wptType(w.type).desc;
+  document.getElementById("wi-alt").textContent = Math.round(w.alt) + " m";
+  document.getElementById("wi-snap").textContent = w.snap ? ("▸ " + w.snap) : "— not snapped —";
+  mapView.setWptSel(wptSel);
+  panel.classList.remove("hidden");
+}
+{
+  const wire = (id, fn) => { const el = document.getElementById(id); if (el) el.addEventListener("click", fn); };
+  wire("wi-close", () => { showWptInspector(null); mapView.draw(); });
+  wire("wi-alt-up", () => { if (wptSel != null) { routeUpdate(wptSel, { alt: route[wptSel].alt + 100 }); showWptInspector(wptSel); mapView.draw(); } });
+  wire("wi-alt-dn", () => { if (wptSel != null) { routeUpdate(wptSel, { alt: Math.max(100, route[wptSel].alt - 100) }); showWptInspector(wptSel); mapView.draw(); } });
+  wire("wi-snap-btn", () => { if (wptSel != null) { routeSnap(wptSel); showWptInspector(wptSel); mapView.draw(); } });
+  wire("wi-del", () => { if (wptSel != null) { routeDeleteAt(wptSel); showWptInspector(null); mapView.draw(); } });
 }
 
 // Embedded accurate map for the Conquest planner: same renderer, with islands
@@ -2236,16 +2290,16 @@ function frame(now) {
 
     // Flight-plan route: project each waypoint, auto-advance as you reach them.
     let routeHud = null;
-    if (route.length) {
+    if (route.length && routeOn) {
       while (routeIdx < route.length) {
         const w = route[routeIdx];
         if (Math.hypot(state.position.x - w.x, state.position.z - w.z) < ROUTE_REACH) routeIdx++; else break;
       }
-      const wps = route.map((w, i) => ({ idx: i + 1, done: i < routeIdx, next: i === routeIdx, ...projectHud(_v.set(w.x, w.y, w.z)) }));
+      const wps = route.map((w, i) => ({ idx: i + 1, done: i < routeIdx, next: i === routeIdx, type: w.type, ...projectHud(_v.set(w.x, w.alt, w.z)) }));
       let next = null;
       if (routeIdx < route.length) {
-        const w = route[routeIdx];
-        next = { idx: routeIdx + 1, dist: Math.hypot(state.position.x - w.x, state.position.z - w.z) };
+        const w = route[routeIdx], ty = wptType(w.type);
+        next = { idx: routeIdx + 1, dist: Math.hypot(state.position.x - w.x, state.position.z - w.z), type: w.type, label: ty.label, attack: w.type === "attack", snap: w.snap, alt: Math.round(w.alt) };
       }
       routeHud = { wps, next, total: route.length, remaining: Math.max(0, route.length - routeIdx) };
     }

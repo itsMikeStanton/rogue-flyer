@@ -14,6 +14,9 @@
 // shared module cache and reused by every MapView.
 
 import { getWorldConfig, terrainHeight, SEA_LEVEL, forestAt } from "./world.js";
+import { wptType, legBearing, legDist } from "./waypoints.js";
+
+const PLAN_SPEED = 231; // ~450 kt in m/s, for route ETA
 
 const SIDE_COL = { hostile: "#d9774a", friendly: "#62c98a", neutral: "#97a4ac" };
 // Which installation kinds get a persistent text label (the rest are hover-only,
@@ -35,6 +38,7 @@ export class MapView {
     this.isOpen = this.embedded;
     this._tf = null; this._mouse = null; this._markers = [];
     this.cam = null; this._drag = null; this._dragMoved = false; this._sidebarHits = []; this.routeMode = false;
+    this._selWpt = null; this._wptDrag = null; this._suppressClick = false;
     this.labelsOn = true;
     try { this.labelsOn = localStorage.getItem("rf.mapLabels") !== "0"; } catch (_) { /* ignore */ }
     this._top = this.embedded ? 0 : 40;       // header band
@@ -44,8 +48,16 @@ export class MapView {
     canvas.addEventListener("mousemove", (e) => this._onMove(e));
     canvas.addEventListener("mouseleave", () => { this._mouse = null; this._drag = null; if (this.isOpen) this.draw(); });
     if (!this.embedded) {
-      canvas.addEventListener("mousedown", (e) => { if (this.cam) this._drag = { ...this._evtPos(e), cx: this.cam.cx, cz: this.cam.cz, moved: false }; });
-      window.addEventListener("mouseup", () => { this._dragMoved = !!(this._drag && this._drag.moved); this._drag = null; });
+      canvas.addEventListener("mousedown", (e) => {
+        if (!this.cam) return;
+        const p = this._evtPos(e);
+        if (this.routeMode) { const i = this._hitWaypoint(p.x, p.y); if (i >= 0) { this._wptDrag = { i, moved: false }; return; } }
+        this._drag = { ...p, cx: this.cam.cx, cz: this.cam.cz, moved: false };
+      });
+      window.addEventListener("mouseup", () => {
+        if (this._wptDrag) { if (this._wptDrag.moved && this.opts.onRouteCommit) { this.opts.onRouteCommit(); this._suppressClick = true; } this._wptDrag = null; }
+        this._dragMoved = !!(this._drag && this._drag.moved); this._drag = null;
+      });
       canvas.addEventListener("wheel", (e) => this._onWheel(e), { passive: false });
       canvas.addEventListener("contextmenu", (e) => { if (this.routeMode && this.opts.onRouteUndo) { e.preventDefault(); this.opts.onRouteUndo(); this.draw(); } });
     }
@@ -246,6 +258,11 @@ export class MapView {
   _onMove(e) {
     if (!this.isOpen) return;
     const p = this._evtPos(e);
+    if (this._wptDrag && this.opts.onRouteMove) {
+      this._wptDrag.moved = true;
+      this.opts.onRouteMove(this._wptDrag.i, this._tf.toWX(p.x), this._tf.toWZ(p.y));
+      this._mouse = null; this.draw(); return;
+    }
     if (this._drag && this.cam) {
       const dx = p.x - this._drag.x, dy = p.y - this._drag.y;
       if (Math.abs(dx) + Math.abs(dy) > 3) this._drag.moved = true;
@@ -516,6 +533,22 @@ export class MapView {
       y += 7;
     }
 
+    // Flight plan (clickable; selects the waypoint).
+    const route = this._route();
+    if (route.length) {
+      HEAD("// FLIGHT PLAN", y); y += 16;
+      ctx.font = "10px ui-monospace, 'Consolas', monospace"; ctx.textAlign = "left";
+      for (let i = 0; i < route.length && y < H - 120; i++) {
+        const w = route[i], ty = wptType(w.type);
+        if (this._selWpt === i) { ctx.fillStyle = "rgba(255,210,63,0.12)"; ctx.fillRect(x0 + 8, y - 10, this._right - 16, 13); }
+        ctx.fillStyle = css(ty.color); ctx.fillText(String(i + 1).padStart(2, "0") + " " + ty.label, x0 + 14, y);
+        if (w.snap) { ctx.fillStyle = "#90a2b2"; ctx.fillText("▸ " + w.snap.toUpperCase(), x0 + 74, y); }
+        this._sidebarHits.push({ x: x0 + 8, y: y - 10, w: this._right - 16, h: 13, wpt: i });
+        y += 13;
+      }
+      y += 8;
+    }
+
     // Symbol key.
     y = Math.max(y, H - 100);
     HEAD("// LEGEND", y); y += 16;
@@ -561,11 +594,42 @@ export class MapView {
     if (!this.isOpen || !this._tf) return;
     const p = this._evtPos(e);
     if (this.opts.onPick) { const is = this._hitIsland(p.x, p.y); if (is) this.opts.onPick(is.name); return; }
-    if (this._dragMoved) { this._dragMoved = false; return; } // that was a pan, not a click
-    if (this.routeMode && this.opts.onRouteAdd) { this.opts.onRouteAdd(this._tf.toWX(p.x), this._tf.toWZ(p.y)); this.draw(); return; }
-    for (const h of this._sidebarHits) { if (p.x >= h.x && p.x <= h.x + h.w && p.y >= h.y && p.y <= h.y + h.h) { this._zoomToIsland(h.island); return; } }
+    if (this._suppressClick) { this._suppressClick = false; return; } // finished a waypoint drag
+    if (this._dragMoved) { this._dragMoved = false; return; }          // that was a pan
+    for (const h of this._sidebarHits) {
+      if (p.x >= h.x && p.x <= h.x + h.w && p.y >= h.y && p.y <= h.y + h.h) {
+        if (h.wpt != null) { this._selWpt = h.wpt; if (this.opts.onSelectWaypoint) this.opts.onSelectWaypoint(h.wpt); this.draw(); }
+        else if (h.island) this._zoomToIsland(h.island);
+        return;
+      }
+    }
+    if (this.routeMode) {
+      const wi = this._hitWaypoint(p.x, p.y);
+      if (wi >= 0) { this._selWpt = wi; if (this.opts.onSelectWaypoint) this.opts.onSelectWaypoint(wi); this.draw(); return; }
+      if (this.opts.onRouteAdd) { this.opts.onRouteAdd(this._tf.toWX(p.x), this._tf.toWZ(p.y), this._insertIndex(p.x, p.y)); this.draw(); return; }
+    }
     const is = this._hitIsland(p.x, p.y);
     if (is) this._zoomToIsland(is.name);
+  }
+  setWptSel(i) { this._selWpt = i; }
+  clearWptSel() { this._selWpt = null; if (this.isOpen) this.draw(); }
+  _route() { return (this.opts.getRoute && this.opts.getRoute()) || []; }
+  _hitWaypoint(px, py) {
+    const r = this._route(), tf = this._tf; if (!tf) return -1;
+    for (let i = 0; i < r.length; i++) { if (Math.hypot(tf.toX(r[i].x) - px, tf.toY(r[i].z) - py) < 11) return i; }
+    return -1;
+  }
+  _insertIndex(px, py) {
+    const r = this._route(), tf = this._tf; if (r.length < 2) return null;
+    let bestI = null, bd = 14;
+    for (let i = 0; i < r.length - 1; i++) {
+      const ax = tf.toX(r[i].x), ay = tf.toY(r[i].z), bx = tf.toX(r[i + 1].x), by = tf.toY(r[i + 1].z);
+      const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy || 1;
+      let t = ((px - ax) * dx + (py - ay) * dy) / l2; t = Math.max(0, Math.min(1, t));
+      const d = Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+      if (d < bd) { bd = d; bestI = i + 1; }
+    }
+    return bestI;
   }
   _zoomToIsland(name) {
     const is = this._islands().find((i) => i.name === name);
@@ -610,24 +674,69 @@ export class MapView {
       }
     }
   }
-  // Planned route: dashed legs between numbered waypoint pucks.
+  // Planned route: dashed legs (heading/distance labelled), typed waypoint pucks,
+  // and a plan summary (count / range / ETA).
   _drawRoute(tf) {
-    const route = this.opts.getRoute && this.opts.getRoute();
-    if (!route || !route.length) return;
-    const ctx = this.ctx;
+    const route = this._route();
+    if (!route.length) return;
+    const ctx = this.ctx, detail = this.embedded ? false : (this.cam && this.cam.s > this._fitS * 1.4);
     ctx.save();
-    ctx.strokeStyle = "rgba(80,200,255,0.75)"; ctx.lineWidth = 1.6; ctx.setLineDash([7, 5]); ctx.lineJoin = "round";
+    ctx.strokeStyle = "rgba(120,210,255,0.7)"; ctx.lineWidth = 1.6; ctx.setLineDash([7, 5]); ctx.lineJoin = "round";
     ctx.beginPath();
     for (let i = 0; i < route.length; i++) { const X = tf.toX(route[i].x), Y = tf.toY(route[i].z); i ? ctx.lineTo(X, Y) : ctx.moveTo(X, Y); }
     ctx.stroke(); ctx.setLineDash([]);
-    ctx.font = "700 10px ui-monospace, 'Consolas', monospace"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    // Leg heading + distance at each midpoint.
+    let total = 0;
+    ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.font = "9px ui-monospace, 'Consolas', monospace";
+    for (let i = 0; i < route.length - 1; i++) {
+      const a = route[i], b = route[i + 1]; total += legDist(a, b);
+      if (!detail) continue;
+      const mx = (tf.toX(a.x) + tf.toX(b.x)) / 2, my = (tf.toY(a.z) + tf.toY(b.z)) / 2;
+      const txt = `${String(legBearing(a, b)).padStart(3, "0")}° ${(legDist(a, b) / 1000).toFixed(1)}km`;
+      const w = ctx.measureText(txt).width + 6;
+      ctx.fillStyle = "rgba(6,12,20,0.8)"; ctx.fillRect(mx - w / 2, my - 7, w, 13);
+      ctx.fillStyle = "#9fd6e6"; ctx.fillText(txt, mx, my + 0.5);
+    }
+    // Typed waypoint pucks.
     for (let i = 0; i < route.length; i++) {
-      const X = tf.toX(route[i].x), Y = tf.toY(route[i].z);
-      ctx.fillStyle = "rgba(6,14,22,0.92)"; ctx.strokeStyle = "#46c8ff"; ctx.lineWidth = 1.6;
-      ctx.beginPath(); ctx.arc(X, Y, 8, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-      ctx.fillStyle = "#d4f0fb"; ctx.fillText(String(i + 1), X, Y + 0.5);
+      const w = route[i], X = tf.toX(w.x), Y = tf.toY(w.z), ty = wptType(w.type), col = css(ty.color), sel = this._selWpt === i;
+      if (sel) { ctx.strokeStyle = "#ffd23f"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(X, Y, 12, 0, Math.PI * 2); ctx.stroke(); }
+      ctx.fillStyle = "rgba(6,14,22,0.92)"; ctx.strokeStyle = col; ctx.lineWidth = 1.8;
+      this._wptGlyph(w.type, X, Y, 8, col);
+      ctx.fillStyle = "#eaf6fb"; ctx.font = "700 9px ui-monospace, 'Consolas', monospace"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText(String(i + 1), X, Y + 0.5);
+      if (detail || sel) {
+        ctx.textBaseline = "top"; ctx.font = "9px ui-monospace, 'Consolas', monospace";
+        ctx.fillStyle = col; ctx.fillText(ty.label + (w.snap ? " ▸ " + w.snap.toUpperCase() : ""), X, Y + 11);
+        ctx.fillStyle = "#8698a8"; ctx.fillText(Math.round(w.alt) + "m", X, Y + 22);
+      }
+    }
+    // Plan summary chip (top-left of the map area).
+    if (!this.embedded) {
+      const eta = total / PLAN_SPEED, mm = Math.floor(eta / 60), ss = Math.round(eta % 60);
+      const txt = `PLAN ▸ ${route.length} WPT · ${(total / 1000).toFixed(1)} KM · ETA ${mm}:${String(ss).padStart(2, "0")}`;
+      ctx.font = "700 11px ui-monospace, 'Consolas', monospace"; ctx.textAlign = "left"; ctx.textBaseline = "middle";
+      const w = ctx.measureText(txt).width + 16;
+      ctx.fillStyle = "rgba(6,11,17,0.82)"; ctx.fillRect(12, this._top + 10, w, 22);
+      ctx.strokeStyle = "rgba(120,200,224,0.3)"; ctx.lineWidth = 1; ctx.strokeRect(12.5, this._top + 10.5, w - 1, 21);
+      ctx.fillStyle = "#cfe7f0"; ctx.fillText(txt, 20, this._top + 21);
     }
     ctx.restore();
+  }
+  _wptGlyph(type, X, Y, s, col) {
+    const ctx = this.ctx; ctx.beginPath();
+    if (type === "attack") {
+      ctx.arc(X, Y, s, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.strokeStyle = col;
+      ctx.moveTo(X - s - 3, Y); ctx.lineTo(X - s + 2, Y); ctx.moveTo(X + s - 2, Y); ctx.lineTo(X + s + 3, Y);
+      ctx.moveTo(X, Y - s - 3); ctx.lineTo(X, Y - s + 2); ctx.moveTo(X, Y + s - 2); ctx.lineTo(X, Y + s + 3); ctx.stroke();
+    } else if (type === "ip") {
+      ctx.moveTo(X, Y - s); ctx.lineTo(X + s, Y); ctx.lineTo(X, Y + s); ctx.lineTo(X - s, Y); ctx.closePath(); ctx.fill(); ctx.stroke();
+    } else if (type === "rtb") {
+      ctx.moveTo(X, Y - s); ctx.lineTo(X + s, Y + s); ctx.lineTo(X - s, Y + s); ctx.closePath(); ctx.fill(); ctx.stroke();
+    } else {
+      ctx.arc(X, Y, s - 1, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    }
   }
   _overlap(a, b) { return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y; }
   _islandAt(wx, wz) { let best = null, bd = Infinity; for (const is of this._islands()) { const d = Math.hypot(wx - is.center.x, wz - is.center.z); if (d < bd) { bd = d; best = is; } } return best; }
