@@ -694,7 +694,8 @@ function buildRaptor(def) {
   }
   g.add(makeCanopy(m.glass, -2.2, 0.9, 0.85, 2.2));
   const w = wing(m.body, 4.8, 3.8, 0.6, 1.6, 0.16); w.position.z = 0.9; g.add(w);
-  for (const s of [-1, 1]) { const vt = fin(m.body, 1.7, 1.6, 0.6, 0.6, 0.14); vt.position.set(s * 1.0, 0.4, 2.4); vt.rotation.z = Math.PI / 2 + s * 0.5; g.add(vt); }
+  // Canted twin tails — angled OUTWARD (like the real Raptor) into a clean V.
+  for (const s of [-1, 1]) { const vt = fin(m.body, 1.7, 1.6, 0.6, 0.6, 0.14); vt.position.set(s * 1.0, 0.4, 2.4); vt.rotation.z = Math.PI / 2 - s * 0.42; g.add(vt); }
   const hs = wing(m.body, 3.0, 1.6, 0.5, 1.0, 0.14); hs.position.z = 3.3; g.add(hs);
   g.userData.flames = [];
   for (const s of [-1, 1]) { const nz = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.5, 1.0), m.metal); nz.position.set(s * 0.5, 0, 3.5); g.add(nz); addAfterburner(g, s * 0.5, 0, 3.4, 0.8, g.userData.flames); }
