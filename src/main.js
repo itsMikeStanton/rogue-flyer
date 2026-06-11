@@ -79,6 +79,7 @@ function factionIdByName(name) { const is = (world.islands || []).find((i) => i.
 // ground defences (exact type + destroyed state, in a strike sortie) or the
 // planned defence-site clusters. Consumed by the map for symbols + hover detail.
 const SITE_LABEL = { sam: "SAM site", radar: "Radar", aa: "AA gun", bunker: "Bunker", tank: "Fuel depot", powerplant: "Power plant", carrier: "Carrier", runway: "Airfield", site: "Defence site" };
+const OBJ_LABEL = { sam: "SAM", radar: "RADAR", bunker: "BUNKER", tank: "FUEL", powerplant: "PWR PLANT", carrier: "CARRIER" };
 function stanceSide(stance) { return stance === "enemy" ? "hostile" : stance === "ally" ? "friendly" : "neutral"; }
 function buildMapSites() {
   const sites = [];
@@ -2438,7 +2439,7 @@ function frame(now) {
     }
     // Air contacts: mark every aircraft (enemy jets, drones, other players) on
     // the HUD and a radar scope — easy to find/track/target, esp. in MP.
-    let netStatus = null;
+    let netStatus = null, objCount = 0;
     const contacts = [];
     const radar = { range: 6000, blips: [] };
     _v.set(0, 0, -1).applyQuaternion(state.quaternion);
@@ -2471,10 +2472,18 @@ function frame(now) {
         addContact(m.position, { color: "#" + playerColor(id).toString(16).padStart(6, "0"), kind: "air", name: p.name, health: p.health });
       }
     } else if (isMissionHud) {
-      // Strike modes: enemy fighters (red) + ground threats — SAMs & the carrier
-      // in orange (ambient AA / searchlights stay off the scope to avoid clutter).
+      // Strike modes: enemy fighters (red diamonds) + the must-destroy targets
+      // (yellow target boxes). In Conquest only the island you're assaulting is
+      // marked, so it's clear what to hit to capture it. Ambient AA/searchlights
+      // stay off the scope to avoid clutter.
       for (const e of enemies.targets) if (e.alive) addContact(e.position, { color: "#ff5b5b", kind: "air" });
-      for (const t of ground.targets) if (t.alive && (t.type === "sam" || t.info)) addContact(t.position, { color: "#ff8a3c", kind: "ground" });
+      const activeId = (gameMode === "conquest" && conquestRun) ? conquestRun.activeId : null;
+      for (const t of ground.targets) {
+        if (!t.alive || t.ambient) continue;            // essential (objective) targets only
+        if (gameMode === "conquest" && t._node !== activeId) continue; // just the island under assault
+        addContact(t.position, { color: "#ffe14a", kind: "objective", name: t.info ? "CARRIER" : (OBJ_LABEL[t.type] || "TGT") });
+        objCount++;
+      }
     }
     // Landing-approach guidance (gates/ILS/cues). Survives "pure flight" since
     // it's a navigation aid you deliberately turn on; hidden only when the whole
@@ -2543,6 +2552,7 @@ function frame(now) {
       lock: radarOff ? null : lock,
       objective: radarOff ? null : objective,
       objectives: radarOff ? null : objectives,
+      objectivesLeft: radarOff ? 0 : objCount,
       threat: radarOff ? null : threatState, // "tracking" | "hunting" | null
 
       islandMarkers,

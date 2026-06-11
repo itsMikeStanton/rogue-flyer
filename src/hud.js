@@ -188,6 +188,11 @@ export class Hud {
     if (extra.objective) this.objective(extra.objective);
     // Objective checklist panel (top-left).
     if (extra.objectives && extra.objectives.length) this.objectiveList(extra.objectives);
+    // Must-destroy count (strike/conquest): how many targets left to clear.
+    if (extra.objectivesLeft > 0) {
+      ctx.textAlign = "center"; ctx.fillStyle = "#ffe14a"; ctx.font = "700 13px 'Consolas', monospace";
+      ctx.fillText(`⌖ ${extra.objectivesLeft} TARGET${extra.objectivesLeft > 1 ? "S" : ""} TO CLEAR`, cx, 92);
+    }
 
     // Nav markers pointing to the other islands.
     if (extra.islandMarkers) for (const m of extra.islandMarkers) this.islandMarker(m);
@@ -439,11 +444,11 @@ export class Hud {
     ctx.save();
     ctx.strokeStyle = col; ctx.fillStyle = col; ctx.font = "10px 'Consolas', monospace";
     if (c.onscreen && !c.behind) {
-      const s = 13;
-      ctx.lineWidth = 1.5; ctx.globalAlpha = 0.9;
-      ctx.strokeRect(c.x - s, c.y - s, s * 2, s * 2);
+      const s = c.kind === "objective" ? 12 : 13;
+      ctx.lineWidth = c.kind === "objective" ? 2 : 1.5; ctx.globalAlpha = 0.9;
+      this._contactShape(c.kind, c.x, c.y, s);
       ctx.globalAlpha = 1; ctx.textAlign = "center";
-      ctx.fillText(label, c.x, c.y - s - 5);
+      ctx.fillText(label, c.x, c.y - s - 6);
       if (c.health != null) {
         const w = 40, h = 3, x = c.x - w / 2, y = c.y + s + 4;
         ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.fillRect(x, y, w, h);
@@ -462,6 +467,27 @@ export class Hud {
       ctx.fillText(label, e.x, e.y - 12);
     }
     ctx.restore();
+  }
+
+  // Shape per contact kind so they read at a glance: enemy air = diamond,
+  // ground threat = square, neutral traffic = circle, must-destroy = target box.
+  _contactShape(kind, x, y, s) {
+    const ctx = this.ctx;
+    if (kind === "ground") {
+      ctx.strokeRect(x - s, y - s, s * 2, s * 2);
+    } else if (kind === "traffic") {
+      ctx.beginPath(); ctx.arc(x, y, s, 0, Math.PI * 2); ctx.stroke();
+    } else if (kind === "objective") {
+      ctx.strokeRect(x - s, y - s, s * 2, s * 2);
+      const b = s + 4; ctx.beginPath();
+      ctx.moveTo(x - b, y - b + 5); ctx.lineTo(x - b, y - b); ctx.lineTo(x - b + 5, y - b);
+      ctx.moveTo(x + b - 5, y - b); ctx.lineTo(x + b, y - b); ctx.lineTo(x + b, y - b + 5);
+      ctx.moveTo(x - b, y + b - 5); ctx.lineTo(x - b, y + b); ctx.lineTo(x - b + 5, y + b);
+      ctx.moveTo(x + b - 5, y + b); ctx.lineTo(x + b, y + b); ctx.lineTo(x + b, y + b - 5);
+      ctx.stroke();
+    } else { // air (enemy aircraft): diamond
+      ctx.beginPath(); ctx.moveTo(x, y - s); ctx.lineTo(x + s, y); ctx.lineTo(x, y + s); ctx.lineTo(x - s, y); ctx.closePath(); ctx.stroke();
+    }
   }
 
   // Top-right radar: blips relative to you, your nose pointing up.
