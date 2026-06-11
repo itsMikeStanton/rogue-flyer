@@ -434,8 +434,7 @@ function spawnSupplyBalloon() {
   const outer = (cfg && cfg.terrain && cfg.terrain.islandOuter) || 9500;
   const px = (n ? n.center.x : state.position.x) + dx * (outer + 5000);
   const pz = (n ? n.center.z : state.position.z) + dz * (outer + 5000);
-  const py = Math.max(terrainHeight(px, pz), SEA_LEVEL) + 700;
-  supply.spawn(px, py, pz);
+  supply.spawn(px, pz);
   flashBanner("RESUPPLY INBOUND", "Reach the supply balloon — fly through, gun, or missile it", 3.2);
   comms("Supply balloon inbound", "supply", 0);
 }
