@@ -207,6 +207,33 @@ export class Hud {
     if (extra.approach) this.approach(extra.approach);
     // Flight-plan route: waypoint markers, legs, next-waypoint cue.
     if (extra.route) this.route(extra.route);
+    // Resupply balloon marker.
+    if (extra.supply) this.supplyMarker(extra.supply);
+  }
+
+  // Air-drop resupply balloon: a pulsing cyan chute icon + distance, with an edge
+  // arrow when it's off-screen, so you can fly out to it to rearm.
+  supplyMarker(m) {
+    const ctx = this.ctx, CY = "#46e0c0";
+    const pulse = 0.6 + 0.4 * Math.sin(performance.now() / 180);
+    const km = m.dist >= 1000 ? `${(m.dist / 1000).toFixed(1)}km` : `${Math.round(m.dist)}m`;
+    ctx.save();
+    ctx.strokeStyle = CY; ctx.fillStyle = CY; ctx.font = "11px 'Consolas', monospace"; ctx.textAlign = "center";
+    if (m.onscreen && !m.behind) {
+      ctx.globalAlpha = pulse; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(m.x, m.y - 4, 9, Math.PI, 0); ctx.stroke();            // canopy
+      ctx.beginPath(); ctx.moveTo(m.x - 9, m.y - 4); ctx.lineTo(m.x - 3, m.y + 6); ctx.moveTo(m.x + 9, m.y - 4); ctx.lineTo(m.x + 3, m.y + 6); ctx.stroke(); // lines
+      ctx.strokeRect(m.x - 4, m.y + 6, 8, 6);                                          // crate
+      ctx.globalAlpha = 1;
+      ctx.fillText(`RESUPPLY  ${km}`, m.x, m.y - 16);
+    } else {
+      const e = this._edgePoint(m.dirx, m.diry, 58);
+      ctx.save(); ctx.translate(e.x, e.y); ctx.rotate(e.ang);
+      ctx.globalAlpha = pulse; ctx.beginPath(); ctx.moveTo(13, 0); ctx.lineTo(-7, -7); ctx.lineTo(-7, 7); ctx.closePath(); ctx.fill();
+      ctx.restore(); ctx.globalAlpha = 1;
+      ctx.fillText(`RESUPPLY  ${km}`, e.x, e.y - 12);
+    }
+    ctx.restore();
   }
 
   // Planned route flown in-game: numbered waypoint diamonds joined by legs, the

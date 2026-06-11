@@ -4,6 +4,7 @@ import { createState, step } from "./flight.js";
 import { buildWorld, terrainHeight, groundHeightAt, getCarriers, getIslandSpawns, getMissionBases, getWorldConfig, getFactionConfig, moveCarrier, SEA_LEVEL, lightPoolTexture } from "./world.js";
 import { Factions } from "./factions.js";
 import { MapView } from "./mapview.js";
+import { SupplyDrop } from "./supply.js";
 import { WPT_TYPES, WPT_ORDER, wptType } from "./waypoints.js";
 import { Input } from "./input.js";
 import { Hud } from "./hud.js";
@@ -400,12 +401,14 @@ try { radarOff = localStorage.getItem("rf.radarOff") === "1"; hudOff = localStor
 function setRadarOff(v) { radarOff = v; try { localStorage.setItem("rf.radarOff", v ? "1" : "0"); } catch (_) { /* ignore */ } }
 function setHudOff(v) { hudOff = v; try { localStorage.setItem("rf.hudOff", v ? "1" : "0"); } catch (_) { /* ignore */ } }
 
-// Auto-rearm: a full reload (health/armour + ammo) when you're safely clear of
-// the fight (toggle) — and ALWAYS when you're back at a friendly base.
-let autoRearm = true, canReload = true;
+// Rearm: always free + instant at a friendly base. Out in the fight, when you're
+// low a supply balloon is air-dropped near the edge of the combat zone — reach
+// it (fly through / gun it / lock a missile onto it) to rearm (toggle).
+let autoRearm = true, canReload = true, supplyCd = 0;
 try { autoRearm = localStorage.getItem("rf.autoRearm") !== "0"; } catch (_) { /* ignore */ }
-function setAutoRearm(v) { autoRearm = v; try { localStorage.setItem("rf.autoRearm", v ? "1" : "0"); } catch (_) { /* ignore */ } }
-function nearestIslandDist() { let d = Infinity; for (const is of (world.islands || [])) d = Math.min(d, Math.hypot(state.position.x - is.center.x, state.position.z - is.center.z)); return d; }
+function setAutoRearm(v) { autoRearm = v; try { localStorage.setItem("rf.autoRearm", v ? "1" : "0"); } catch (_) { /* ignore */ } if (!v) supply.consume(); }
+const supply = new SupplyDrop(scene);
+function nearestIsland() { let n = null, bd = Infinity; for (const is of (world.islands || [])) { const d = Math.hypot(state.position.x - is.center.x, state.position.z - is.center.z); if (d < bd) { bd = d; n = is; } } return n; }
 function atFriendlyBase() {
   const c = getCarriers().find((k) => k.team === "ally");
   if (c && Math.hypot(state.position.x - c.x, state.position.z - c.z) < 800) return true;
@@ -415,18 +418,49 @@ function atFriendlyBase() {
   }
   return false;
 }
-function updateRearm() {
-  if (!flying || state.crashed) return;
-  const base = atFriendlyBase();
-  const safe = base || (autoRearm && nearestIslandDist() > 13000);
-  if (!safe) { canReload = true; return; } // back in the fight — re-arm the ability
-  if (canReload && (player.health < 100 || weapons.needsRearm(def.loadout))) {
-    player.health = 100;
-    weapons.rearm(def.loadout);
-    canReload = false;
-    flashBanner("REARMED", base ? "At base — full ammo + armour" : "Clear of the fight — full ammo + armour", 2.4);
-    comms("Rearmed and ready", "rearm", 0);
+function doRearm(sub) {
+  player.health = 100;
+  weapons.rearm(def.loadout);
+  flashBanner("REARMED", sub, 2.4);
+  comms("Rearmed and ready", "rearm", 0);
+}
+function needsRearm() { return player.health < 100 || weapons.needsRearm(def.loadout); }
+// Drop a supply balloon offshore on the player's side, out near the safe range.
+function spawnSupplyBalloon() {
+  const n = nearestIsland();
+  let dx = n ? state.position.x - n.center.x : 0, dz = n ? state.position.z - n.center.z : -1;
+  const d = Math.hypot(dx, dz) || 1; dx /= d; dz /= d;
+  const cfg = n ? getWorldConfig().islands.find((i) => i.name === n.name) : null;
+  const outer = (cfg && cfg.terrain && cfg.terrain.islandOuter) || 9500;
+  const px = (n ? n.center.x : state.position.x) + dx * (outer + 5000);
+  const pz = (n ? n.center.z : state.position.z) + dz * (outer + 5000);
+  const py = Math.max(terrainHeight(px, pz), SEA_LEVEL) + 700;
+  supply.spawn(px, py, pz);
+  flashBanner("RESUPPLY INBOUND", "Reach the supply balloon — fly through, gun, or missile it", 3.2);
+  comms("Supply balloon inbound", "supply", 0);
+}
+function updateResupply(dt) {
+  if (!flying || state.crashed) { return; }
+  // Base: free, instant, any time you need it.
+  if (atFriendlyBase()) {
+    if (canReload && needsRearm()) { doRearm("At base — full ammo + armour"); canReload = false; }
+    return;
   }
+  canReload = true; // re-arm the base reload once you leave
+  if (!autoRearm) return;
+  if (supply.active) {
+    supply.update(dt);
+    const d = supply.active;
+    if (d.delivered || state.position.distanceTo(d.position) < d.radius + (player.radius || 30)) {
+      doRearm("Resupplied — full ammo + armour");
+      fx.add(d.position, 1.6, 0xffd27d);
+      supply.consume();
+      supplyCd = 30; // a beat before another can be called
+    }
+    return;
+  }
+  supplyCd -= dt;
+  if (supplyCd <= 0 && needsRearm()) { spawnSupplyBalloon(); supplyCd = 1e9; } // stays until reached
 }
 // Landing-approach guidance (toggle with L / a joystick button). Targets the
 // home runway at the island origin.
@@ -1324,6 +1358,7 @@ function placePlayer() {
 function resetFlight() {
   ringsHit = 0;
   routeIdx = 0; // restart the flight plan from the first waypoint
+  supply.consume(); supplyCd = 0; canReload = true; // fresh resupply state per sortie
   world.rings.forEach((r) => { r.visible = true; r.userData.hit = false; });
   const strike = gameMode === "mission" || gameMode === "campaign" || gameMode === "conquest";
   enemies.setMode(gameMode);
@@ -2107,6 +2142,7 @@ function frame(now) {
       : isMission ? ground.targets
       : enemies.targets;
     const activeTargets = baseTargets.concat(traffic.targets);
+    if (supply.active) activeTargets.push(supply.active); // gun/missile-lockable resupply
     // No weapons while the afterburner is lit — it's pure high-speed travel.
     if (!boostActive) {
       if (controls.fire && weapons.fire(state.position, state.quaternion, activeTargets)) sound.gun();
@@ -2115,7 +2151,7 @@ function frame(now) {
       if (controls.bombPressed && weapons.dropBomb(state.position, state.quaternion, state.velocity)) { sound.bomb(); comms("Bombs away", "bomb", 0.9); }
     }
     weapons.update(dt, state.position, state.quaternion, activeTargets);
-    updateRearm();
+    updateResupply(dt);
     enemies.update(dt, player);
     if (enemies.waveMsg) { flashBanner(enemies.waveMsg, enemies.wave === 1 ? "Bandits inbound — good hunting" : "Here they come again", 2.6); comms("Bandits, bandits", "wave", 3); enemies.waveMsg = null; }
     traffic.update(dt, player);
@@ -2452,6 +2488,8 @@ function frame(now) {
     }
 
     // Flight-plan route: project each waypoint, auto-advance as you reach them.
+    let supplyHud = null;
+    if (supply.active) { const pr = projectHud(supply.active.position); supplyHud = { ...pr, dist: state.position.distanceTo(supply.active.position) }; }
     let routeHud = null;
     if (route.length && routeOn) {
       while (routeIdx < route.length) {
@@ -2514,6 +2552,7 @@ function frame(now) {
       radar: radarOff ? null : radar,
       approach: approachHud,
       route: radarOff ? null : routeHud,
+      supply: supplyHud,
     });
   } else {
     hud.ctx.clearRect(0, 0, hud.w, hud.h);
