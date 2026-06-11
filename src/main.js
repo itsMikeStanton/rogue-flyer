@@ -647,10 +647,12 @@ const ui = new UI(input, {
     for (const is of (world.islands || [])) (h[factionOf(is)] = h[factionOf(is)] || []).push(is.name);
     return h;
   },
-  drawConquestMap: (selectedNodeId) => {        // render the accurate planner map
+  drawConquestMap: (selectedNodeId, startMarker) => { // render the accurate planner map
     cqSelectedNodeId = selectedNodeId;
+    cqStartMarker = startMarker || null;        // plane icon at the chosen launch point
     cqMap.refresh();
   },
+  onOpenMap: () => openMap(),                    // conquest screen → full tactical map
   onOpenConquest: () => openConquest(),         // menu "Conquest" → map screen
   onConquestLaunch: (spawn, lives, diff) => beginConquest(spawn, lives, diff),
   onConquestRespawn: (spawn) => respawnConquest(spawn),
@@ -716,6 +718,12 @@ const mapView = new MapView(document.getElementById("map-canvas"), {
   onClose: () => showWptInspector(null),
   onRouteUndo: () => routeUndo(),
   onRouteClear: () => routeClear(),
+  getContacts: () => {                          // live bogeys on the nav map (in flight)
+    if (!flying) return null;
+    const out = [];
+    for (const e of enemies.targets) if (e.alive) out.push({ x: e.position.x, z: e.position.z, hostile: true });
+    return out;
+  },
   getPlayer: () => {
     if (!flying || paused) return null;
     const f = new THREE.Vector3(0, 0, -1).applyQuaternion(state.quaternion);
@@ -783,7 +791,7 @@ function showWptInspector(i) {
 
 // Embedded accurate map for the Conquest planner: same renderer, with islands
 // ringed by who holds them; clicking one picks it as your beachhead.
-let cqSelectedNodeId = null;
+let cqSelectedNodeId = null, cqStartMarker = null;
 const cqMap = new MapView(document.getElementById("cq-map"), {
   embedded: true,
   factionOf: factionIdByName,
@@ -791,6 +799,7 @@ const cqMap = new MapView(document.getElementById("cq-map"), {
   getSites: buildMapSites,
   getNodes: () => (conquestRun ? conquestRun.nodes : null),
   getSelected: () => cqSelectedNodeId,
+  getStartMarker: () => cqStartMarker,
   onPick: (name) => ui.pickConquestIsland(name),
 });
 

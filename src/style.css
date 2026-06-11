@@ -800,3 +800,12 @@ button.vr:hover { background: rgba(46,230,166,0.26); }
 .wi-actions button { flex: 1; padding: 6px 0; background: rgba(14,22,32,0.9); border: 1px solid rgba(120,200,224,0.25); color: #cfe1ee; border-radius: 5px; cursor: pointer; font: 700 10px ui-monospace, monospace; letter-spacing: 1px; }
 .wi-actions button:hover { background: rgba(28,44,60,0.95); }
 .wi-actions .wi-danger { border-color: rgba(217,119,74,0.5); color: #e08a5a; }
+
+/* Conquest screen: tactical-map shortcut under the mini map */
+.cq-map-wrap { display: flex; flex-direction: column; gap: 6px; margin-left: auto; align-items: stretch; }
+#cq-map-btn {
+  padding: 7px 0; border-radius: 6px; cursor: pointer;
+  background: rgba(6,11,17,0.85); color: #cfe7f0; border: 1px solid rgba(120,200,224,0.4);
+  font: 700 11px ui-monospace, "Consolas", monospace; letter-spacing: 1.5px;
+}
+#cq-map-btn:hover { background: rgba(20,34,48,0.95); }

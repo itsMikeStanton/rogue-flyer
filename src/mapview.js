@@ -412,10 +412,36 @@ export class MapView {
     // zoomed in past the overview and labels are enabled.
     this._drawLabels(isl, labelFeats, tf, showItems);
 
-    // Your jet (in flight).
+    // Live air contacts (bogeys) — red when hostile/active.
+    const contacts = this.opts.getContacts && this.opts.getContacts();
+    if (contacts) for (const c of contacts) {
+      const x = tf.toX(c.x), y = tf.toY(c.z);
+      if (x < -8 || x > W + 8 || y < -8 || y > H + 8) continue;
+      ctx.fillStyle = c.hostile === false ? "#5bc8ff" : "#ff5b5b";
+      ctx.strokeStyle = "rgba(0,0,0,0.45)"; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(x, y - 5); ctx.lineTo(x + 5, y + 4); ctx.lineTo(x - 5, y + 4); ctx.closePath(); ctx.fill(); ctx.stroke();
+    }
+
+    // Selected launch point (pre-spawn): a "you start here" plane icon.
+    const sm = this.opts.getStartMarker && this.opts.getStartMarker();
+    if (sm) {
+      const x = tf.toX(sm.x), y = tf.toY(sm.z);
+      ctx.save(); ctx.translate(x, y);
+      ctx.fillStyle = "#ffd23f"; ctx.strokeStyle = "#3a2e08"; ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.moveTo(0, -8); ctx.lineTo(6, 7); ctx.lineTo(0, 3); ctx.lineTo(-6, 7); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.restore();
+      ctx.fillStyle = "#ffd23f"; ctx.font = "8px ui-monospace, 'Consolas', monospace"; ctx.textAlign = "center"; ctx.textBaseline = "top";
+      ctx.fillText("LAUNCH", x, y + 9);
+    }
+
+    // Your jet (in flight) — with an expanding radar pulse so it's easy to find.
     const p = this.opts.getPlayer && this.opts.getPlayer();
     if (p) {
       const x = tf.toX(p.x), y = tf.toY(p.z);
+      const ph = (performance.now() / 1000) % 2 / 2;          // 0..1 every 2 s
+      ctx.save(); ctx.strokeStyle = "#46ff9a"; ctx.lineWidth = 2;
+      for (const t of [ph, (ph + 0.5) % 1]) { ctx.globalAlpha = (1 - t) * 0.55; ctx.beginPath(); ctx.arc(x, y, 6 + t * 52, 0, Math.PI * 2); ctx.stroke(); }
+      ctx.restore();
       ctx.save(); ctx.translate(x, y); ctx.rotate(p.heading || 0);
       ctx.fillStyle = "#46ff9a"; ctx.strokeStyle = "#0a3b22"; ctx.lineWidth = 1.5;
       ctx.beginPath(); ctx.moveTo(0, -9); ctx.lineTo(6, 7); ctx.lineTo(0, 3); ctx.lineTo(-6, 7); ctx.closePath();

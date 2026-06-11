@@ -437,6 +437,8 @@ export class UI {
     });
     const cqBack = document.getElementById("cq-back");
     if (cqBack) cqBack.addEventListener("click", () => { this.hideConquest(); this.showMenu(); });
+    const cqMapBtn = document.getElementById("cq-map-btn");
+    if (cqMapBtn) cqMapBtn.addEventListener("click", () => { if (this.cb.onOpenMap) this.cb.onOpenMap(); });
     const bl = document.getElementById("brief-launch");
     if (bl) bl.addEventListener("click", () => {
       const lv = document.getElementById("brief-lives");
@@ -855,7 +857,8 @@ export class UI {
     // Strategic map — accurate terrain, islands ringed by who holds them.
     const mc = el("cq-map");
     const selNode = this._cqPick ? this._cqPick.node : run.startId;
-    if (mc && this.cb.drawConquestMap) this.cb.drawConquestMap(selNode);
+    const startMarker = this._cqPick ? { x: this._cqPick.x, z: this._cqPick.z } : null;
+    if (mc && this.cb.drawConquestMap) this.cb.drawConquestMap(selNode, startMarker);
     else if (mc) drawArchipelago(mc.getContext("2d"), mc.width, run.nodes, { selectedNode: selNode });
     // Launch points (every island at setup; only owned ones on respawn).
     const sp = el("cq-spawns");
