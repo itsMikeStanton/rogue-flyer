@@ -62,6 +62,12 @@ class Entity {
       this.dot = new THREE.Sprite(new THREE.SpriteMaterial({ map: Entity._dotTex(), color: 0xff5a4a, transparent: true, opacity: 0, depthWrite: false }));
       this.dot.scale.set(20, 20, 1);
       this.mesh.add(this.dot);
+      // Engine exhaust glow at the tail — additive, so it blooms; helps you pick
+      // the jet out from the beam/rear aspect.
+      this.glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: Entity._glowTex(), color: 0xffc070, transparent: true, opacity: 0.85, depthWrite: false, blending: THREE.AdditiveBlending }));
+      this.glow.scale.set(2.6, 2.6, 1);
+      this.glow.position.set(0, 0, 3.9); // at the exhaust (aft is +Z)
+      this.mesh.add(this.glow);
     } else {
       this.radius = 55;
       this.maxHealth = 1;
@@ -102,6 +108,20 @@ class Entity {
     return Entity._dt;
   }
 
+  // Soft additive glow for the engine exhaust.
+  static _glowTex() {
+    if (Entity._gt) return Entity._gt;
+    const c = document.createElement("canvas"); c.width = c.height = 64;
+    const g = c.getContext("2d");
+    const grd = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    grd.addColorStop(0, "rgba(255,255,255,1)");
+    grd.addColorStop(0.32, "rgba(255,220,170,0.8)");
+    grd.addColorStop(1, "rgba(255,180,120,0)");
+    g.fillStyle = grd; g.fillRect(0, 0, 64, 64);
+    Entity._gt = new THREE.CanvasTexture(c);
+    return Entity._gt;
+  }
+
   // (Re)spawn somewhere out in front of the spawn area, at altitude.
   place() {
     this.alive = true;
@@ -129,6 +149,7 @@ class Entity {
       // Fresh contrail each life (orphan the old one to finish fading).
       if (this.trail) { this.manager.deadTrails.push(this.trail); this.trail = null; }
       this.trail = new Ribbon(this.manager.scene, { color: 0xe6ecf2, maxPts: 80, maxAge: 3.5, baseW: 0.4, expand: 1.2, alpha: 0.24 });
+      if (this.glow) this.glow.visible = true;
       this.vphase = Math.random() * Math.PI * 2;   // vertical-weave phase
       this.vrate = 0.5 + Math.random() * 0.5;       // ...and rate (per jet)
       this.fireCd = 0.5 + Math.random();
@@ -165,6 +186,7 @@ class Entity {
     this.manager.kills++;
     if (this.trail) { this.manager.deadTrails.push(this.trail); this.trail = null; } // let the contrail fade
     if (this.dot) this.dot.material.opacity = 0;
+    if (this.glow) this.glow.visible = false;
     const gy = groundHeightAt(this.position.x, this.position.z);
     // A fighter killed up high goes into a smoking death-spiral and craters on
     // impact; low kills (and drones, and the occasional catastrophic hit) just
@@ -281,6 +303,7 @@ class Entity {
       const s = THREE.MathUtils.clamp(dpl * 0.018, 10, 150);
       this.dot.scale.set(s, s, 1);
     }
+    if (this.glow) { const fl = 0.7 + Math.random() * 0.3; this.glow.material.opacity = fl; this.glow.scale.setScalar(2.4 + Math.random() * 0.5); }
 
     // Awareness: a fighter with you in visual range calls the contact in (which
     // trips the island's alert if it didn't already know), and only opens fire
