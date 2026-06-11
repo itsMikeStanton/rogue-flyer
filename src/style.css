@@ -819,3 +819,9 @@ button.vr:hover { background: rgba(46,230,166,0.26); }
 .cq-save-info span { color: #9fb3c4; font-size: 12px; }
 .cq-save-actions { display: flex; gap: 8px; }
 .cq-save-actions button { padding: 7px 14px; }
+
+.cq-new-row { display: flex; gap: 8px; margin-top: 12px; }
+.cq-name { flex: 1; background: #0b1320; color: #d7e3ee; border: 1px solid rgba(120,150,180,0.3);
+  border-radius: 8px; padding: 9px 12px; font-size: 14px; }
+.cq-name::placeholder { color: #6b7c8c; }
+.cq-save-actions button { padding: 7px 12px; }

@@ -474,32 +474,38 @@ function openBriefing(missionId) {
 // off — you relaunch fresh from a held island, with all progress intact.
 const CQ_KEY = "rf.cq.saves";
 let conquestSlot = null; // id of the campaign currently in play
+let cqPendingName = null; // name for a brand-new campaign (used at its first save)
 function cqReadSaves() { try { return JSON.parse(localStorage.getItem(CQ_KEY) || "{}") || {}; } catch (_) { return {}; } }
 function cqWriteSaves(m) { try { localStorage.setItem(CQ_KEY, JSON.stringify(m)); } catch (_) { /* ignore */ } }
 function listConquestSaves() { const m = cqReadSaves(); return Object.keys(m).map((id) => ({ id, ...m[id] })).sort((a, b) => b.ts - a.ts); }
 function saveConquest() {
   if (!conquestSlot || !conquestRun) return;
   const m = cqReadSaves(), prev = m[conquestSlot];
+  const ac = getCarriers().find((c) => c.team === "ally");
   m[conquestSlot] = {
-    name: (prev && prev.name) || ("Campaign " + (Object.keys(m).length + 1)),
+    name: (prev && prev.name) || cqPendingName || ("Campaign " + (Object.keys(m).length + 1)),
     ts: Date.now(), difficulty: conquestRun.difficulty,
     owned: conquestRun.ownedNodes().length, total: conquestRun.nodes.length, won: !!conquestRun.won,
+    carrier: ac ? { x: ac.x, z: ac.z } : null, // remember where the carrier is parked
     data: conquestRun.serialize(),
   };
   cqWriteSaves(m);
+  cqPendingName = null;
 }
 function deleteConquestSave(id) { const m = cqReadSaves(); delete m[id]; cqWriteSaves(m); }
+function renameConquest(id, name) { const m = cqReadSaves(); if (m[id] && name && name.trim()) { m[id].name = name.trim(); cqWriteSaves(m); } }
 // Menu → Conquest: pick a campaign (new, or resume a saved one).
 function openConquestSaves() {
   flying = false;
   ui.showConquestSaves(listConquestSaves(), {
-    onNew: () => { ui.hideConquestSaves(); newConquestCampaign(); },
+    onNew: (name) => { ui.hideConquestSaves(); newConquestCampaign(name); },
     onLoad: (id) => loadConquest(id),
+    onRename: (id, name) => { renameConquest(id, name); openConquestSaves(); },
     onDelete: (id) => { deleteConquestSave(id); openConquestSaves(); },
     onBack: () => { ui.hideConquestSaves(); ui.showMenu(); },
   });
 }
-function newConquestCampaign() { conquestSlot = "cq" + Date.now().toString(36); openConquest(); }
+function newConquestCampaign(name) { cqPendingName = (name && name.trim()) ? name.trim() : null; conquestSlot = "cq" + Date.now().toString(36); openConquest(); }
 // Resume a saved campaign: rebuild the run, restore ownership, launch fresh.
 function loadConquest(id) {
   const save = cqReadSaves()[id];
@@ -509,6 +515,9 @@ function loadConquest(id) {
   conquestRun.restore(save.data);
   conquestSlot = id;
   gameMode = "conquest";
+  // Put the carrier back where it was parked.
+  const c = save.carrier;
+  if (c && moveCarrier("ally", c.x, c.z) && world.carriers && world.carriers.ally) world.carriers.ally.position.set(c.x, SEA_LEVEL, c.z);
   ui.hideConquestSaves();
   ui.showConquest(conquestRun, world, { mode: "resume" });
 }
@@ -557,6 +566,7 @@ function wakeIsland(node) {
     }
   }
   parkAllyCarrier(node); // bring the carrier up to support the assault
+  saveConquest();        // persist the carrier's new station (and current state)
   missionDone = false;
   missions.load({ objectives: [{ type: "destroy", priority: "primary", label: "Seize " + node.name, match: (t) => t._node === node.id }] }, ground);
   flashBanner("DEFENSES SCRAMBLING", node.name + " is defending — clear it out", 3);

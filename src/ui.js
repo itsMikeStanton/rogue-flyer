@@ -847,13 +847,21 @@ export class UI {
         const when = new Date(s.ts).toLocaleDateString(undefined, { month: "short", day: "numeric" });
         const status = s.won ? "✓ secured" : `${s.owned}/${s.total} islands held`;
         return `<div class="cq-save"><div class="cq-save-info"><b>${s.name}</b><span>${status} · ${s.difficulty} · ${when}</span></div>`
-          + `<div class="cq-save-actions"><button data-load="${s.id}" class="primary">${s.won ? "View" : "Resume"}</button><button data-del="${s.id}" title="Delete">🗑</button></div></div>`;
+          + `<div class="cq-save-actions"><button data-load="${s.id}" class="primary">${s.won ? "View" : "Resume"}</button>`
+          + `<button data-ren="${s.id}" title="Rename">✎</button><button data-del="${s.id}" title="Delete">🗑</button></div></div>`;
       }).join("");
       list.querySelectorAll("[data-load]").forEach((b) => b.addEventListener("click", () => cb.onLoad(b.dataset.load)));
       list.querySelectorAll("[data-del]").forEach((b) => b.addEventListener("click", () => cb.onDelete(b.dataset.del)));
+      list.querySelectorAll("[data-ren]").forEach((b) => b.addEventListener("click", () => {
+        const sv = saves.find((x) => x.id === b.dataset.ren);
+        const name = window.prompt("Rename campaign", sv ? sv.name : "");
+        if (name && name.trim()) cb.onRename(b.dataset.ren, name.trim());
+      }));
     }
-    const nw = document.getElementById("cq-new"); if (nw) nw.onclick = () => cb.onNew();
+    const ni = document.getElementById("cq-name");
+    const nw = document.getElementById("cq-new"); if (nw) nw.onclick = () => cb.onNew(ni ? ni.value : "");
     const bk = document.getElementById("cq-saves-back"); if (bk) bk.onclick = () => cb.onBack();
+    if (ni) ni.value = "";
     panel.classList.remove("hidden");
   }
   hideConquestSaves() { const p = document.getElementById("cq-saves"); if (p) p.classList.add("hidden"); }
