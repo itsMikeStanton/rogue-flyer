@@ -38,7 +38,7 @@ export class MapView {
     this.isOpen = this.embedded;
     this._tf = null; this._mouse = null; this._markers = [];
     this.cam = null; this._drag = null; this._dragMoved = false; this._sidebarHits = []; this.routeMode = false;
-    this._selWpt = null; this._wptDrag = null; this._suppressClick = false;
+    this._selWpt = null; this._wptDrag = null; this._suppressClick = false; this.editable = true;
     this.labelsOn = true;
     try { this.labelsOn = localStorage.getItem("rf.mapLabels") !== "0"; } catch (_) { /* ignore */ }
     this._top = this.embedded ? 0 : 40;       // header band
@@ -84,8 +84,8 @@ export class MapView {
     if (this.isOpen) this.draw();
   }
   setRouteMode(on) {
-    this.routeMode = !!on;
-    this.canvas.style.cursor = on ? "crosshair" : "";
+    this.routeMode = !!on && this.editable; // no route editing in flight (nav only)
+    this.canvas.style.cursor = this.routeMode ? "crosshair" : "";
     if (this.isOpen) this.draw();
   }
   close() {
@@ -598,7 +598,7 @@ export class MapView {
     if (this._dragMoved) { this._dragMoved = false; return; }          // that was a pan
     for (const h of this._sidebarHits) {
       if (p.x >= h.x && p.x <= h.x + h.w && p.y >= h.y && p.y <= h.y + h.h) {
-        if (h.wpt != null) { this._selWpt = h.wpt; if (this.opts.onSelectWaypoint) this.opts.onSelectWaypoint(h.wpt); this.draw(); }
+        if (h.wpt != null) { if (this.editable) { this._selWpt = h.wpt; if (this.opts.onSelectWaypoint) this.opts.onSelectWaypoint(h.wpt); this.draw(); } }
         else if (h.island) this._zoomToIsland(h.island);
         return;
       }
@@ -697,18 +697,21 @@ export class MapView {
       ctx.fillStyle = "rgba(6,12,20,0.8)"; ctx.fillRect(mx - w / 2, my - 7, w, 13);
       ctx.fillStyle = "#9fd6e6"; ctx.fillText(txt, mx, my + 0.5);
     }
-    // Typed waypoint pucks.
+    // Typed waypoint pucks: a clear icon (box=nav, diamond=ip, reticle=attack,
+    // chevron=rtb) with its sequence number above and its type label below.
     for (let i = 0; i < route.length; i++) {
       const w = route[i], X = tf.toX(w.x), Y = tf.toY(w.z), ty = wptType(w.type), col = css(ty.color), sel = this._selWpt === i;
-      if (sel) { ctx.strokeStyle = "#ffd23f"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(X, Y, 12, 0, Math.PI * 2); ctx.stroke(); }
+      const s = 9;
+      if (sel) { ctx.strokeStyle = "#ffd23f"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(X, Y, s + 6, 0, Math.PI * 2); ctx.stroke(); }
       ctx.fillStyle = "rgba(6,14,22,0.92)"; ctx.strokeStyle = col; ctx.lineWidth = 1.8;
-      this._wptGlyph(w.type, X, Y, 8, col);
-      ctx.fillStyle = "#eaf6fb"; ctx.font = "700 9px ui-monospace, 'Consolas', monospace"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-      ctx.fillText(String(i + 1), X, Y + 0.5);
+      this._wptGlyph(w.type, X, Y, s, col);
+      ctx.fillStyle = col; ctx.font = "700 9px ui-monospace, 'Consolas', monospace"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      ctx.fillText(String(i + 1), X, Y - s - 7);
+      ctx.textBaseline = "top"; ctx.font = "8px ui-monospace, 'Consolas', monospace"; ctx.fillStyle = col;
+      ctx.fillText(ty.label, X, Y + s + 3);
       if (detail || sel) {
-        ctx.textBaseline = "top"; ctx.font = "9px ui-monospace, 'Consolas', monospace";
-        ctx.fillStyle = col; ctx.fillText(ty.label + (w.snap ? " ▸ " + w.snap.toUpperCase() : ""), X, Y + 11);
-        ctx.fillStyle = "#8698a8"; ctx.fillText(Math.round(w.alt) + "m", X, Y + 22);
+        if (w.snap) { ctx.fillStyle = "#9fb0c2"; ctx.fillText("▸ " + w.snap.toUpperCase(), X, Y + s + 13); }
+        ctx.fillStyle = "#8698a8"; ctx.fillText(Math.round(w.alt) + "m", X, Y + s + (w.snap ? 23 : 13));
       }
     }
     // Plan summary chip (top-left of the map area).
@@ -724,18 +727,19 @@ export class MapView {
     ctx.restore();
   }
   _wptGlyph(type, X, Y, s, col) {
-    const ctx = this.ctx; ctx.beginPath();
-    if (type === "attack") {
-      ctx.arc(X, Y, s, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
-      ctx.beginPath(); ctx.strokeStyle = col;
-      ctx.moveTo(X - s - 3, Y); ctx.lineTo(X - s + 2, Y); ctx.moveTo(X + s - 2, Y); ctx.lineTo(X + s + 3, Y);
-      ctx.moveTo(X, Y - s - 3); ctx.lineTo(X, Y - s + 2); ctx.moveTo(X, Y + s - 2); ctx.lineTo(X, Y + s + 3); ctx.stroke();
-    } else if (type === "ip") {
-      ctx.moveTo(X, Y - s); ctx.lineTo(X + s, Y); ctx.lineTo(X, Y + s); ctx.lineTo(X - s, Y); ctx.closePath(); ctx.fill(); ctx.stroke();
-    } else if (type === "rtb") {
-      ctx.moveTo(X, Y - s); ctx.lineTo(X + s, Y + s); ctx.lineTo(X - s, Y + s); ctx.closePath(); ctx.fill(); ctx.stroke();
-    } else {
-      ctx.arc(X, Y, s - 1, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    const ctx = this.ctx;
+    if (type === "attack") {                 // target reticle + centre dot
+      ctx.beginPath(); ctx.arc(X, Y, s, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.strokeStyle = col; ctx.beginPath();
+      for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) { ctx.moveTo(X + dx * (s - 1), Y + dy * (s - 1)); ctx.lineTo(X + dx * (s + 4), Y + dy * (s + 4)); }
+      ctx.stroke();
+      ctx.fillStyle = col; ctx.beginPath(); ctx.arc(X, Y, 2, 0, Math.PI * 2); ctx.fill();
+    } else if (type === "ip") {               // diamond
+      ctx.beginPath(); ctx.moveTo(X, Y - s); ctx.lineTo(X + s, Y); ctx.lineTo(X, Y + s); ctx.lineTo(X - s, Y); ctx.closePath(); ctx.fill(); ctx.stroke();
+    } else if (type === "rtb") {               // down chevron (home)
+      ctx.beginPath(); ctx.moveTo(X - s, Y - s * 0.55); ctx.lineTo(X + s, Y - s * 0.55); ctx.lineTo(X, Y + s); ctx.closePath(); ctx.fill(); ctx.stroke();
+    } else {                                   // nav box
+      ctx.beginPath(); ctx.rect(X - s * 0.8, Y - s * 0.8, s * 1.6, s * 1.6); ctx.fill(); ctx.stroke();
     }
   }
   _overlap(a, b) { return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y; }

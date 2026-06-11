@@ -231,7 +231,7 @@ export class Hud {
       if (w.onscreen && !w.behind) {
         const s = w.next ? 9 : 6;
         ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = w.next ? 2.2 : 1.5;
-        ctx.beginPath(); ctx.moveTo(w.x, w.y - s); ctx.lineTo(w.x + s, w.y); ctx.lineTo(w.x, w.y + s); ctx.lineTo(w.x - s, w.y); ctx.closePath(); ctx.stroke();
+        this._wptIcon(w.type, w.x, w.y, s, col);
         ctx.font = "10px 'Consolas', monospace"; ctx.textAlign = "center";
         ctx.fillText(String(w.idx), w.x, w.y - s - 5);
         if (w.next) {
@@ -257,6 +257,23 @@ export class Hud {
       }
     } else { ctx.fillStyle = "#36ff9a"; ctx.fillText("ROUTE COMPLETE", cx, 96); }
     ctx.restore();
+  }
+
+  // Type-specific waypoint icon (stroke only; caller sets colour/width).
+  _wptIcon(type, x, y, s, col) {
+    const ctx = this.ctx;
+    if (type === "attack") {
+      ctx.beginPath(); ctx.arc(x, y, s, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath();
+      for (const [dx, dy] of [[-1, 0], [1, 0], [0, -1], [0, 1]]) { ctx.moveTo(x + dx * (s - 1), y + dy * (s - 1)); ctx.lineTo(x + dx * (s + 4), y + dy * (s + 4)); }
+      ctx.stroke();
+    } else if (type === "ip") {
+      ctx.beginPath(); ctx.moveTo(x, y - s); ctx.lineTo(x + s, y); ctx.lineTo(x, y + s); ctx.lineTo(x - s, y); ctx.closePath(); ctx.stroke();
+    } else if (type === "rtb") {
+      ctx.beginPath(); ctx.moveTo(x - s, y - s * 0.55); ctx.lineTo(x + s, y - s * 0.55); ctx.lineTo(x, y + s); ctx.closePath(); ctx.stroke();
+    } else {
+      ctx.strokeRect(x - s * 0.8, y - s * 0.8, s * 1.6, s * 1.6);
+    }
   }
 
   // ILS-style approach guidance: a tunnel of gates to fly through, a localizer/

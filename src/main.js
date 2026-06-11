@@ -723,9 +723,24 @@ const mapView = new MapView(document.getElementById("map-canvas"), {
     return { x: state.position.x, z: state.position.z, heading: Math.atan2(f.x / fl, -f.z / fl) };
   },
 });
+// Open the tactical map. Editable (route planning) only when NOT flying; in
+// flight it's a read-only nav system, so the route tools are hidden.
+function syncRouteBtn() {
+  const mr = document.getElementById("map-route");
+  if (mr) { mr.classList.toggle("on", mapView.routeMode); mr.textContent = mapView.routeMode ? "✓ DONE" : "◇ ROUTE"; }
+}
+function openMap() {
+  mapView.editable = !flying;
+  if (flying) { mapView.setRouteMode(false); showWptInspector(null); }
+  const tools = document.querySelector(".map-tools");
+  const rt = document.getElementById("map-route"), rc = document.getElementById("map-route-clear");
+  for (const el of [rt, rc]) if (el) el.style.display = flying ? "none" : "";
+  syncRouteBtn();
+  mapView.open();
+}
 {
   const mb = document.getElementById("btn-map");
-  if (mb) mb.addEventListener("click", () => mapView.open());
+  if (mb) mb.addEventListener("click", () => openMap());
   const mc = document.getElementById("map-close");
   if (mc) mc.addEventListener("click", () => mapView.close());
   const ml = document.getElementById("map-labels");
@@ -734,7 +749,7 @@ const mapView = new MapView(document.getElementById("map-canvas"), {
     ml.addEventListener("click", () => { mapView.setLabels(!mapView.labelsOn); ml.classList.toggle("on", mapView.labelsOn); });
   }
   const mr = document.getElementById("map-route");
-  if (mr) mr.addEventListener("click", () => { const on = !mapView.routeMode; mapView.setRouteMode(on); mr.classList.toggle("on", on); if (!on) showWptInspector(null); });
+  if (mr) mr.addEventListener("click", () => { mapView.setRouteMode(!mapView.routeMode); syncRouteBtn(); if (!mapView.routeMode) showWptInspector(null); });
   const mrc = document.getElementById("map-route-clear");
   if (mrc) mrc.addEventListener("click", () => { routeClear(); showWptInspector(null); mapView.draw(); });
 }
@@ -886,8 +901,7 @@ window.addEventListener("keydown", (e) => {
   // through input.getControls. Fullscreen / mute stay as fixed utility keys.
   if (e.code === "KeyF") toggleFullscreen();
   if (e.code === "KeyM") updateSoundButton(sound.toggleMute());
-  if (e.code === "KeyO") mapView.toggle();
-  if (e.code === "Escape" && mapView.isOpen) mapView.close();
+  if (e.code === "KeyO") { if (mapView.isOpen) mapView.close(); else openMap(); }
   if (e.code === "KeyP" && route.length) { routeOn = !routeOn; flashBanner(routeOn ? "ROUTE ON" : "ROUTE OFF", routeOn ? "Following the flight plan" : "Flight plan hidden", 1.6); }
 });
 
@@ -1892,7 +1906,12 @@ function frame(now) {
 
   // Vehicle bay / pause from the joystick (Back/Select & Start).
   if (flying && !inXR && controls.hangarPressed) { hangarMode ? exitHangar() : enterHangar(true); }
-  if (controls.pausePressed) { if (mapView.isOpen) mapView.close(); else if (flying) openPause(); }
+  if (controls.pausePressed) {
+    if (mapView.isOpen) {
+      if (mapView.routeMode) { mapView.setRouteMode(false); syncRouteBtn(); showWptInspector(null); } // first Esc leaves route mode
+      else mapView.close();
+    } else if (flying) openPause();
+  }
 
   // Throttle-arming gate: hold the sim until the player engages the throttle.
   if (flying && !hangarMode && !paused && !state.crashed && armActive) updateArming(controls);
