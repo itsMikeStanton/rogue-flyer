@@ -218,6 +218,19 @@ export class Weapons {
     this.flares.length = 0;
   }
 
+  // Refill ordnance to the aircraft's loadout (a rearm, without disturbing
+  // anything already in the air).
+  rearm(loadout) {
+    const lo = loadout || {};
+    this.missileCount = lo.missiles || 0;
+    this.rocketCount = lo.rockets || 0;
+    this.bombCount = lo.bombs || 0;
+  }
+  needsRearm(loadout) {
+    const lo = loadout || {};
+    return this.missileCount < (lo.missiles || 0) || this.rocketCount < (lo.rockets || 0) || this.bombCount < (lo.bombs || 0);
+  }
+
   // Break the current lock and skip that target on the next acquisition, so you
   // can fire at one bandit and immediately lock a DIFFERENT one before it dies.
   breakLock() {

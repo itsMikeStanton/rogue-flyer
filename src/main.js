@@ -395,6 +395,35 @@ let radarOff = false, hudOff = false;
 try { radarOff = localStorage.getItem("rf.radarOff") === "1"; hudOff = localStorage.getItem("rf.hudOff") === "1"; } catch (_) { /* ignore */ }
 function setRadarOff(v) { radarOff = v; try { localStorage.setItem("rf.radarOff", v ? "1" : "0"); } catch (_) { /* ignore */ } }
 function setHudOff(v) { hudOff = v; try { localStorage.setItem("rf.hudOff", v ? "1" : "0"); } catch (_) { /* ignore */ } }
+
+// Auto-rearm: a full reload (health/armour + ammo) when you're safely clear of
+// the fight (toggle) — and ALWAYS when you're back at a friendly base.
+let autoRearm = true, canReload = true;
+try { autoRearm = localStorage.getItem("rf.autoRearm") !== "0"; } catch (_) { /* ignore */ }
+function setAutoRearm(v) { autoRearm = v; try { localStorage.setItem("rf.autoRearm", v ? "1" : "0"); } catch (_) { /* ignore */ } }
+function nearestIslandDist() { let d = Infinity; for (const is of (world.islands || [])) d = Math.min(d, Math.hypot(state.position.x - is.center.x, state.position.z - is.center.z)); return d; }
+function atFriendlyBase() {
+  const c = getCarriers().find((k) => k.team === "ally");
+  if (c && Math.hypot(state.position.x - c.x, state.position.z - c.z) < 800) return true;
+  for (const sp of getIslandSpawns()) {
+    if (factions.vsPlayer(factionIdByName(sp.name)) !== "ally") continue;
+    for (const s of sp.spawns) if (s.kind === "runway" && Math.hypot(state.position.x - s.x, state.position.z - s.z) < 900) return true;
+  }
+  return false;
+}
+function updateRearm() {
+  if (!flying || state.crashed) return;
+  const base = atFriendlyBase();
+  const safe = base || (autoRearm && nearestIslandDist() > 13000);
+  if (!safe) { canReload = true; return; } // back in the fight — re-arm the ability
+  if (canReload && (player.health < 100 || weapons.needsRearm(def.loadout))) {
+    player.health = 100;
+    weapons.rearm(def.loadout);
+    canReload = false;
+    flashBanner("REARMED", base ? "At base — full ammo + armour" : "Clear of the fight — full ammo + armour", 2.4);
+    comms("Rearmed and ready", "rearm", 0);
+  }
+}
 // Landing-approach guidance (toggle with L / a joystick button). Targets the
 // home runway at the island origin.
 const approach = new Approach({ cx: 0, cz: 0 });
@@ -760,6 +789,8 @@ function openMap() {
   if (mr) mr.addEventListener("click", () => { mapView.setRouteMode(!mapView.routeMode); syncRouteBtn(); if (!mapView.routeMode) showWptInspector(null); });
   const mrc = document.getElementById("map-route-clear");
   if (mrc) mrc.addEventListener("click", () => { routeClear(); showWptInspector(null); mapView.draw(); });
+  const ar = document.getElementById("auto-rearm");
+  if (ar) { ar.checked = autoRearm; ar.addEventListener("change", () => setAutoRearm(ar.checked)); }
 }
 
 // Selected-waypoint inspector (type / altitude / snap / delete) on the map.
@@ -2006,6 +2037,7 @@ function frame(now) {
       if (controls.bombPressed && weapons.dropBomb(state.position, state.quaternion, state.velocity)) { sound.bomb(); comms("Bombs away", "bomb", 0.9); }
     }
     weapons.update(dt, state.position, state.quaternion, activeTargets);
+    updateRearm();
     enemies.update(dt, player);
     if (enemies.waveMsg) { flashBanner(enemies.waveMsg, enemies.wave === 1 ? "Bandits inbound — good hunting" : "Here they come again", 2.6); comms("Bandits, bandits", "wave", 3); enemies.waveMsg = null; }
     traffic.update(dt, player);
