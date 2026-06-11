@@ -184,9 +184,8 @@ export class Hud {
     // Missile lock box around the locked target
     if (extra.lock) this.lockBox(extra.lock);
 
-    // Mission objective marker (on-screen diamond or edge arrow).
-    if (extra.objective) this.objective(extra.objective);
-    // Objective checklist panel (top-left).
+    // Objective checklist panel (top-left). The in-world targets are the yellow
+    // objective contacts (drawn with the air/ground contacts).
     if (extra.objectives && extra.objectives.length) this.objectiveList(extra.objectives);
     // Must-destroy count (strike/conquest): how many targets left to clear.
     if (extra.objectivesLeft > 0) {
@@ -444,11 +443,13 @@ export class Hud {
     ctx.save();
     ctx.strokeStyle = col; ctx.fillStyle = col; ctx.font = "10px 'Consolas', monospace";
     if (c.onscreen && !c.behind) {
-      const s = c.kind === "objective" ? 12 : 13;
-      ctx.lineWidth = c.kind === "objective" ? 2 : 1.5; ctx.globalAlpha = 0.9;
+      const obj = c.kind === "objective";
+      const s = obj ? (c.focus ? 14 : 11) : 13;
+      ctx.lineWidth = obj ? 2 : 1.5;
+      ctx.globalAlpha = (obj && c.focus) ? 0.55 + 0.45 * Math.sin(performance.now() / 180) : 0.9; // nearest objective pulses
       this._contactShape(c.kind, c.x, c.y, s);
       ctx.globalAlpha = 1; ctx.textAlign = "center";
-      ctx.fillText(label, c.x, c.y - s - 6);
+      ctx.fillText((obj && c.focus ? "▸ " : "") + label, c.x, c.y - s - 6);
       if (c.health != null) {
         const w = 40, h = 3, x = c.x - w / 2, y = c.y + s + 4;
         ctx.fillStyle = "rgba(0,0,0,0.5)"; ctx.fillRect(x, y, w, h);
@@ -457,6 +458,8 @@ export class Hud {
         ctx.fillRect(x, y, w * hp, h);
       }
     } else {
+      // Off-screen: only the nearest objective gets an edge arrow (the rest would clutter).
+      if (c.kind === "objective" && !c.focus) { ctx.restore(); return; }
       const e = this._edgePoint(c.dirx, c.diry, 50);
       ctx.save();
       ctx.translate(e.x, e.y); ctx.rotate(e.ang);
@@ -470,7 +473,8 @@ export class Hud {
   }
 
   // Shape per contact kind so they read at a glance: enemy air = diamond,
-  // ground threat = square, neutral traffic = circle, must-destroy = target box.
+  // ground threat = square, neutral traffic = circle, must-destroy = boxed
+  // crosshair (corner-bracket reticles are reserved for the missile lock).
   _contactShape(kind, x, y, s) {
     const ctx = this.ctx;
     if (kind === "ground") {
@@ -479,12 +483,7 @@ export class Hud {
       ctx.beginPath(); ctx.arc(x, y, s, 0, Math.PI * 2); ctx.stroke();
     } else if (kind === "objective") {
       ctx.strokeRect(x - s, y - s, s * 2, s * 2);
-      const b = s + 4; ctx.beginPath();
-      ctx.moveTo(x - b, y - b + 5); ctx.lineTo(x - b, y - b); ctx.lineTo(x - b + 5, y - b);
-      ctx.moveTo(x + b - 5, y - b); ctx.lineTo(x + b, y - b); ctx.lineTo(x + b, y - b + 5);
-      ctx.moveTo(x - b, y + b - 5); ctx.lineTo(x - b, y + b); ctx.lineTo(x - b + 5, y + b);
-      ctx.moveTo(x + b - 5, y + b); ctx.lineTo(x + b, y + b); ctx.lineTo(x + b, y + b - 5);
-      ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x - 4, y); ctx.lineTo(x + 4, y); ctx.moveTo(x, y - 4); ctx.lineTo(x, y + 4); ctx.stroke(); // inner crosshair
     } else { // air (enemy aircraft): diamond
       ctx.beginPath(); ctx.moveTo(x, y - s); ctx.lineTo(x + s, y); ctx.lineTo(x, y + s); ctx.lineTo(x - s, y); ctx.closePath(); ctx.stroke();
     }

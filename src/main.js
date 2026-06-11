@@ -2414,15 +2414,11 @@ function frame(now) {
         };
       }
     }
-    // Mission objective marker + list: only objective-relevant targets are
-    // marked (ambient defenses stay unmarked until you find them).
-    let objective = null, objectives = null;
+    // Objective checklist (the in-world targets are drawn as the yellow objective
+    // contacts below — no separate nearest-objective marker, to avoid double-yellow).
+    let objectives = null;
     const isMissionHud = gameMode === "mission" || gameMode === "campaign" || gameMode === "conquest";
-    if (isMissionHud) {
-      const md = missions.hudData(projectHud, state.position);
-      objective = md.objective;
-      objectives = md.objectives;
-    }
+    if (isMissionHud) objectives = missions.hudData(projectHud, state.position).objectives;
     // Nav markers to other islands (so the open ocean isn't a void).
     let islandMarkers = null;
     if (world.islands && world.islands.length > 1) {
@@ -2485,6 +2481,11 @@ function frame(now) {
         objCount++;
       }
     }
+    // Highlight the nearest objective as the current focus (pulses + the only one
+    // with an off-screen arrow).
+    let focusObj = null;
+    for (const c of contacts) if (c.kind === "objective" && (!focusObj || c.dist < focusObj.dist)) focusObj = c;
+    if (focusObj) focusObj.focus = true;
     // Landing-approach guidance (gates/ILS/cues). Survives "pure flight" since
     // it's a navigation aid you deliberately turn on; hidden only when the whole
     // HUD is off (this block already gates on !hudOff).
@@ -2550,7 +2551,6 @@ function frame(now) {
       // "Pure flight" hides every target/enemy indicator (lock, objective,
       // contacts, radar); nav island markers + instruments stay.
       lock: radarOff ? null : lock,
-      objective: radarOff ? null : objective,
       objectives: radarOff ? null : objectives,
       objectivesLeft: radarOff ? 0 : objCount,
       threat: radarOff ? null : threatState, // "tracking" | "hunting" | null
