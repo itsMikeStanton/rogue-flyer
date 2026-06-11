@@ -359,6 +359,15 @@ export function terrainHeight(x, z) {
 // Sea surface (fixed).
 export const SEA_LEVEL = defaultWorldConfig().seaLevel;
 
+// Reposition a carrier to a WORLD position at runtime (e.g. follow the front in
+// Conquest). Updates the config so getCarriers/collision/spawns all track it.
+export function moveCarrier(team, wx, wz) {
+  for (const is of CFG.islands) for (const c of (is.carriers || [])) {
+    if (c.team === team) { c.x = wx - is.center.x; c.z = wz - is.center.z; return true; }
+  }
+  return false;
+}
+
 // Ground height including carrier decks — used for collision / takeoff.
 export function groundHeightAt(x, z) {
   let g = terrainHeight(x, z);

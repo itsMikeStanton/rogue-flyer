@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { AIRCRAFT, buildAircraftMesh } from "./aircraft.js";
 import { createState, step } from "./flight.js";
-import { buildWorld, terrainHeight, groundHeightAt, getCarriers, getIslandSpawns, getMissionBases, getWorldConfig, getFactionConfig, SEA_LEVEL, lightPoolTexture } from "./world.js";
+import { buildWorld, terrainHeight, groundHeightAt, getCarriers, getIslandSpawns, getMissionBases, getWorldConfig, getFactionConfig, moveCarrier, SEA_LEVEL, lightPoolTexture } from "./world.js";
 import { Factions } from "./factions.js";
 import { MapView } from "./mapview.js";
 import { WPT_TYPES, WPT_ORDER, wptType } from "./waypoints.js";
@@ -510,9 +510,20 @@ function wakeIsland(node) {
       assignFactions();
     }
   }
+  parkAllyCarrier(node); // bring the carrier up to support the assault
   missionDone = false;
   missions.load({ objectives: [{ type: "destroy", priority: "primary", label: "Seize " + node.name, match: (t) => t._node === node.id }] }, ground);
   flashBanner("DEFENSES SCRAMBLING", node.name + " is defending — clear it out", 3);
+}
+// Park the friendly carrier offshore of the island under assault (on the
+// player's side), so you can rearm/relaunch close to the action.
+function parkAllyCarrier(node) {
+  const cfg = getWorldConfig().islands.find((i) => i.name === node.name);
+  const outer = (cfg && cfg.terrain && cfg.terrain.islandOuter) || 9500;
+  let dx = state.position.x - node.center.x, dz = state.position.z - node.center.z;
+  const d = Math.hypot(dx, dz) || 1; dx /= d; dz /= d;
+  const px = node.center.x + dx * (outer + 2600), pz = node.center.z + dz * (outer + 2600);
+  if (moveCarrier("ally", px, pz) && world.carriers && world.carriers.ally) world.carriers.ally.position.set(px, SEA_LEVEL, pz);
 }
 function captureIsland(node) {
   conquestRun.capture(node);
