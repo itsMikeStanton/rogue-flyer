@@ -809,3 +809,13 @@ button.vr:hover { background: rgba(46,230,166,0.26); }
   font: 700 11px ui-monospace, "Consolas", monospace; letter-spacing: 1.5px;
 }
 #cq-map-btn:hover { background: rgba(20,34,48,0.95); }
+
+/* --- Conquest campaign saves --- */
+.cq-saves-list { display: flex; flex-direction: column; gap: 8px; margin: 12px 0; }
+.cq-save { display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 10px 14px; border: 1px solid rgba(120,150,180,0.25); border-radius: 8px; background: rgba(10,16,26,0.6); }
+.cq-save-info { display: flex; flex-direction: column; gap: 2px; }
+.cq-save-info b { color: #eaf4ee; font-size: 15px; }
+.cq-save-info span { color: #9fb3c4; font-size: 12px; }
+.cq-save-actions { display: flex; gap: 8px; }
+.cq-save-actions button { padding: 7px 14px; }

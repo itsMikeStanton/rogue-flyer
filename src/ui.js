@@ -430,6 +430,8 @@ export class UI {
         const lv = document.getElementById("cq-lives");
         const df = document.getElementById("cq-diff");
         if (this.cb.onConquestLaunch) this.cb.onConquestLaunch(this._cqPick, lv ? lv.value : "infinite", df ? df.value : "veteran");
+      } else if (this._cqMode === "resume") {
+        if (this.cb.onConquestResume) this.cb.onConquestResume(this._cqPick);
       } else {
         if (this.cb.onConquestRespawn) this.cb.onConquestRespawn(this._cqPick);
       }
@@ -832,6 +834,30 @@ export class UI {
   }
   hideConquest() { if (this.conquest) this.conquest.classList.add("hidden"); }
 
+  // Campaign picker: list saved Conquest campaigns (resume / delete) or start new.
+  showConquestSaves(saves, cb) {
+    const panel = document.getElementById("cq-saves");
+    if (!panel) { cb.onNew(); return; } // no UI — just start a new run
+    this.menu.classList.add("hidden");
+    this.hideConquest();
+    const list = document.getElementById("cq-saves-list");
+    if (list) {
+      if (!saves.length) list.innerHTML = `<p class="hint">No saved campaigns yet — start a new one.</p>`;
+      else list.innerHTML = saves.map((s) => {
+        const when = new Date(s.ts).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+        const status = s.won ? "✓ secured" : `${s.owned}/${s.total} islands held`;
+        return `<div class="cq-save"><div class="cq-save-info"><b>${s.name}</b><span>${status} · ${s.difficulty} · ${when}</span></div>`
+          + `<div class="cq-save-actions"><button data-load="${s.id}" class="primary">${s.won ? "View" : "Resume"}</button><button data-del="${s.id}" title="Delete">🗑</button></div></div>`;
+      }).join("");
+      list.querySelectorAll("[data-load]").forEach((b) => b.addEventListener("click", () => cb.onLoad(b.dataset.load)));
+      list.querySelectorAll("[data-del]").forEach((b) => b.addEventListener("click", () => cb.onDelete(b.dataset.del)));
+    }
+    const nw = document.getElementById("cq-new"); if (nw) nw.onclick = () => cb.onNew();
+    const bk = document.getElementById("cq-saves-back"); if (bk) bk.onclick = () => cb.onBack();
+    panel.classList.remove("hidden");
+  }
+  hideConquestSaves() { const p = document.getElementById("cq-saves"); if (p) p.classList.add("hidden"); }
+
   // Clicking an island on the planner map picks it as the beachhead (selecting a
   // launchable spawn on it). Ignored if that island has no available launch point
   // (e.g. an enemy island on the respawn screen).
@@ -849,10 +875,12 @@ export class UI {
     const run = this._cqRun;
     if (!run) return;
     const el = (id) => document.getElementById(id);
-    const setup = this._cqMode === "setup";
-    el("cq-title").textContent = setup ? "Choose your beachhead" : "Launch a fresh aircraft";
+    const setup = this._cqMode === "setup", resume = this._cqMode === "resume";
+    el("cq-title").textContent = setup ? "Choose your beachhead" : resume ? "Resume campaign" : "Launch a fresh aircraft";
     el("cq-dialogue").innerHTML = setup
       ? "<div>Pick an island to land and seize — that's your first foothold. From its runway, take the rest of the archipelago one island at a time.</div>"
+      : resume
+      ? "<div>Welcome back. Your held islands are yours — choose a runway or carrier to launch from and press the assault.</div>"
       : "<div>Aircraft down. Choose a captured runway or carrier to get back in the fight.</div>";
     // Strategic map — accurate terrain, islands ringed by who holds them.
     const mc = el("cq-map");

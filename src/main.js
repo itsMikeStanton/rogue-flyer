@@ -469,6 +469,51 @@ function openBriefing(missionId) {
 }
 
 // --- Conquest: take the whole archipelago, island by island ----------------
+// Campaigns persist their strategic state (owned islands + rules) to
+// localStorage as named save slots, so a browser refresh resumes where you left
+// off — you relaunch fresh from a held island, with all progress intact.
+const CQ_KEY = "rf.cq.saves";
+let conquestSlot = null; // id of the campaign currently in play
+function cqReadSaves() { try { return JSON.parse(localStorage.getItem(CQ_KEY) || "{}") || {}; } catch (_) { return {}; } }
+function cqWriteSaves(m) { try { localStorage.setItem(CQ_KEY, JSON.stringify(m)); } catch (_) { /* ignore */ } }
+function listConquestSaves() { const m = cqReadSaves(); return Object.keys(m).map((id) => ({ id, ...m[id] })).sort((a, b) => b.ts - a.ts); }
+function saveConquest() {
+  if (!conquestSlot || !conquestRun) return;
+  const m = cqReadSaves(), prev = m[conquestSlot];
+  m[conquestSlot] = {
+    name: (prev && prev.name) || ("Campaign " + (Object.keys(m).length + 1)),
+    ts: Date.now(), difficulty: conquestRun.difficulty,
+    owned: conquestRun.ownedNodes().length, total: conquestRun.nodes.length, won: !!conquestRun.won,
+    data: conquestRun.serialize(),
+  };
+  cqWriteSaves(m);
+}
+function deleteConquestSave(id) { const m = cqReadSaves(); delete m[id]; cqWriteSaves(m); }
+// Menu → Conquest: pick a campaign (new, or resume a saved one).
+function openConquestSaves() {
+  flying = false;
+  ui.showConquestSaves(listConquestSaves(), {
+    onNew: () => { ui.hideConquestSaves(); newConquestCampaign(); },
+    onLoad: (id) => loadConquest(id),
+    onDelete: (id) => { deleteConquestSave(id); openConquestSaves(); },
+    onBack: () => { ui.hideConquestSaves(); ui.showMenu(); },
+  });
+}
+function newConquestCampaign() { conquestSlot = "cq" + Date.now().toString(36); openConquest(); }
+// Resume a saved campaign: rebuild the run, restore ownership, launch fresh.
+function loadConquest(id) {
+  const save = cqReadSaves()[id];
+  if (!save) return;
+  factions = new Factions(getFactionConfig());
+  conquestRun = new cq.ConquestRun(getIslandSpawns(), { difficulty: "veteran", factions });
+  conquestRun.restore(save.data);
+  conquestSlot = id;
+  gameMode = "conquest";
+  ui.hideConquestSaves();
+  ui.showConquest(conquestRun, world, { mode: "resume" });
+}
+function resumeConquest(spawn) { conquestSpawn = spawn; startFlight(jetType, "conquest"); }
+
 // Open the map screen to choose a beachhead + rules, then launch.
 function openConquest() {
   factions = new Factions(getFactionConfig()); // current allegiances drive who you must take
@@ -482,6 +527,7 @@ function beginConquest(spawn, lives, difficulty) {
   setLives(lives);
   conquestRun.difficulty = difficulty || conquestRun.difficulty;
   conquestRun.setStart(spawn.node);
+  saveConquest(); // record the new campaign with its beachhead
   conquestSpawn = spawn;
   startFlight(jetType, "conquest");
 }
@@ -537,6 +583,7 @@ function captureIsland(node) {
     flashBanner("ISLAND CAPTURED", node.name + " is yours — launch from it anytime", 3.4);
     comms("Island secured", "obj", 0);
   }
+  saveConquest(); // persist strategic progress on every capture
 }
 // Per-frame conquest tick: wake the island you're closing on, and claim any
 // awake island whose defenses are wiped out.
@@ -697,8 +744,9 @@ const ui = new UI(input, {
     cqMap.refresh();
   },
   onOpenMap: () => openMap(),                    // conquest screen → full tactical map
-  onOpenConquest: () => openConquest(),         // menu "Conquest" → map screen
+  onOpenConquest: () => openConquestSaves(),    // menu "Conquest" → campaign picker
   onConquestLaunch: (spawn, lives, diff) => beginConquest(spawn, lives, diff),
+  onConquestResume: (spawn) => resumeConquest(spawn), // launch a loaded campaign
   onConquestRespawn: (spawn) => respawnConquest(spawn),
 }, touch, tilt);
 
@@ -1295,6 +1343,11 @@ function resetFlight() {
   awareness.reset();
   factions = new Factions(getFactionConfig()); // pick up any live edits to allegiances
   seedIslandFactions(); // reset island allegiances to the world's starting state
+  // In Conquest, islands you already hold fly your colours (drives the map +
+  // keeps captured islands neutralised on a resumed campaign).
+  if (gameMode === "conquest" && conquestRun) {
+    for (const n of conquestRun.nodes) if (n.owner === "player") setIslandFaction(n.name, factions.playerFaction);
+  }
   assignFactions(); // hand every defence its island's shared awareness state
   threatState = null;
   prevDestroyed = 0; prevKills = 0; wasOnGround = true;

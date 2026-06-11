@@ -153,4 +153,22 @@ export class ConquestRun {
   }
 
   checkWon() { this.won = this.nodes.every((n) => n.owner === "player"); return this.won; }
+
+  // Strategic state for saving/resuming a campaign (owned islands + rules). The
+  // transient per-flight bits (awake/defended/targets) are not saved — you
+  // relaunch fresh and re-approach to wake an island.
+  serialize() {
+    return { difficulty: this.difficulty, startId: this.startId, nodes: this.nodes.map((n) => ({ id: n.id, owner: n.owner, captured: n.captured })) };
+  }
+  restore(save) {
+    if (!save) return;
+    this.difficulty = save.difficulty || this.difficulty;
+    this.startId = save.startId;
+    for (const s of (save.nodes || [])) {
+      const n = this.node(s.id);
+      if (n) { n.owner = s.owner; n.captured = !!s.captured; n.awake = false; n.defended = false; }
+    }
+    this.activeId = null;
+    this.checkWon();
+  }
 }
