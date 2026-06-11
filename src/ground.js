@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { terrainHeight, riverCenterX, getMissionBases, buildPowerPlant } from "./world.js";
+import { terrainHeight, riverCenterX, getMissionBases, buildPowerPlant, SEA_LEVEL } from "./world.js";
 
 // Strike-mission ground targets: stationary structures sitting on the terrain
 // that you destroy with guns/missiles. Same { position, radius, alive, hit }
@@ -477,43 +477,46 @@ export class GroundTargets {
     if (enemyMesh) enemyMesh.visible = true; // restore if a prior mission sank it
     if (!active) return;
     const types = ["tank", "radar", "bunker", "sam"];
+    // Find dry land near a base: sample candidates, take the first comfortably
+    // above water (else the highest), and never return an underwater spot.
+    const LAND_OK = -10, LAND_MIN = SEA_LEVEL + 4;
+    const pickLand = (bx, bz, gen) => {
+      let best = null, bh = -Infinity;
+      for (let k = 0; k < 18; k++) {
+        const c = gen();
+        if (Math.abs(c.x - riverCenterX(c.z)) < 280) continue;
+        const h = terrainHeight(c.x, c.z);
+        if (h >= LAND_OK) return c;
+        if (h > bh) { bh = h; best = c; }
+      }
+      if (best && bh > LAND_MIN) return best;
+      return terrainHeight(bx, bz) > LAND_MIN ? { x: bx, z: bz } : null; // last resort: the base itself
+    };
+    const ring = (bx, bz, lo, hi) => () => { const a = Math.random() * Math.PI * 2, r = lo + Math.random() * (hi - lo); return { x: bx + Math.cos(a) * r, z: bz + Math.sin(a) * r }; };
     // bases placed ahead of spawn (player starts facing -Z)
     const bases = getMissionBases();
     for (const [bx, bz] of bases) {
       const count = 3 + Math.floor(Math.random() * 2);
       for (let i = 0; i < count; i++) {
-        let x = bx, z = bz, tries = 0;
-        do {
-          x = bx + (Math.random() - 0.5) * 520;
-          z = bz + (Math.random() - 0.5) * 520;
-          tries++;
-        } while (tries < 12 && (terrainHeight(x, z) < -20 || Math.abs(x - riverCenterX(z)) < 480));
+        const c = pickLand(bx, bz, () => ({ x: bx + (Math.random() - 0.5) * 520, z: bz + (Math.random() - 0.5) * 520 }));
+        if (!c) continue;
         const type = types[Math.floor(Math.random() * types.length)];
-        this.list.push(new GTarget(this.scene, this.fx, type, x, z));
+        this.list.push(new GTarget(this.scene, this.fx, type, c.x, c.z));
       }
       // A ring of light AA guns spread WIDE around the base, so a raid flies into
       // tracer coming up from all directions.
       const aaCount = 4 + Math.floor(Math.random() * 3); // 4-6 per base
       for (let i = 0; i < aaCount; i++) {
-        let x = bx, z = bz, tries = 0;
-        do {
-          const ang = Math.random() * Math.PI * 2, r = 260 + Math.random() * 560;
-          x = bx + Math.cos(ang) * r; z = bz + Math.sin(ang) * r;
-          tries++;
-        } while (tries < 14 && (terrainHeight(x, z) < -10 || Math.abs(x - riverCenterX(z)) < 300));
-        this.list.push(new GTarget(this.scene, this.fx, "aa", x, z));
+        const c = pickLand(bx, bz, ring(bx, bz, 260, 820));
+        if (c) this.list.push(new GTarget(this.scene, this.fx, "aa", c.x, c.z));
       }
       // A couple of searchlights per base (dark by day; they hunt you at night).
       // One per base is a "picket" that idles even when the island is unaware.
       const slCount = 1 + Math.floor(Math.random() * 2); // 1-2 per base
       for (let i = 0; i < slCount; i++) {
-        let x = bx, z = bz, tries = 0;
-        do {
-          const ang = Math.random() * Math.PI * 2, r = 180 + Math.random() * 420;
-          x = bx + Math.cos(ang) * r; z = bz + Math.sin(ang) * r;
-          tries++;
-        } while (tries < 14 && (terrainHeight(x, z) < -10 || Math.abs(x - riverCenterX(z)) < 280));
-        const sl = new GTarget(this.scene, this.fx, "searchlight", x, z);
+        const c = pickLand(bx, bz, ring(bx, bz, 180, 600));
+        if (!c) continue;
+        const sl = new GTarget(this.scene, this.fx, "searchlight", c.x, c.z);
         if (i === 0) sl.idleOn = true;
         this.list.push(sl);
       }
@@ -521,9 +524,8 @@ export class GroundTargets {
     // A power plant at the first base — a big, smoking, high-value target.
     if (bases.length) {
       const [bx, bz] = bases[0];
-      let px = bx + 620, pz = bz + 120;
-      if (terrainHeight(px, pz) < -20) { px = bx - 620; pz = bz - 120; }
-      this.list.push(new GTarget(this.scene, this.fx, "powerplant", px, pz));
+      const c = pickLand(bx, bz, ring(bx, bz, 400, 800));
+      if (c) this.list.push(new GTarget(this.scene, this.fx, "powerplant", c.x, c.z));
     }
     if (enemyMesh && enemyInfo) {
       this.list.push(new CarrierTarget(this.fx, enemyMesh, enemyInfo));

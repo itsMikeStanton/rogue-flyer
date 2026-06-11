@@ -14,6 +14,11 @@ const BULLET_SPEED = 1400;
 const BULLET_LIFE = 2.0;
 const FIRE_INTERVAL = 0.08;
 const GUN_DAMAGE = 12;
+// Gun aim assist: a round bends toward a target only when it's already in a very
+// tight cone dead ahead — a nudge to reward good aim, not an aimbot.
+const GUN_ASSIST = 0.7;
+const GUN_ASSIST_COS = Math.cos((3.5 * Math.PI) / 180);
+const GUN_ASSIST_RANGE = 2600;
 
 const MSL_DROP = 0.44;      // unpowered coast before the motor lights (the "hang")
 const MSL_ACCEL = 1700;     // boost acceleration once lit (units/s^2)
@@ -146,13 +151,17 @@ export class Weapons {
     this.lock = null;          // target the HUD draws a box around (candidate or locked)
     this.lockProgress = 0;     // 0..1 acquisition progress
     this.locked = false;       // solid lock — missiles will guide
+    this._exclude = null;      // a target temporarily skipped by lock (after break-lock)
     this._mslSide = -1;        // alternate which wing missiles launch from
 
     this.bulletGeo = new THREE.BoxGeometry(0.7, 0.7, 16);
     this.bulletMat = new THREE.MeshBasicMaterial({ color: 0xfff066 });
     this.mslGeo = new THREE.CylinderGeometry(0.28, 0.28, 2.6, 6);
     this.mslGeo.rotateX(Math.PI / 2); // align length with -Z when using lookAt
-    this.mslMat = new THREE.MeshStandardMaterial({ color: 0xe8e8e8, emissive: 0x331100, flatShading: true });
+    this.mslMat = new THREE.MeshStandardMaterial({ color: 0xd6d9dc, emissive: 0x080808, flatShading: true, metalness: 0.2, roughness: 0.6 });
+    this.mslSeekMat = new THREE.MeshStandardMaterial({ color: 0x202428, flatShading: true, metalness: 0.5, roughness: 0.4 });
+    this.mslBandMat = new THREE.MeshStandardMaterial({ color: 0x9a6a2a, flatShading: true });
+    this.mslFinMat = new THREE.MeshStandardMaterial({ color: 0x3a3f44, flatShading: true });
     this.smokeGeo = new THREE.SphereGeometry(1.6, 6, 6);
     // Little rocket-motor flame trailing the missile (lit after ignition).
     this.mslFlameGeo = new THREE.ConeGeometry(0.24, 1.5, 8);
@@ -162,6 +171,28 @@ export class Weapons {
     // Bomb: a finned slug.
     this.bombGeo = new THREE.CylinderGeometry(0.45, 0.32, 2.6, 8); this.bombGeo.rotateX(Math.PI / 2);
     this.bombMat = new THREE.MeshStandardMaterial({ color: 0x4a5042, flatShading: true, metalness: 0.3, roughness: 0.6 });
+  }
+
+  // A low-poly Stinger-style missile (group, nose along -Z): tapered body, a dark
+  // seeker dome, a colour band and four tail fins. Returns a fresh group per shot.
+  _missileMesh() {
+    const g = new THREE.Group();
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.24, 2.0, 10), this.mslMat);
+    body.rotation.x = Math.PI / 2; g.add(body);
+    const nose = new THREE.Mesh(new THREE.ConeGeometry(0.24, 0.62, 10), this.mslMat);
+    nose.rotation.x = -Math.PI / 2; nose.position.z = -1.31; g.add(nose);
+    const seeker = new THREE.Mesh(new THREE.SphereGeometry(0.15, 8, 6), this.mslSeekMat);
+    seeker.position.z = -1.5; g.add(seeker);
+    const band = new THREE.Mesh(new THREE.CylinderGeometry(0.26, 0.26, 0.2, 10), this.mslBandMat);
+    band.rotation.x = Math.PI / 2; band.position.z = -0.72; g.add(band);
+    for (let i = 0; i < 4; i++) {
+      const th = i * Math.PI / 2;
+      const fin = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.05, 0.5), this.mslFinMat);
+      fin.position.set(Math.cos(th) * 0.32, Math.sin(th) * 0.32, 0.92);
+      fin.rotation.z = th;
+      g.add(fin);
+    }
+    return g;
   }
 
   reset(loadout) {
@@ -183,7 +214,14 @@ export class Weapons {
     this.lock = null;
     this.lockProgress = 0;
     this.locked = false;
+    this._exclude = null;
     this.flares.length = 0;
+  }
+
+  // Break the current lock and skip that target on the next acquisition, so you
+  // can fire at one bandit and immediately lock a DIFFERENT one before it dies.
+  breakLock() {
+    if (this.lock) { this._exclude = this.lock; this.lock = null; this.lockProgress = 0; this.locked = false; }
   }
 
   // Fire the aircraft's forward ordnance: a guided/dumb missile if it has any,
@@ -194,7 +232,7 @@ export class Weapons {
     return null;
   }
 
-  fire(position, quaternion) {
+  fire(position, quaternion, targets) {
     if (this.cooldown > 0) return false;
     this.cooldown = FIRE_INTERVAL;
     _fwd.set(0, 0, -1).applyQuaternion(quaternion).normalize();
@@ -202,11 +240,23 @@ export class Weapons {
     // Muzzle: ahead of and a touch below the jet, so rounds come from the gun
     // area — not out of the camera/your face in cockpit & chase views.
     _nose.copy(position).addScaledVector(_fwd, 6).addScaledVector(_up, -1.1);
+    const dir = _right.copy(_fwd); // reuse a temp for the firing direction
+    if (targets) {
+      let best = null, bestDot = GUN_ASSIST_COS;
+      for (const t of targets) {
+        if (!t.alive || t.lockable === false) continue;
+        _to.copy(t.position).sub(_nose); const d = _to.length();
+        if (d < 40 || d > GUN_ASSIST_RANGE) continue;
+        _to.multiplyScalar(1 / d); const dot = _fwd.dot(_to);
+        if (dot > bestDot) { bestDot = dot; best = _to.clone(); }
+      }
+      if (best) dir.lerp(best, GUN_ASSIST).normalize();
+    }
     const m = new THREE.Mesh(this.bulletGeo, this.bulletMat);
     m.position.copy(_nose);
     m.quaternion.copy(quaternion);
     this.scene.add(m);
-    this.bullets.push({ mesh: m, vel: _fwd.clone().multiplyScalar(BULLET_SPEED), life: BULLET_LIFE });
+    this.bullets.push({ mesh: m, vel: dir.clone().multiplyScalar(BULLET_SPEED), life: BULLET_LIFE });
     return true;
   }
 
@@ -224,7 +274,7 @@ export class Weapons {
       .addScaledVector(_right, this._mslSide * 2.8)
       .addScaledVector(_up, -0.6)
       .addScaledVector(_fwd, 1.0);
-    const m = new THREE.Mesh(this.mslGeo, this.mslMat);
+    const m = this._missileMesh();
     m.position.copy(_nose);
     m.quaternion.copy(quaternion);
     // Rocket flame child, trailing aft (+Z local); hidden until the motor lights.
@@ -335,18 +385,25 @@ export class Weapons {
       _to.multiplyScalar(1 / dist);
       return _fwd.dot(_to) > LOCK_COS;
     };
-    let best = inBox(this.lock) ? this.lock : null; // keep the current target if still in the box
-    if (!best) {
-      let bestDot = LOCK_COS;
+    // Drop the break-lock skip once that target dies or you slew off it.
+    if (this._exclude && (!this._exclude.alive || !inBox(this._exclude))) this._exclude = null;
+    const search = (excl) => {
+      let bd = LOCK_COS, b = null;
       for (const t of targets) {
-        if (!t.alive || t.lockable === false) continue;
+        if (!t.alive || t.lockable === false || t === excl) continue;
         _to.copy(t.position).sub(position);
         const dist = _to.length();
         if (dist > LOCK_RANGE || dist < 1) continue;
         _to.multiplyScalar(1 / dist);
         const dot = _fwd.dot(_to);
-        if (dot > bestDot) { bestDot = dot; best = t; }
+        if (dot > bd) { bd = dot; b = t; }
       }
+      return b;
+    };
+    let best = inBox(this.lock) ? this.lock : null; // keep the current target if still in the box
+    if (!best) {
+      best = search(this._exclude);
+      if (!best && this._exclude) { this._exclude = null; best = search(null); } // nothing else — allow it back
     }
     if (best) {
       if (best !== this.lock) { this.lock = best; this.lockProgress = 0; } // new candidate — start over

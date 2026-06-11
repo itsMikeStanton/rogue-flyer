@@ -912,6 +912,7 @@ window.addEventListener("keydown", (e) => {
   if (e.code === "KeyM") updateSoundButton(sound.toggleMute());
   if (e.code === "KeyO") { if (mapView.isOpen) mapView.close(); else openMap(); }
   if (e.code === "KeyP" && route.length) { routeOn = !routeOn; flashBanner(routeOn ? "ROUTE ON" : "ROUTE OFF", routeOn ? "Following the flight plan" : "Flight plan hidden", 1.6); }
+  if (e.code === "KeyI" && flying && !paused) weapons.breakLock(); // break missile lock → next target
 });
 
 // Floating in-flight button to reopen the vehicle bay.
@@ -1999,7 +2000,7 @@ function frame(now) {
     const activeTargets = baseTargets.concat(traffic.targets);
     // No weapons while the afterburner is lit — it's pure high-speed travel.
     if (!boostActive) {
-      if (controls.fire && weapons.fire(state.position, state.quaternion)) sound.gun();
+      if (controls.fire && weapons.fire(state.position, state.quaternion, activeTargets)) sound.gun();
       if (controls.missilePressed && weapons.fireMissile(state.position, state.quaternion, state.velocity)) { sound.missile(); comms("Fox two", "msl", 0.7); }
       if (controls.rocketPressed && weapons.fireRocket(state.position, state.quaternion, state.velocity)) { sound.missile(); comms("Rifle", "rkt", 0.7); }
       if (controls.bombPressed && weapons.dropBomb(state.position, state.quaternion, state.velocity)) { sound.bomb(); comms("Bombs away", "bomb", 0.9); }
