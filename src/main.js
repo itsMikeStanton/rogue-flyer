@@ -231,13 +231,17 @@ weapons.onHit = (t) => {
 const weather = new Weather(scene, world);
 let weatherMode = "day";
 try { weatherMode = localStorage.getItem("rf.weather") || "day"; } catch (_) { /* ignore */ }
-weather.setMode(weatherMode);
+function applyWeather(mode) {
+  if (mode === "cycle") weather.setAutoCycle(true);
+  else { weather.setAutoCycle(false); weather.setMode(mode); }
+}
+applyWeather(weatherMode);
 const wxSel = document.getElementById("weather-mode");
 if (wxSel) {
   wxSel.value = weatherMode;
   wxSel.addEventListener("change", () => {
     weatherMode = wxSel.value;
-    weather.setMode(weatherMode);
+    applyWeather(weatherMode);
     try { localStorage.setItem("rf.weather", weatherMode); } catch (_) { /* ignore */ }
   });
 }
@@ -2233,6 +2237,7 @@ function frame(now) {
   updateSpeedLines(dt, boostFx);
   updateSky(camera, true); // ocean + clouds follow the active camera
   weather.update(simDt, _skyPos); // stars/rain follow the camera; storm lightning
+  if (post.enabled) post.setBloomScale(THREE.MathUtils.lerp(1.0, 0.5, weather.daylight || 0)); // tame daytime bloom
   ground.night = weatherMode === "night" || weatherMode === "storm"; // gate searchlights to darkness
   if (world.spinners) for (const s of world.spinners) s.obj.rotation.y += dt * s.speed; // lighthouse beacons sweep
   // Smoke plumes: scenery sources + any still-alive power-plant strike targets.

@@ -15,6 +15,24 @@ const PRESETS = {
   storm: { sky: 0x131b2c, fog: 0x182132, near: 2400, far: 11000, hemi: 0.42, hSky: 0x35435e, hGnd: 0x141c28, sun: 0.5, sunCol: 0x9fb0d6, stars: 0.4, rain: 1.3, body: "moon" },
 };
 
+// Keyframes for the automatic day/night cycle (tod 0..1, wraps). Tuned so a full
+// turn is roughly half daylight, half night with sunset/sunrise bridges.
+const CYCLE = [
+  { at: 0.00, m: "day" }, { at: 0.42, m: "day" }, { at: 0.50, m: "sunset" },
+  { at: 0.58, m: "night" }, { at: 0.92, m: "night" }, { at: 0.97, m: "sunset" }, { at: 1.0, m: "day" },
+];
+const _ca = new THREE.Color(), _cb = new THREE.Color();
+const lerp = THREE.MathUtils.lerp;
+function lerpHex(a, b, t) { _ca.setHex(a); _cb.setHex(b); _ca.lerp(_cb, t); return _ca.getHex(); }
+function lerpPreset(a, b, t) {
+  return {
+    sky: lerpHex(a.sky, b.sky, t), fog: lerpHex(a.fog, b.fog, t), near: lerp(a.near, b.near, t), far: lerp(a.far, b.far, t),
+    hemi: lerp(a.hemi, b.hemi, t), hSky: lerpHex(a.hSky, b.hSky, t), hGnd: lerpHex(a.hGnd, b.hGnd, t),
+    sun: lerp(a.sun, b.sun, t), sunCol: lerpHex(a.sunCol, b.sunCol, t), stars: lerp(a.stars, b.stars, t), rain: lerp(a.rain, b.rain, t),
+    body: t < 0.5 ? a.body : b.body,
+  };
+}
+
 export class Weather {
   constructor(scene, world) {
     this.scene = scene;
@@ -116,9 +134,22 @@ export class Weather {
   }
 
   setMode(mode) {
-    const p = PRESETS[mode] || PRESETS.day;
+    this.autoCycle = false;
     this.mode = PRESETS[mode] ? mode : "day";
-    this.scene.background = new THREE.Color(p.sky);
+    this._apply(PRESETS[this.mode]);
+  }
+
+  // Start/stop the automatic day→sunset→night→sunrise loop (period in seconds;
+  // default 16 min ≈ 8 min day + 8 min night), with occasional rain spells.
+  setAutoCycle(on, period = 16 * 60) {
+    this.autoCycle = !!on; this.cyclePeriod = period;
+    if (on && this.tod == null) this.tod = 0;
+  }
+
+  // Apply a (possibly blended) preset to the sky/fog/lights/bodies.
+  _apply(p) {
+    if (this.scene.background && this.scene.background.isColor) this.scene.background.setHex(p.sky);
+    else this.scene.background = new THREE.Color(p.sky);
     if (this.scene.fog) { this.scene.fog.color.setHex(p.fog); this.scene.fog.near = p.near; this.scene.fog.far = p.far; }
     this.hemi.intensity = p.hemi; this.hemi.color.setHex(p.hSky); this.hemi.groundColor.setHex(p.hGnd);
     this.sun.intensity = p.sun; this.sun.color.setHex(p.sunCol);
@@ -126,7 +157,8 @@ export class Weather {
     this.stars.material.uniforms.uOpacity.value = Math.min(1, p.stars);
     this.rain.visible = p.rain > 0;
     this._rainScale = p.rain;
-    // Sky bodies: show whichever is up and aim the sun light along it.
+    this._baseHemi = p.hemi;
+    this.daylight = THREE.MathUtils.clamp((p.sun - 0.5) / 0.9, 0, 1); // 1 = bright day, 0 = night
     this.sunSprite.visible = p.body === "sun";
     this.moonSprite.visible = p.body === "moon";
     if (p.body === "sun") this.sunSprite.material.color.setHex(p.sunCol);
@@ -134,7 +166,27 @@ export class Weather {
     this.sun.position.copy(dir).multiplyScalar(this._sunDist);
   }
 
+  // Advance the automatic day/night loop one step and apply the blended sky.
+  _advanceCycle(dt) {
+    this.tod = (this.tod + dt / this.cyclePeriod) % 1;
+    let a = CYCLE[0], b = CYCLE[CYCLE.length - 1];
+    for (let i = 0; i < CYCLE.length - 1; i++) { if (this.tod >= CYCLE[i].at && this.tod < CYCLE[i + 1].at) { a = CYCLE[i]; b = CYCLE[i + 1]; break; } }
+    const t = (this.tod - a.at) / Math.max(1e-4, b.at - a.at);
+    let p = lerpPreset(PRESETS[a.m], PRESETS[b.m], t);
+    // Occasional rain spells (storm at night, rain by day).
+    this._rainEvT = (this._rainEvT == null ? 90 : this._rainEvT) - dt;
+    if (this._rainEvT <= 0) {
+      this._rainEvT = 90 + Math.random() * 150;
+      if (!this._raining && Math.random() < 0.4) { this._raining = true; this._rainDur = 60 + Math.random() * 100; }
+    }
+    if (this._raining) { this._rainDur -= dt; if (this._rainDur <= 0) this._raining = false; }
+    this._rainAmt = lerp(this._rainAmt == null ? 0 : this._rainAmt, this._raining ? 1 : 0, Math.min(1, dt * 0.35));
+    if (this._rainAmt > 0.01) p = lerpPreset(p, p.sun < 0.9 ? PRESETS.storm : PRESETS.rain, this._rainAmt);
+    this._apply(p);
+  }
+
   update(dt, camPos) {
+    if (this.autoCycle) this._advanceCycle(dt);
     this.stars.position.copy(camPos);
     if (this.sunSprite.visible) this.sunSprite.position.copy(camPos).addScaledVector(this.sunDir, 12000);
     if (this.moonSprite.visible) this.moonSprite.position.copy(camPos).addScaledVector(this.moonDir, 12000);
@@ -154,7 +206,7 @@ export class Weather {
       if (this._lt <= 0) { this._lt = 4 + Math.random() * 9; this._flash = 0.18; }
       this._flash = Math.max(0, this._flash - dt);
       const f = this._flash / 0.18;
-      this.hemi.intensity = PRESETS[this.mode].hemi + f * f * 1.9;
+      this.hemi.intensity = (this._baseHemi != null ? this._baseHemi : PRESETS[this.mode].hemi) + f * f * 1.9;
     }
   }
 }

@@ -123,9 +123,12 @@ export class PostFX {
     this.enabled = name !== "off" && LOOKS[name] != null;
     if (!this.enabled) return;
     const L = LOOKS[name];
+    this._bloomBase = L.bloom[0];
     this.bloom.strength = L.bloom[0]; this.bloom.radius = L.bloom[1]; this.bloom.threshold = L.bloom[2];
     for (const k in L.grade) this.grade.uniforms[k].value = L.grade[k];
   }
+  // Scale bloom relative to the active look's base — used to tame daytime glow.
+  setBloomScale(s) { if (this._bloomBase != null) this.bloom.strength = this._bloomBase * s; }
   // Afterburner warp amount (0..1). Always settable; only visible while the grade
   // pass is enabled (an FX look other than "off").
   setSpeed(v) { this.grade.uniforms.uSpeed.value = v; }
