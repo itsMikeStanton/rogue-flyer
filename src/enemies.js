@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { buildAircraftMesh } from "./aircraft.js";
 import { groundHeightAt } from "./world.js";
+import { Ribbon } from "./weapons.js";
 
 // Enemy squadron manager. Two kinds of contact:
 //   "drone"   – passive target that drifts in a circle (Target Practice)
@@ -55,6 +56,12 @@ class Entity {
       this.maxHealth = Math.round(30 * diff);
       this.mesh = buildAircraftMesh(Math.random() < 0.5 ? "fa18" : "f16", 0xb84a4a);
       if (this.mesh.userData.gear) this.mesh.userData.gear.visible = false; // gear up in the air
+      this.trail = null; // contrail (created in place())
+      // Spotting dot: a billboard that holds a minimum on-screen size, so a
+      // distant jet stays a visible speck instead of vanishing.
+      this.dot = new THREE.Sprite(new THREE.SpriteMaterial({ map: Entity._dotTex(), color: 0xff5a4a, transparent: true, opacity: 0, depthWrite: false }));
+      this.dot.scale.set(20, 20, 1);
+      this.mesh.add(this.dot);
     } else {
       this.radius = 55;
       this.maxHealth = 1;
@@ -81,6 +88,20 @@ class Entity {
     return group;
   }
 
+  // A high-contrast red dot with a soft glow and dark rim — reads against sky or terrain.
+  static _dotTex() {
+    if (Entity._dt) return Entity._dt;
+    const c = document.createElement("canvas"); c.width = c.height = 64;
+    const g = c.getContext("2d");
+    const grd = g.createRadialGradient(32, 32, 8, 32, 32, 30);
+    grd.addColorStop(0, "rgba(255,120,100,0.55)"); grd.addColorStop(1, "rgba(255,120,100,0)");
+    g.fillStyle = grd; g.fillRect(0, 0, 64, 64);
+    g.beginPath(); g.arc(32, 32, 12, 0, Math.PI * 2); g.fillStyle = "rgba(255,86,74,1)"; g.fill();
+    g.lineWidth = 4; g.strokeStyle = "rgba(18,8,8,0.9)"; g.stroke();
+    Entity._dt = new THREE.CanvasTexture(c);
+    return Entity._dt;
+  }
+
   // (Re)spawn somewhere out in front of the spawn area, at altitude.
   place() {
     this.alive = true;
@@ -105,6 +126,9 @@ class Entity {
       this.speed = 190;
       this.takingOff = false;
       this.bank = 0;
+      // Fresh contrail each life (orphan the old one to finish fading).
+      if (this.trail) { this.manager.deadTrails.push(this.trail); this.trail = null; }
+      this.trail = new Ribbon(this.manager.scene, { color: 0xe6ecf2, maxPts: 80, maxAge: 3.5, baseW: 0.4, expand: 1.2, alpha: 0.24 });
       this.vphase = Math.random() * Math.PI * 2;   // vertical-weave phase
       this.vrate = 0.5 + Math.random() * 0.5;       // ...and rate (per jet)
       this.fireCd = 0.5 + Math.random();
@@ -139,6 +163,8 @@ class Entity {
   die() {
     this.alive = false;
     this.manager.kills++;
+    if (this.trail) { this.manager.deadTrails.push(this.trail); this.trail = null; } // let the contrail fade
+    if (this.dot) this.dot.material.opacity = 0;
     const gy = groundHeightAt(this.position.x, this.position.z);
     // A fighter killed up high goes into a smoking death-spiral and craters on
     // impact; low kills (and drones, and the occasional catastrophic hit) just
@@ -246,6 +272,16 @@ class Entity {
     this.mesh.lookAt(_look.copy(this.position).add(this.dir));
     this.mesh.rotateZ(this.bank);
 
+    // Spotting aids: a contrail streaming behind, and a dot that holds a minimum
+    // on-screen size at range so the jet doesn't dissolve into the background.
+    if (this.trail) { this.trail.push(this.position, this.dir); this.trail.update(dt); }
+    if (this.dot) {
+      const dpl = this.position.distanceTo(player.position);
+      this.dot.material.opacity = THREE.MathUtils.clamp((dpl - 1400) / 1600, 0, 1) * 0.9;
+      const s = THREE.MathUtils.clamp(dpl * 0.018, 10, 150);
+      this.dot.scale.set(s, s, 1);
+    }
+
     // Awareness: a fighter with you in visual range calls the contact in (which
     // trips the island's alert if it didn't already know), and only opens fire
     // once its faction is alerted. Fighters with no faction (dogfight) always fire.
@@ -291,6 +327,7 @@ export class Enemies {
     this.fx = fx;
     this.entities = [];
     this.bullets = [];
+    this.deadTrails = []; // orphaned contrails finishing their fade
     this.kills = 0;
     this.mode = "free";
     this.spawnCenter = { x: 0, z: 0 }; // world XZ that (re)spawns cluster around
@@ -315,9 +352,11 @@ export class Enemies {
   }
 
   clear() {
-    for (const e of this.entities) this.scene.remove(e.mesh);
+    for (const e of this.entities) { this.scene.remove(e.mesh); if (e.trail) e.trail.dispose(); }
+    for (const t of this.deadTrails) t.dispose();
     for (const b of this.bullets) this.scene.remove(b.mesh);
     this.entities.length = 0;
+    this.deadTrails.length = 0;
     this.bullets.length = 0;
   }
 
@@ -411,6 +450,11 @@ export class Enemies {
         this.scene.remove(b.mesh);
         this.bullets.splice(i, 1);
       }
+    }
+
+    // Orphaned contrails keep fading after their jet is gone.
+    for (let i = this.deadTrails.length - 1; i >= 0; i--) {
+      if (!this.deadTrails[i].update(dt)) { this.deadTrails[i].dispose(); this.deadTrails.splice(i, 1); }
     }
   }
 }
