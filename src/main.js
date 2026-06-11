@@ -1657,8 +1657,8 @@ function updateCamera(dt) {
   // Chase / Far Chase. Both follow with a little lag (they're NOT glued to the
   // jet) so you have to catch up coming out of turns. Far Chase sits back more.
   const isFar = mode === "Far Chase";
-  const dist = isFar ? 24 : 9;
-  const height = isFar ? 8 : 3.2;
+  const dist = isFar ? 24 : 4.5;   // close chase pulled in to half distance
+  const height = isFar ? 8 : 1.6;
   // Free-look orbits the camera around the jet (so you can look to the sides /
   // behind). With the hat centred this is exactly the normal chase view.
   const behind = _v.set(0, height, dist).applyEuler(_lookE).applyQuaternion(q).add(pos);
@@ -2279,8 +2279,9 @@ function frame(now) {
     // swing down. Both ease toward the manual gear/flaps state.
     gearAnim += ((gearDown ? 1 : 0) - gearAnim) * Math.min(1, dt * 3.5);
     if (mesh.userData.gear) {
-      mesh.userData.gear.visible = gearAnim > 0.02;
-      mesh.userData.gear.scale.y = Math.max(0.0001, gearAnim);
+      const gr = mesh.userData.gear, bs = gr.userData.base || 1;
+      gr.visible = gearAnim > 0.02;
+      gr.scale.set(bs, Math.max(0.0001, bs * gearAnim), bs); // keep the base size while it deploys
     }
     const flapTarget = flapsDown ? 0.6 : 0;
     if (mesh.userData.flaps) {

@@ -47,9 +47,9 @@ const BOMB_DAMAGE = 240;
 const BOMB_RADIUS = 120;      // splash radius
 const BOMB_GRAVITY = 28;      // arcade fall
 
-const LOCK_RANGE = 4200;                          // generous — missiles (1900 u/s, 8s life) reach well past this
+const LOCK_RANGE = 5460;                           // 1.3× further out
 const LOCK_COS = Math.cos((22 * Math.PI) / 180);  // must be loosely pointed at it
-const LOCK_TIME = 1.6;                             // seconds holding it in the box to lock
+const LOCK_TIME = 0.8;                             // seconds holding it in the box to lock
 const LOCK_DECAY = 0.6;                            // seconds to lose progress once it leaves
 
 const _fwd = new THREE.Vector3();

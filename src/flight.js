@@ -115,7 +115,7 @@ export function step(state, def, controls, dt, groundHeight) {
 
     // Drag opposes velocity (gear + flaps add drag)
     let cd = def.cd0 + def.k * cl * cl;
-    if (controls.gear) cd += 0.022;
+    if (controls.gear) cd += 0.04; // gear down adds a little parasitic drag
     if (controls.flaps) cd += 0.014;
     if (controls.brake) cd += 0.10; // airbrake / speedbrake: big drag to bleed speed
     const dragMag = qDyn * def.wingArea * cd;

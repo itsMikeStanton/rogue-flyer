@@ -1026,6 +1026,7 @@ function addGearFlaps(g, def) {
   };
   const gear = new THREE.Group();
   gear.add(leg(0, noseZ)); gear.add(leg(-track, mainZ)); gear.add(leg(track, mainZ));
+  gear.userData.base = 0.6; gear.scale.setScalar(0.6); // smaller wheels
   g.add(gear);
   g.userData.gear = gear;
 
