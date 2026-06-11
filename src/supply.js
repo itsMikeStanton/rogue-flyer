@@ -33,7 +33,7 @@ export class SupplyDrop {
     const beacon = new THREE.Mesh(new THREE.SphereGeometry(1.5, 8, 8), beaconMat);
     beacon.position.y = 17; g.add(beacon);
 
-    g.position.set(x, y, z);
+    g.position.set(x, y + 1100, z); // drops in from high above its station
     this.scene.add(g);
     this._t = 0;
     this.active = {
@@ -42,17 +42,31 @@ export class SupplyDrop {
       hit() { this.delivered = true; },
       drift: new THREE.Vector3((Math.random() - 0.5) * 7, 0, (Math.random() - 0.5) * 7),
       bob: Math.random() * Math.PI * 2, baseY: y,
+      descending: true, fallV: 0, sway: Math.random() * Math.PI * 2,
     };
     return this.active;
   }
 
   update(dt) {
     const d = this.active; if (!d) return;
-    this._t += dt; d.bob += dt;
-    d.mesh.position.x += d.drift.x * dt;
-    d.mesh.position.z += d.drift.z * dt;
-    d.mesh.position.y = d.baseY + Math.sin(d.bob) * 4;
-    d.mesh.rotation.y += dt * 0.15;
+    this._t += dt; d.sway += dt;
+    if (d.descending) {
+      // Parachute descent: ease into a terminal speed, swing gently under the canopy.
+      d.fallV = Math.min(22, d.fallV + 26 * dt);
+      d.mesh.position.y -= d.fallV * dt;
+      d.mesh.position.x += Math.sin(d.sway * 0.8) * 6 * dt;
+      d.mesh.position.z += Math.cos(d.sway * 0.6) * 6 * dt;
+      d.mesh.rotation.z = Math.sin(d.sway * 0.9) * 0.09; // pendulum tilt
+      if (d.mesh.position.y <= d.baseY) { d.mesh.position.y = d.baseY; d.descending = false; d.bob = 0; }
+    } else {
+      // Settled: slow drift + bob, tilt eases out.
+      d.bob += dt;
+      d.mesh.position.x += d.drift.x * dt;
+      d.mesh.position.z += d.drift.z * dt;
+      d.mesh.position.y = d.baseY + Math.sin(d.bob) * 4;
+      d.mesh.rotation.z *= Math.max(0, 1 - dt * 2);
+      d.mesh.rotation.y += dt * 0.15;
+    }
     d.beaconMat.emissiveIntensity = (this._t % 1) < 0.5 ? 5 : 0.3; // blink ~1 Hz
   }
 
