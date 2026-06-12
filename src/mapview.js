@@ -21,6 +21,12 @@ const PLAN_SPEED = 231; // ~450 kt in m/s, for route ETA
 // Hex colour number (e.g. 0x46c8ff from a waypoint type) -> "#rrggbb" CSS string.
 function css(hex) { return "#" + (hex & 0xffffff).toString(16).padStart(6, "0"); }
 
+// Carrier planting rules: it must sit in open water at least this deep below sea
+// level (no beaching it in the shallows), and stand off at least this far from
+// the edge of any island the player is at war with.
+const CARRIER_MIN_DEPTH = 12;
+const CARRIER_STANDOFF = 3200;
+
 const SIDE_COL = { hostile: "#d9774a", friendly: "#62c98a", neutral: "#97a4ac" };
 // Which installation kinds get a persistent text label (the rest are hover-only,
 // so the map isn't buried under every AA gun).
@@ -42,6 +48,7 @@ export class MapView {
     this._tf = null; this._mouse = null; this._markers = [];
     this.cam = null; this._drag = null; this._dragMoved = false; this._sidebarHits = []; this.routeMode = false;
     this._selWpt = null; this._wptDrag = null; this._suppressClick = false; this.editable = true;
+    this.carrierMode = false; this._carrierGhost = null; // planting the ally carrier
     this.labelsOn = true;
     try { this.labelsOn = localStorage.getItem("rf.mapLabels") !== "0"; } catch (_) { /* ignore */ }
     this._top = this.embedded ? 0 : 40;       // header band
@@ -88,8 +95,28 @@ export class MapView {
   }
   setRouteMode(on) {
     this.routeMode = !!on && this.editable; // no route editing in flight (nav only)
+    if (this.routeMode) this.setCarrierMode(false);
     this.canvas.style.cursor = this.routeMode ? "crosshair" : "";
     if (this.isOpen) this.draw();
+  }
+  setCarrierMode(on) {
+    this.carrierMode = !!on && this.editable && !!this.opts.onPlantCarrier; // plant the ally carrier
+    if (this.carrierMode) { this.routeMode = false; this._selWpt = null; }
+    this._carrierGhost = null;
+    this.canvas.style.cursor = this.carrierMode ? "crosshair" : "";
+    if (this.isOpen) this.draw();
+  }
+  // Can the ally carrier be planted at this world point? Deep-enough water and a
+  // standoff from every hostile island's edge.
+  _carrierOK(wx, wz) {
+    if (terrainHeight(wx, wz) > SEA_LEVEL - CARRIER_MIN_DEPTH) return false; // land or shallows
+    const F = this.opts.getFactions && this.opts.getFactions();
+    for (const is of this._islands()) {
+      const hostile = F && this.opts.factionOf && F.vsPlayer(this.opts.factionOf(is.name)) === "enemy";
+      if (!hostile) continue;
+      if (Math.hypot(wx - is.center.x, wz - is.center.z) - (is.outer || 9000) < CARRIER_STANDOFF) return false;
+    }
+    return true;
   }
   close() {
     if (this.embedded) return;
@@ -274,6 +301,10 @@ export class MapView {
       this._mouse = null;
     } else {
       this._mouse = p;
+      if (this.carrierMode && this._tf) {
+        const wx = this._tf.toWX(p.x), wz = this._tf.toWZ(p.y);
+        this._carrierGhost = { x: wx, z: wz, ok: this._carrierOK(wx, wz) };
+      }
     }
     this.draw();
   }
@@ -425,6 +456,21 @@ export class MapView {
       ctx.beginPath(); ctx.moveTo(x, y - 5); ctx.lineTo(x + 5, y + 4); ctx.lineTo(x - 5, y + 4); ctx.closePath(); ctx.fill(); ctx.stroke();
     }
 
+    // Carrier-plant ghost: a green/red marker at the cursor while siting the carrier.
+    if (this.carrierMode && this._carrierGhost) {
+      const g = this._carrierGhost, x = tf.toX(g.x), y = tf.toY(g.z);
+      const col = g.ok ? "#62c98a" : "#ff5b5b";
+      ctx.save();
+      ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = 1.5;
+      ctx.globalAlpha = 0.85;
+      ctx.strokeRect(x - 9, y - 5, 18, 10); // carrier hull glyph
+      ctx.beginPath(); ctx.moveTo(x - 2, y - 5); ctx.lineTo(x - 2, y - 9); ctx.lineTo(x + 4, y - 9); ctx.stroke(); // island/tower
+      ctx.globalAlpha = 1;
+      ctx.font = "8px ui-monospace, 'Consolas', monospace"; ctx.textAlign = "center"; ctx.textBaseline = "top";
+      ctx.fillText(g.ok ? "PLANT CARRIER" : "TOO SHALLOW / TOO CLOSE", x, y + 8);
+      ctx.restore();
+    }
+
     // Selected launch point (pre-spawn): a "you start here" plane icon.
     const sm = this.opts.getStartMarker && this.opts.getStartMarker();
     if (sm) {
@@ -524,7 +570,8 @@ export class MapView {
     ctx.fillText("◈ TACTICAL COMMAND — ARCHIPELAGO", 16, this._top / 2 + 1);
     if ("letterSpacing" in ctx) ctx.letterSpacing = "1px";
     ctx.textAlign = "right"; ctx.fillStyle = "#67798c"; ctx.font = "10px ui-monospace, 'Consolas', monospace";
-    ctx.fillText(this.routeMode ? "ROUTE PLOT — CLICK: ADD WPT  ·  RIGHT-CLICK: UNDO  ·  ESC CLOSE"
+    ctx.fillText(this.carrierMode ? "PLANT CARRIER — CLICK DEEP WATER CLEAR OF HOSTILE ISLANDS  ·  ESC CANCEL"
+      : this.routeMode ? "ROUTE PLOT — CLICK: ADD WPT  ·  RIGHT-CLICK: UNDO  ·  ESC CLOSE"
       : "DRAG PAN  ·  WHEEL ZOOM  ·  HOVER DETAIL  ·  ESC CLOSE", W - 14, this._top / 2 + 1);
     ctx.restore();
   }
@@ -631,6 +678,12 @@ export class MapView {
         else if (h.island) this._zoomToIsland(h.island);
         return;
       }
+    }
+    if (this.carrierMode) {
+      const wx = this._tf.toWX(p.x), wz = this._tf.toWZ(p.y);
+      if (this._carrierOK(wx, wz) && this.opts.onPlantCarrier) { this.opts.onPlantCarrier(wx, wz); this.setCarrierMode(false); }
+      else this.draw(); // invalid spot — leave plant mode on so they can try again
+      return;
     }
     if (this.routeMode) {
       const wi = this._hitWaypoint(p.x, p.y);

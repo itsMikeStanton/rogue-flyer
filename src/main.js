@@ -51,6 +51,7 @@ let inXR = false;
 let vrLevelHorizon = false, vrVignetteOn = false; // VR comfort options
 
 const world = buildWorld(scene);
+restoreCarrier(); // put the ally carrier back at its last planted station
 const fx = new Explosions(scene);
 const weapons = new Weapons(scene, fx);
 const enemies = new Enemies(scene, fx);
@@ -599,21 +600,29 @@ function wakeIsland(node) {
       assignFactions();
     }
   }
-  parkAllyCarrier(node); // bring the carrier up to support the assault
-  saveConquest();        // persist the carrier's new station (and current state)
   missionDone = false;
   missions.load({ objectives: [{ type: "destroy", priority: "primary", label: "Seize " + node.name, match: (t) => t._node === node.id }] }, ground);
   flashBanner("DEFENSES SCRAMBLING", node.name + " is defending — clear it out", 3);
 }
-// Park the friendly carrier offshore of the island under assault (on the
-// player's side), so you can rearm/relaunch close to the action.
-function parkAllyCarrier(node) {
-  const cfg = getWorldConfig().islands.find((i) => i.name === node.name);
-  const outer = (cfg && cfg.terrain && cfg.terrain.islandOuter) || 9500;
-  let dx = state.position.x - node.center.x, dz = state.position.z - node.center.z;
-  const d = Math.hypot(dx, dz) || 1; dx /= d; dz /= d;
-  const px = node.center.x + dx * (outer + 2600), pz = node.center.z + dz * (outer + 2600);
-  if (moveCarrier("ally", px, pz) && world.carriers && world.carriers.ally) world.carriers.ally.position.set(px, SEA_LEVEL, pz);
+// Plant the friendly carrier at a player-chosen world point. The map already
+// validates the spot (deep water, clear of hostile islands); here we move it,
+// reposition the mesh, and persist so it stays put between sorties + campaigns.
+function plantCarrier(wx, wz) {
+  if (!moveCarrier("ally", wx, wz)) return;
+  if (world.carriers && world.carriers.ally) world.carriers.ally.position.set(wx, SEA_LEVEL, wz);
+  try { localStorage.setItem("rf.carrier", JSON.stringify({ x: wx, z: wz })); } catch (_) { /* ignore */ }
+  if (gameMode === "conquest" && conquestRun) saveConquest(); // persist the carrier's station with the campaign
+  flashBanner("CARRIER STATIONED", "Allied carrier repositioned", 2.2);
+}
+// Restore the carrier to its last planted station (saved globally). Conquest
+// campaigns carry their own carrier position and override this on load.
+function restoreCarrier() {
+  try {
+    const c = JSON.parse(localStorage.getItem("rf.carrier") || "null");
+    if (c && isFinite(c.x) && isFinite(c.z) && moveCarrier("ally", c.x, c.z) && world.carriers && world.carriers.ally) {
+      world.carriers.ally.position.set(c.x, SEA_LEVEL, c.z);
+    }
+  } catch (_) { /* ignore */ }
 }
 function captureIsland(node) {
   conquestRun.capture(node);
@@ -865,19 +874,21 @@ const mapView = new MapView(document.getElementById("map-canvas"), {
     const fl = Math.hypot(f.x, f.z) || 1;
     return { x: state.position.x, z: state.position.z, heading: Math.atan2(f.x / fl, -f.z / fl) };
   },
+  onPlantCarrier: (wx, wz) => plantCarrier(wx, wz),
 });
 // Open the tactical map. Editable (route planning) only when NOT flying; in
 // flight it's a read-only nav system, so the route tools are hidden.
 function syncRouteBtn() {
   const mr = document.getElementById("map-route");
   if (mr) { mr.classList.toggle("on", mapView.routeMode); mr.textContent = mapView.routeMode ? "✓ DONE" : "◇ ROUTE"; }
+  const mcr = document.getElementById("map-carrier");
+  if (mcr) { mcr.classList.toggle("on", mapView.carrierMode); mcr.textContent = mapView.carrierMode ? "✓ DONE" : "⊟ CARRIER"; }
 }
 function openMap() {
   mapView.editable = !flying;
-  if (flying) { mapView.setRouteMode(false); showWptInspector(null); }
-  const tools = document.querySelector(".map-tools");
-  const rt = document.getElementById("map-route"), rc = document.getElementById("map-route-clear");
-  for (const el of [rt, rc]) if (el) el.style.display = flying ? "none" : "";
+  if (flying) { mapView.setRouteMode(false); mapView.setCarrierMode(false); showWptInspector(null); }
+  const rt = document.getElementById("map-route"), rc = document.getElementById("map-route-clear"), mcr = document.getElementById("map-carrier");
+  for (const el of [rt, rc, mcr]) if (el) el.style.display = flying ? "none" : "";
   syncRouteBtn();
   mapView.open();
 }
@@ -895,6 +906,8 @@ function openMap() {
   if (mr) mr.addEventListener("click", () => { mapView.setRouteMode(!mapView.routeMode); syncRouteBtn(); if (!mapView.routeMode) showWptInspector(null); });
   const mrc = document.getElementById("map-route-clear");
   if (mrc) mrc.addEventListener("click", () => { routeClear(); showWptInspector(null); mapView.draw(); });
+  const mcr = document.getElementById("map-carrier");
+  if (mcr) mcr.addEventListener("click", () => { mapView.setCarrierMode(!mapView.carrierMode); syncRouteBtn(); if (mapView.carrierMode) showWptInspector(null); });
   const ar = document.getElementById("auto-rearm");
   if (ar) { ar.checked = autoRearm; ar.addEventListener("change", () => setAutoRearm(ar.checked)); }
 }
@@ -2061,7 +2074,8 @@ function frame(now) {
   if (flying && !inXR && controls.hangarPressed) { hangarMode ? exitHangar() : enterHangar(true); }
   if (controls.pausePressed) {
     if (mapView.isOpen) {
-      if (mapView.routeMode) { mapView.setRouteMode(false); syncRouteBtn(); showWptInspector(null); } // first Esc leaves route mode
+      if (mapView.carrierMode) { mapView.setCarrierMode(false); syncRouteBtn(); } // first Esc leaves carrier-plant mode
+      else if (mapView.routeMode) { mapView.setRouteMode(false); syncRouteBtn(); showWptInspector(null); } // first Esc leaves route mode
       else mapView.close();
     } else if (flying) openPause();
   }
