@@ -21,7 +21,6 @@ export class UI {
     this.menu = document.getElementById("menu");
     this.settings = document.getElementById("settings");
     this.banner = document.getElementById("banner");
-    this.pickerMode = document.getElementById("picker-mode");
     this.pickerJet = document.getElementById("picker-jet");
     this.hangar = document.getElementById("hangar");
     this.pause = document.getElementById("pause");
@@ -118,30 +117,49 @@ export class UI {
   get visible() { return !this.menu.classList.contains("hidden") || !this.settings.classList.contains("hidden"); }
 
   buildModeList() {
+    // `tile` is the short label on the strip; `cta` is the action-button text
+    // (it tells the truth about where the button takes you); `opens` marks the
+    // two modes that route to their own setup screen instead of launching.
     this.modesData = [
-      { key: "campaign", name: "Campaign", desc: "Briefed missions from Captain Dad. Escalating objectives; pick up where you left off." },
-      { key: "conquest", name: "Conquest", desc: "Take the whole archipelago. Pick a beachhead, launch from your runways, capture every island." },
-      { key: "dogfight", name: "Dogfight — Waves", desc: "Clear each wave of fighters to summon the next. They get meaner." },
-      { key: "mission", name: "Strike — Objectives", desc: "Hit the marked objectives. Only the active objective is highlighted." },
-      { key: "practice", name: "Target Practice", desc: "Gun down drifting drones. No one shoots back." },
-      { key: "free", name: "Free Flight", desc: "Just fly. Chase the rings, no combat." },
-      { key: "ffa", name: "Multiplayer FFA", desc: "LAN free-for-all. Connects to the local server; see and fight other pilots." },
+      { key: "campaign", name: "Campaign", tile: "Campaign", cta: "BRIEFING", opens: true, desc: "Briefed missions from Captain Dad. Escalating objectives; pick up where you left off." },
+      { key: "conquest", name: "Conquest", tile: "Conquest", cta: "PLAN ASSAULT", opens: true, desc: "Take the whole archipelago. Pick a beachhead, launch from your runways, capture every island." },
+      { key: "dogfight", name: "Dogfight — Waves", tile: "Dogfight", cta: "LAUNCH", desc: "Clear each wave of fighters to summon the next. They get meaner." },
+      { key: "mission", name: "Strike — Objectives", tile: "Strike", cta: "LAUNCH", desc: "Hit the marked objectives. Only the active objective is highlighted." },
+      { key: "practice", name: "Target Practice", tile: "Practice", cta: "LAUNCH", desc: "Gun down drifting drones. No one shoots back." },
+      { key: "free", name: "Free Flight", tile: "Free Flight", cta: "LAUNCH", desc: "Just fly. Chase the rings, no combat." },
+      { key: "ffa", name: "Multiplayer FFA", tile: "Multiplayer", cta: "LAUNCH", desc: "LAN free-for-all. Connects to the local server; see and fight other pilots." },
     ];
-    const list = document.getElementById("mode-list");
-    list.innerHTML = "";
+    const strip = document.getElementById("mode-strip");
+    if (!strip) return;
+    strip.innerHTML = "";
     for (const m of this.modesData) {
-      const card = document.createElement("div");
-      card.className = "jet-card" + (m.key === this.mode ? " selected" : "");
-      card.innerHTML = `<div class="name">${m.name}</div><div class="role">${m.desc}</div>`;
-      card.addEventListener("click", () => {
+      const tile = document.createElement("button");
+      tile.className = "mode-tile" + (m.key === this.mode ? " selected" : "");
+      tile.dataset.key = m.key;
+      tile.textContent = m.tile;
+      tile.addEventListener("click", () => {
         this.mode = m.key;
-        [...list.children].forEach((c) => c.classList.remove("selected"));
-        card.classList.add("selected");
-        this.updateSummaries();
-        this.closePickers();
+        [...strip.children].forEach((c) => c.classList.toggle("selected", c.dataset.key === m.key));
+        this.updateModeUI();
       });
-      list.appendChild(card);
+      strip.appendChild(tile);
     }
+    this.updateModeUI();
+  }
+
+  // Reflect the selected mode: blurb text, which options apply, and the
+  // action button's label (so LAUNCH never lies about its destination).
+  updateModeUI() {
+    const m = (this.modesData || []).find((x) => x.key === this.mode) || (this.modesData || [])[0];
+    if (!m) return;
+    const blurb = document.getElementById("mode-blurb");
+    if (blurb) blurb.textContent = m.desc;
+    const startOpts = document.getElementById("start-opts");
+    if (startOpts) startOpts.classList.toggle("hidden", !!m.opens);
+    const fly = document.getElementById("btn-fly");
+    if (fly) fly.innerHTML = (m.cta || "LAUNCH") + "&nbsp;▸";
+    const vr = document.getElementById("btn-vr");
+    if (vr) vr.classList.toggle("hidden", !!m.opens); // VR only for direct-fly modes
   }
 
   buildJetList() {
@@ -387,11 +405,7 @@ export class UI {
   hidePause() { if (this.pause) this.pause.classList.add("hidden"); }
 
   updateSummaries() {
-    const m = (this.modesData || []).find((x) => x.key === this.mode);
-    if (m) {
-      const n = document.getElementById("sel-mode-name"); if (n) n.textContent = m.name;
-      const s = document.getElementById("sel-mode-sub"); if (s) s.textContent = m.desc;
-    }
+    this.updateModeUI();
     const def = AIRCRAFT[this.selected];
     if (def) {
       const n = document.getElementById("sel-jet-name"); if (n) n.textContent = def.name;
@@ -400,7 +414,6 @@ export class UI {
   }
 
   closePickers() {
-    if (this.pickerMode) this.pickerMode.classList.add("hidden");
     if (this.pickerJet) this.pickerJet.classList.add("hidden");
   }
 
@@ -456,12 +469,8 @@ export class UI {
       // so a rejected request leaves you on the menu with an error banner.
       if (this.cb.onVR) this.cb.onVR(this.selected, this.mode, this.startPos);
     });
-    const selMode = document.getElementById("sel-mode");
-    if (selMode) selMode.addEventListener("click", () => this.pickerMode.classList.remove("hidden"));
     const selJet = document.getElementById("sel-jet");
     if (selJet) selJet.addEventListener("click", () => this.pickerJet.classList.remove("hidden"));
-    const pmDone = document.getElementById("pick-mode-done");
-    if (pmDone) pmDone.addEventListener("click", () => this.pickerMode.classList.add("hidden"));
     const pjDone = document.getElementById("pick-jet-done");
     if (pjDone) pjDone.addEventListener("click", () => this.pickerJet.classList.add("hidden"));
     const hSpawn = document.getElementById("hangar-spawn");
@@ -747,6 +756,7 @@ export class UI {
   showMenu() {
     this.menu.classList.remove("hidden");
     this.banner.classList.add("hidden");
+    this.updateModeUI();
   }
 
   hideAll() {

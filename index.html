@@ -47,30 +47,30 @@
         <p class="kicker">Arcade Jet Combat</p>
       </div>
 
-      <div class="loadout">
-        <button class="select-card" id="sel-mode">
-          <span class="sc-label">Mission</span>
-          <span class="sc-name" id="sel-mode-name">Free Flight</span>
-          <span class="sc-sub" id="sel-mode-sub"></span>
-          <span class="sc-go">Change ▸</span>
-        </button>
+      <!-- Mode strip: pick what you're playing right here, no overlay. -->
+      <div class="mode-strip-wrap">
+        <div id="mode-strip" class="mode-strip"></div>
       </div>
 
+      <p id="mode-blurb" class="mode-blurb"></p>
+
       <div class="launch-bar">
-        <label class="start-opt">Start
-          <select id="start-pos">
-            <option value="air">In the air</option>
-            <option value="runway">On the runway</option>
-            <option value="carrier">Carrier catapult</option>
-          </select>
-        </label>
-        <label class="start-opt">Lives
-          <select id="lives-sel">
-            <option value="infinite">Infinite (kid)</option>
-            <option value="3">3 lives</option>
-            <option value="1">1 — Pro</option>
-          </select>
-        </label>
+        <div id="start-opts" class="start-opts">
+          <label class="start-opt">Start
+            <select id="start-pos">
+              <option value="air">In the air</option>
+              <option value="runway">On the runway</option>
+              <option value="carrier">Carrier catapult</option>
+            </select>
+          </label>
+          <label class="start-opt">Lives
+            <select id="lives-sel">
+              <option value="infinite">Infinite (kid)</option>
+              <option value="3">3 lives</option>
+              <option value="1">1 — Pro</option>
+            </select>
+          </label>
+        </div>
         <div class="cta">
           <button id="btn-vr" class="primary vr">🥽&nbsp;VR</button>
           <button id="btn-fly" class="primary launch">LAUNCH&nbsp;▸</button>
@@ -205,15 +205,6 @@
       <span class="hint">How each faction (row) regards the others (column). Directional &mdash; it need not be mutual.</span>
       <div class="fac-matrix-wrap"><table id="fac-matrix" class="fac-matrix"></table></div>
       <div class="menu-buttons"><button id="fac-back" class="primary">Done</button></div>
-    </div>
-  </div>
-
-  <!-- Mission picker -->
-  <div id="picker-mode" class="overlay picker hidden">
-    <div class="panel wide">
-      <h2>Select Mission</h2>
-      <div id="mode-list" class="jet-list"></div>
-      <div class="menu-buttons"><button id="pick-mode-done" class="primary">Done</button></div>
     </div>
   </div>
 

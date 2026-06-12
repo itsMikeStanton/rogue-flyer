@@ -2606,7 +2606,13 @@ renderer.setAnimationLoop(frame); // drives both flatscreen and the XR session
   const fill = el.querySelector(".load-fill");
   const status = el.querySelector(".load-status");
   const steps = ["BOOTING AVIONICS", "SPOOLING TURBINES", "CALIBRATING GYROS", "LINKING CONTROLS", "ARMING SYSTEMS"];
-  const t0 = performance.now(), dur = 2200;
+  // Play the full cinematic boot once; after that, fast-fade so reloads don't tax you.
+  let seen = false;
+  try { seen = !!localStorage.getItem("rf.booted"); } catch (_) {}
+  try { localStorage.setItem("rf.booted", "1"); } catch (_) {}
+  const dur = seen ? 500 : 2200;
+  const hold = seen ? 60 : 280;
+  const t0 = performance.now();
   let si = -1;
   (function tick(now) {
     const p = Math.min(1, (now - t0) / dur);
@@ -2620,7 +2626,7 @@ renderer.setAnimationLoop(frame); // drives both flatscreen and the XR session
         ui.showMenu();            // reveal the menu only now
         el.classList.add("done"); // fade the loader out
         setTimeout(() => el.remove(), 700);
-      }, 280);
+      }, hold);
     }
   })(t0);
 })();
