@@ -90,9 +90,20 @@ export function getCarriers() {
   }
   return out;
 }
+// Mission-base world positions, each guaranteed to sit on land: if a base is
+// authored over water (e.g. outside its island's actual shape), walk it back
+// toward the island centre until it's ashore — otherwise its defences can't
+// spawn and the island would auto-clear with no targets to destroy.
 export function getMissionBases() {
   const out = [];
-  for (const is of CFG.islands) for (const b of (is.missionBases || [])) out.push([b[0] + is.center.x, b[1] + is.center.z]);
+  for (const is of CFG.islands) for (const b of (is.missionBases || [])) {
+    let wx = b[0] + is.center.x, wz = b[1] + is.center.z;
+    for (let k = 0; k < 14 && terrainHeight(wx, wz) <= SEA_LEVEL + 6; k++) {
+      wx = wx * 0.85 + is.center.x * 0.15; // step 15% toward the island centre
+      wz = wz * 0.85 + is.center.z * 0.15;
+    }
+    out.push([wx, wz]);
+  }
   return out;
 }
 // Per-island launch points in WORLD coordinates: the flattened home base
