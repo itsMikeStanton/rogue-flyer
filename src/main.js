@@ -279,6 +279,14 @@ let campaignProgress = campaign.loadProgress();
 let conquestRun = null;
 let conquestSpawn = null;     // {kind,x,z,...} runway/carrier the player launches from
 let startPos = "air"; // "air" | "runway" | "carrier"
+// Current target island: flagged on the planning map, drawn prominently in flight.
+let targetIslandName = null;
+try { targetIslandName = localStorage.getItem("rf.target") || null; } catch (_) { /* ignore */ }
+function setTargetIsland(name) {
+  targetIslandName = (targetIslandName === name) ? null : name; // click again to clear
+  try { if (targetIslandName) localStorage.setItem("rf.target", targetIslandName); else localStorage.removeItem("rf.target"); } catch (_) { /* ignore */ }
+  if (mapView && mapView.isOpen) mapView.draw();
+}
 // In-game vehicle bay: sim paused, camera orbits the parked vehicle at the spawn.
 let hangarMode = false, hangarAngle = 0;
 let hangarSpin = 0, hangarRadius = 8; // showroom preview: spin + auto-frame by size
@@ -875,6 +883,8 @@ const mapView = new MapView(document.getElementById("map-canvas"), {
     return { x: state.position.x, z: state.position.z, heading: Math.atan2(f.x / fl, -f.z / fl) };
   },
   onPlantCarrier: (wx, wz) => plantCarrier(wx, wz),
+  getTargetIsland: () => targetIslandName,
+  onPickTarget: (name) => setTargetIsland(name),
 });
 // Open the tactical map. Editable (route planning) only when NOT flying; in
 // flight it's a read-only nav system, so the route tools are hidden.
@@ -883,10 +893,14 @@ function syncRouteBtn() {
   if (mr) { mr.classList.toggle("on", mapView.routeMode); mr.textContent = mapView.routeMode ? "✓ DONE" : "◇ ROUTE"; }
   const mcr = document.getElementById("map-carrier");
   if (mcr) { mcr.classList.toggle("on", mapView.carrierMode); mcr.textContent = mapView.carrierMode ? "✓ DONE" : "⊟ CARRIER"; }
+  const mt = document.getElementById("map-target");
+  if (mt) { mt.classList.toggle("on", mapView.targetMode); mt.textContent = mapView.targetMode ? "✓ DONE" : "◎ TARGET"; }
 }
 function openMap() {
   mapView.editable = !flying;
   if (flying) { mapView.setRouteMode(false); mapView.setCarrierMode(false); showWptInspector(null); }
+  // Route + carrier planning is pre-flight only; target designation stays usable
+  // in flight (it's just a HUD flag, no world edits).
   const rt = document.getElementById("map-route"), rc = document.getElementById("map-route-clear"), mcr = document.getElementById("map-carrier");
   for (const el of [rt, rc, mcr]) if (el) el.style.display = flying ? "none" : "";
   syncRouteBtn();
@@ -908,6 +922,8 @@ function openMap() {
   if (mrc) mrc.addEventListener("click", () => { routeClear(); showWptInspector(null); mapView.draw(); });
   const mcr = document.getElementById("map-carrier");
   if (mcr) mcr.addEventListener("click", () => { mapView.setCarrierMode(!mapView.carrierMode); syncRouteBtn(); if (mapView.carrierMode) showWptInspector(null); });
+  const mt = document.getElementById("map-target");
+  if (mt) mt.addEventListener("click", () => { mapView.setTargetMode(!mapView.targetMode); syncRouteBtn(); if (mapView.targetMode) showWptInspector(null); });
   const ar = document.getElementById("auto-rearm");
   if (ar) { ar.checked = autoRearm; ar.addEventListener("change", () => setAutoRearm(ar.checked)); }
 }
@@ -2075,6 +2091,7 @@ function frame(now) {
   if (controls.pausePressed) {
     if (mapView.isOpen) {
       if (mapView.carrierMode) { mapView.setCarrierMode(false); syncRouteBtn(); } // first Esc leaves carrier-plant mode
+      else if (mapView.targetMode) { mapView.setTargetMode(false); syncRouteBtn(); } // first Esc leaves target-pick mode
       else if (mapView.routeMode) { mapView.setRouteMode(false); syncRouteBtn(); showWptInspector(null); } // first Esc leaves route mode
       else mapView.close();
     } else if (flying) openPause();
@@ -2444,7 +2461,7 @@ function frame(now) {
         const pr = projectHud(_v.set(isl.center.x, SEA_LEVEL + 1500, isl.center.z));
         const fid = factionOf(isl);
         const fdef = factions.get(fid);
-        islandMarkers.push({ name: isl.name, faction: fid, stance: factions.vsPlayer(fid), emblem: fdef && fdef.emblem, factionColor: fdef ? fdef.color : 0xcbd5e0, dist, ...pr });
+        islandMarkers.push({ name: isl.name, faction: fid, stance: factions.vsPlayer(fid), emblem: fdef && fdef.emblem, factionColor: fdef ? fdef.color : 0xcbd5e0, dist, isTarget: isl.name === targetIslandName, ...pr });
       }
     }
     // Air contacts: mark every aircraft (enemy jets, drones, other players) on

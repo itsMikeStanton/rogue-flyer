@@ -49,6 +49,7 @@ export class MapView {
     this.cam = null; this._drag = null; this._dragMoved = false; this._sidebarHits = []; this.routeMode = false;
     this._selWpt = null; this._wptDrag = null; this._suppressClick = false; this.editable = true;
     this.carrierMode = false; this._carrierGhost = null; // planting the ally carrier
+    this.targetMode = false; // click an island to flag it as the current target
     this.labelsOn = true;
     try { this.labelsOn = localStorage.getItem("rf.mapLabels") !== "0"; } catch (_) { /* ignore */ }
     this._top = this.embedded ? 0 : 40;       // header band
@@ -95,15 +96,21 @@ export class MapView {
   }
   setRouteMode(on) {
     this.routeMode = !!on && this.editable; // no route editing in flight (nav only)
-    if (this.routeMode) this.setCarrierMode(false);
+    if (this.routeMode) { this.carrierMode = false; this.targetMode = false; this._carrierGhost = null; }
     this.canvas.style.cursor = this.routeMode ? "crosshair" : "";
     if (this.isOpen) this.draw();
   }
   setCarrierMode(on) {
     this.carrierMode = !!on && this.editable && !!this.opts.onPlantCarrier; // plant the ally carrier
-    if (this.carrierMode) { this.routeMode = false; this._selWpt = null; }
+    if (this.carrierMode) { this.routeMode = false; this.targetMode = false; this._selWpt = null; }
     this._carrierGhost = null;
     this.canvas.style.cursor = this.carrierMode ? "crosshair" : "";
+    if (this.isOpen) this.draw();
+  }
+  setTargetMode(on) {
+    this.targetMode = !!on && !!this.opts.onPickTarget; // pick the objective island
+    if (this.targetMode) { this.routeMode = false; this.carrierMode = false; this._carrierGhost = null; }
+    this.canvas.style.cursor = this.targetMode ? "pointer" : "";
     if (this.isOpen) this.draw();
   }
   // Can the ally carrier be planted at this world point? Deep-enough water and a
@@ -439,6 +446,9 @@ export class MapView {
       if (showItems && !dead && LABEL_KINDS.has(f.kind)) labelFeats.push({ x, y, wx: f.x, wz: f.z, text: f.label });
     }
 
+    // Current target island: a bold amber ring so it stands out from the rest.
+    this._drawTargetRing(tf);
+
     // Planned flight route (waypoints + legs).
     this._drawRoute(tf);
 
@@ -571,6 +581,7 @@ export class MapView {
     if ("letterSpacing" in ctx) ctx.letterSpacing = "1px";
     ctx.textAlign = "right"; ctx.fillStyle = "#67798c"; ctx.font = "10px ui-monospace, 'Consolas', monospace";
     ctx.fillText(this.carrierMode ? "PLANT CARRIER — CLICK DEEP WATER CLEAR OF HOSTILE ISLANDS  ·  ESC CANCEL"
+      : this.targetMode ? "SET TARGET — CLICK AN ISLAND TO FLAG IT (CLICK AGAIN TO CLEAR)  ·  ESC CANCEL"
       : this.routeMode ? "ROUTE PLOT — CLICK: ADD WPT  ·  RIGHT-CLICK: UNDO  ·  ESC CLOSE"
       : "DRAG PAN  ·  WHEEL ZOOM  ·  HOVER DETAIL  ·  ESC CLOSE", W - 14, this._top / 2 + 1);
     ctx.restore();
@@ -685,6 +696,11 @@ export class MapView {
       else this.draw(); // invalid spot — leave plant mode on so they can try again
       return;
     }
+    if (this.targetMode) {
+      const is = this._hitIsland(p.x, p.y);
+      if (is && this.opts.onPickTarget) { this.opts.onPickTarget(is.name); this.draw(); }
+      return;
+    }
     if (this.routeMode) {
       const wi = this._hitWaypoint(p.x, p.y);
       if (wi >= 0) { this._selWpt = wi; if (this.opts.onSelectWaypoint) this.opts.onSelectWaypoint(wi); this.draw(); return; }
@@ -695,6 +711,25 @@ export class MapView {
   }
   setWptSel(i) { this._selWpt = i; }
   clearWptSel() { this._selWpt = null; if (this.isOpen) this.draw(); }
+  // Bold amber ring + label around the player's current target island.
+  _drawTargetRing(tf) {
+    const name = this.opts.getTargetIsland && this.opts.getTargetIsland();
+    if (!name) return;
+    const is = this._islands().find((i) => i.name === name);
+    if (!is) return;
+    const ctx = this.ctx, x = tf.toX(is.center.x), y = tf.toY(is.center.z), r = Math.max(18, (is.outer || 8000) * tf.s);
+    ctx.save();
+    ctx.strokeStyle = "#ffd23f"; ctx.lineWidth = 2; ctx.globalAlpha = 0.9;
+    ctx.setLineDash([9, 6]);
+    ctx.beginPath(); ctx.arc(x, y, r + 6, 0, Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.globalAlpha = 1; ctx.fillStyle = "#ffd23f"; ctx.textAlign = "center"; ctx.textBaseline = "alphabetic";
+    ctx.font = "700 10px ui-monospace, 'Consolas', monospace";
+    if ("letterSpacing" in ctx) ctx.letterSpacing = "1px";
+    ctx.fillText("◎ TARGET", x, y - r - 12);
+    if ("letterSpacing" in ctx) ctx.letterSpacing = "0px";
+    ctx.restore();
+  }
   _route() { return (this.opts.getRoute && this.opts.getRoute()) || []; }
   _hitWaypoint(px, py) {
     const r = this._route(), tf = this._tf; if (!tf) return -1;

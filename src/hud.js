@@ -519,35 +519,61 @@ export class Hud {
 
   islandMarker(m) {
     const ctx = this.ctx;
-    const cx = this.w / 2, cy = this.h / 2;
     const st = m.stance || m.faction; // stance toward the player (enemy/ally/neutral)
-    const col = st === "enemy" ? "#ff6b6b" : st === "ally" ? "#7fd2ff" : "#cbd5e0";
+    const baseCol = st === "enemy" ? "#ff6b6b" : st === "ally" ? "#7fd2ff" : "#cbd5e0";
+    const col = m.isTarget ? "#ffd23f" : baseCol; // the selected target island flies amber
     const km = (m.dist / 1000).toFixed(1);
     ctx.save();
     ctx.strokeStyle = col; ctx.fillStyle = col;
     ctx.font = "11px 'Consolas', monospace";
     if (m.onscreen && !m.behind) {
-      ctx.globalAlpha = 0.95;
+      // Range-as-height: float the marker up off the island's real point — the
+      // farther the island, the higher it climbs — with a leader line tying it
+      // back down to the point. The target island is exempt (sits on its point,
+      // drawn prominently) so you can steer to it precisely.
+      const lift = m.isTarget ? 0 : Math.min(240, Math.max(0, ((m.dist - 9000) / 1000) * 3.4));
+      const fx = Math.max(48, Math.min(this.w - 48, m.x));
+      const fy = Math.max(64, Math.min(this.h - 80, m.y - lift));
+      if (lift > 4) {
+        ctx.globalAlpha = 0.28; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(m.x, m.y); ctx.lineTo(fx, fy); ctx.stroke();
+      }
+      const R = m.isTarget ? 12 : 9;
+      ctx.globalAlpha = m.isTarget ? 1 : 0.95;
+      if (m.isTarget) {
+        // Prominent target reticle: a pulsing bracketed box + crosshair ticks.
+        const pulse = 3 + 2 * Math.sin(performance.now() / 250);
+        ctx.lineWidth = 2; ctx.strokeStyle = col;
+        const b = R + 7 + pulse;
+        for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+          ctx.beginPath();
+          ctx.moveTo(fx + sx * b, fy + sy * b - sy * 7); ctx.lineTo(fx + sx * b, fy + sy * b); ctx.lineTo(fx + sx * b - sx * 7, fy + sy * b);
+          ctx.stroke();
+        }
+      }
       // Faction emblem (in its own colour) marks who holds the island; the ring
       // falls back for factions without a logo.
-      if (m.emblem) drawEmblem(ctx, m.emblem, m.x, m.y, 9, m.factionColor, { badge: false, weight: 0.16 });
-      else { ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(m.x, m.y, 7, 0, Math.PI * 2); ctx.stroke(); }
-      ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = 1.5;
-      ctx.beginPath(); ctx.moveTo(m.x, m.y - 15); ctx.lineTo(m.x, m.y - 11); ctx.stroke();
+      if (m.emblem) drawEmblem(ctx, m.emblem, fx, fy, R, m.factionColor, { badge: false, weight: m.isTarget ? 0.22 : 0.16 });
+      else { ctx.lineWidth = 1.5; ctx.strokeStyle = col; ctx.beginPath(); ctx.arc(fx, fy, R - 2, 0, Math.PI * 2); ctx.stroke(); }
+      ctx.strokeStyle = col; ctx.fillStyle = col; ctx.globalAlpha = 1;
       ctx.textAlign = "center";
-      ctx.fillText(`${m.name}  ${km}km`, m.x, m.y - 21);
+      ctx.font = m.isTarget ? "700 12px 'Consolas', monospace" : "11px 'Consolas', monospace";
+      ctx.fillText(`${m.isTarget ? "◎ " : ""}${m.name}  ${km}km`, fx, fy - R - 9);
     } else {
-      // off-screen / behind: arrow at the screen edge pointing toward it
-      const e = this._edgePoint(m.dirx, m.diry, 64);
+      // off-screen / behind: arrow at the screen edge pointing toward it (the
+      // target's arrow rides further in and bolder so it's easy to chase).
+      const e = this._edgePoint(m.dirx, m.diry, m.isTarget ? 80 : 64);
       ctx.save();
       ctx.translate(e.x, e.y); ctx.rotate(e.ang);
-      ctx.globalAlpha = 0.9;
-      ctx.beginPath(); ctx.moveTo(14, 0); ctx.lineTo(-7, -8); ctx.lineTo(-7, 8); ctx.closePath(); ctx.fill();
+      ctx.globalAlpha = m.isTarget ? 1 : 0.9;
+      const s = m.isTarget ? 1.5 : 1;
+      ctx.beginPath(); ctx.moveTo(14 * s, 0); ctx.lineTo(-7 * s, -8 * s); ctx.lineTo(-7 * s, 8 * s); ctx.closePath(); ctx.fill();
       ctx.restore();
       if (m.emblem) drawEmblem(ctx, m.emblem, e.x - 32, e.y - 14, 7, m.factionColor, { badge: false, weight: 0.18 });
       ctx.strokeStyle = col; ctx.fillStyle = col;
       ctx.textAlign = "center";
-      ctx.fillText(`${m.name}  ${km}km`, e.x, e.y - 14);
+      ctx.font = m.isTarget ? "700 11px 'Consolas', monospace" : "11px 'Consolas', monospace";
+      ctx.fillText(`${m.isTarget ? "◎ " : ""}${m.name}  ${km}km`, e.x, e.y - 14);
     }
     ctx.restore();
   }
