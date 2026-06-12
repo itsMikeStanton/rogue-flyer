@@ -13,6 +13,34 @@
     }
   }
   </script>
+  <!-- Live error catcher: surfaces uncaught JS errors on-screen so problems are
+       visible while playing (no devtools needed). Tap the banner to dismiss. -->
+  <script>
+  (function () {
+    function show(kind, msg, src) {
+      var el = document.getElementById("err-overlay");
+      if (!el) {
+        el = document.createElement("div");
+        el.id = "err-overlay";
+        el.style.cssText = "position:fixed;left:0;right:0;bottom:0;z-index:9999;max-height:45vh;overflow:auto;"
+          + "background:rgba(60,8,8,0.96);color:#ffd9d9;font:12px ui-monospace,Consolas,monospace;"
+          + "padding:10px 14px;border-top:2px solid #ff5b5b;white-space:pre-wrap;cursor:pointer;";
+        el.title = "Tap to dismiss";
+        el.addEventListener("click", function () { el.remove(); });
+        (document.body || document.documentElement).appendChild(el);
+      }
+      el.textContent += "⚠ " + kind + ": " + msg + (src ? "\n   " + src : "") + "\n";
+    }
+    window.addEventListener("error", function (e) {
+      var loc = e.filename ? (e.filename.split("/").pop() + ":" + e.lineno + ":" + e.colno) : "";
+      show("ERROR", (e.error && e.error.stack) || e.message || String(e), loc);
+    });
+    window.addEventListener("unhandledrejection", function (e) {
+      var r = e.reason;
+      show("PROMISE", (r && r.stack) || (r && r.message) || String(r), "");
+    });
+  })();
+  </script>
 </head>
 <body>
   <canvas id="scene"></canvas>
