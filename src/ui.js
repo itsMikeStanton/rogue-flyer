@@ -160,6 +160,8 @@ export class UI {
     if (fly) fly.innerHTML = (m.cta || "LAUNCH") + "&nbsp;▸";
     const vr = document.getElementById("btn-vr");
     if (vr) vr.classList.toggle("hidden", !!m.opens); // VR only for direct-fly modes
+    const plan = document.getElementById("btn-plan");
+    if (plan) plan.classList.toggle("hidden", !!m.opens); // PLAN (strategic map) for quick/free modes
   }
 
   buildJetList() {
@@ -435,6 +437,12 @@ export class UI {
       if (this.mode === "conquest" && this.cb.onOpenConquest) { this.hideAll(); this.cb.onOpenConquest(); return; }
       this.hideAll();
       this.cb.onFly(this.selected, this.mode, this.startPos);
+    });
+    const planBtn = document.getElementById("btn-plan");
+    if (planBtn) planBtn.addEventListener("click", () => {
+      if (this.mode === "campaign" || this.mode === "conquest") return; // those have their own flow
+      this.hideAll();
+      if (this.cb.onPlan) this.cb.onPlan(this.selected, this.mode);
     });
     const cqLaunch = document.getElementById("cq-launch");
     if (cqLaunch) cqLaunch.addEventListener("click", () => {

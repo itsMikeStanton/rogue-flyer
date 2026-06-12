@@ -543,6 +543,19 @@ button.vr {
   border: 1px solid var(--accent);
 }
 button.vr:hover { background: rgba(46,230,166,0.26); }
+button.plan {
+  font-size: 15px;
+  padding: 14px 20px;
+  background: rgba(120,170,210,0.12);
+  color: #d4e6f2;
+  border: 1px solid rgba(120,170,210,0.55);
+  border-radius: 11px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  cursor: pointer;
+}
+button.plan:hover { background: rgba(120,170,210,0.24); }
+button.plan.hidden { display: none; }
 
 /* Footer row */
 .menu-foot {

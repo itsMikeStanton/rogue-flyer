@@ -280,6 +280,14 @@ let conquestRun = null;
 let conquestSpawn = null;     // {kind,x,z,...} runway/carrier the player launches from
 let startPos = "air"; // "air" | "runway" | "carrier"
 let preflight = null, pfPick = null; // strategic-map pre-flight planner: config + chosen launch point
+let pendingSpawn = null, pendingJet = null, pendingMode = null; // quick/free planner launch
+const AIR_START_ALT = 1200; // altitude (m) for an air start (free-flight pick or campaign drop-in)
+// Every airfield + carrier across the archipelago — launch points for non-conquest planning.
+function allLaunchPoints() {
+  const out = [];
+  for (const isl of getIslandSpawns()) for (const s of isl.spawns) out.push({ ...s });
+  return out;
+}
 // Current target island: flagged on the planning map, drawn prominently in flight.
 let targetIslandName = null;
 try { targetIslandName = localStorage.getItem("rf.target") || null; } catch (_) { /* ignore */ }
@@ -617,6 +625,7 @@ function openPreflight(cfg) {
   // Pre-flight is a planning context: full editing tools available, none active.
   mapView.editable = true;
   mapView.setRouteMode(false); mapView.setCarrierMode(false); mapView.setTargetMode(false);
+  mapView.preflightAir = !!cfg.allowAir; // free flight: click open map to air-start anywhere
   for (const t of ["map-route", "map-route-clear", "map-routes", "map-carrier", "map-target", "map-labels"]) { const e = el(t); if (e) e.style.display = ""; }
   hideRoutesPanel();
   syncRouteBtn();
@@ -626,11 +635,33 @@ function openPreflight(cfg) {
   mapView.open();
 }
 function pickLaunchByIsland(name) {
-  if (!preflight || !conquestRun) return;
-  const node = conquestRun.nodes.find((n) => n.name === name); if (!node) return;
-  const sp = preflight.spawns.find((s) => s.node === node.id && s.kind === "runway") || preflight.spawns.find((s) => s.node === node.id);
+  if (!preflight) return;
+  // Spawn names are "<Island> airfield" / "<Island> carrier" — prefer the runway.
+  const sp = preflight.spawns.find((s) => s.kind === "runway" && s.name.indexOf(name) === 0)
+    || preflight.spawns.find((s) => s.name.indexOf(name) === 0);
   if (!sp) return; // island has no available launch point (e.g. enemy island on respawn)
   pfPick = sp; afterPfPick();
+}
+// Quick/free modes: open the strategic map to pick any airfield/carrier (and,
+// for Free Flight, click open map to air-start anywhere), then LAUNCH.
+function openQuickPlanner(jet, mode) {
+  pendingJet = jet; pendingMode = mode;
+  const allowAir = mode === "free";
+  const cfg = { mode: "quick", title: "PLAN YOUR SORTIE",
+    hint: allowAir ? "Click any airfield or carrier — or click open map to air-start anywhere." : "Click any airfield or carrier to launch from.",
+    rules: false, allowAir, spawns: allLaunchPoints() };
+  cfg.pick = restoreLastStart(cfg.spawns, allowAir);
+  openPreflight(cfg);
+}
+function saveLastStart(pick) {
+  try { localStorage.setItem("rf.lastStart", JSON.stringify({ kind: pick.kind, x: pick.x, z: pick.z, name: pick.name })); } catch (_) { /* ignore */ }
+}
+function restoreLastStart(spawns, allowAir) {
+  let last = null;
+  try { last = JSON.parse(localStorage.getItem("rf.lastStart") || "null"); } catch (_) { /* ignore */ }
+  if (last && last.kind === "air") return allowAir ? { kind: "air", x: last.x, z: last.z, name: "Air start" } : null;
+  if (last) { const m = spawns.find((s) => s.name === last.name) || spawns.find((s) => Math.hypot(s.x - last.x, s.z - last.z) < 50); if (m) return m; }
+  return spawns.find((s) => s.kind === "runway") || spawns[0] || null;
 }
 function afterPfPick() {
   updatePfReadout();
@@ -639,7 +670,9 @@ function afterPfPick() {
 }
 function updatePfReadout() {
   const r = document.getElementById("pf-readout"); if (!r) return;
-  r.textContent = pfPick ? ("Launching from " + pfPick.name + (pfPick.kind === "carrier" ? " — carrier" : " — airfield"))
+  if (pfPick) r.textContent = pfPick.kind === "air" ? "Air start — flying in over the chosen point"
+    : ("Launching from " + pfPick.name + (pfPick.kind === "carrier" ? " — carrier" : " — airfield"));
+  else r.textContent = (preflight && preflight.allowAir) ? "Click an airfield/carrier — or open map to air-start anywhere"
     : "Click an airfield or carrier on the map to launch from";
 }
 // Tear down the planner UI (shared by launch / back / Esc).
@@ -653,13 +686,14 @@ function teardownPreflight() {
 }
 function pfLaunch() {
   if (!pfPick || !preflight) return;
-  const mode = preflight.mode, pick = pfPick;
+  const mode = preflight.mode, pick = pfPick, qjet = preflight.jet || pendingJet, qmode = pendingMode;
   const lv = document.getElementById("pf-lives"), df = document.getElementById("pf-diff");
   const lives = lv ? lv.value : "infinite", diff = df ? df.value : "veteran";
   teardownPreflight();
   if (mode === "conquest-setup") beginConquest(pick, lives, diff);
   else if (mode === "conquest-resume") { if (conquestRun) conquestRun.difficulty = diff; setLives(lives); resumeConquest(pick); }
-  else respawnConquest(pick);
+  else if (mode === "conquest-respawn") respawnConquest(pick);
+  else if (mode === "quick") { saveLastStart(pick); pendingSpawn = pick; startFlight(qjet, qmode, pick.kind === "air" ? "air" : "runway"); }
 }
 function pfBack() { teardownPreflight(); ui.showMenu(); }
 // Esc/✕ closed the map mid-plan: cancel and return to the menu.
@@ -851,8 +885,9 @@ function exitFlightToBriefing(missionId) {
 
 
 const ui = new UI(input, {
-  onFly: (type, mode, start) => startFlight(type, mode, start),
-  onVR: (type, mode, start) => enterVR(type, mode, start),
+  onFly: (type, mode, start) => { pendingSpawn = null; startFlight(type, mode, start); }, // "Launch now" — quick start
+  onPlan: (type, mode) => openQuickPlanner(type, mode), // "Plan" — open the strategic map planner
+  onVR: (type, mode, start) => { pendingSpawn = null; enterVR(type, mode, start); },
   onSelectJet: (type) => { if (!flying) setAircraft(type); }, // live hero swap on the menu
   onPickVehicle: (type) => pickVehicle(type),   // in-game vehicle bay: spawn this ride
   onPreviewVehicle: (type) => previewVehicle(type), // live-swap the rotating preview model
@@ -1011,19 +1046,25 @@ const mapView = new MapView(document.getElementById("map-canvas"), {
   onRouteSnap: (i) => routeSnap(i),
   onSelectWaypoint: (i) => showWptInspector(i),
   onClose: () => { showWptInspector(null); if (preflight) cancelPreflight(); }, // Esc/✕ out of the planner → menu
-  // Conquest ownership rings + the picked launch point's halo, shown on the big map.
-  getNodes: () => ((conquestRun && (preflight || gameMode === "conquest")) ? conquestRun.nodes : null),
-  getSelected: () => (preflight ? (pfPick ? pfPick.node : null) : (conquestRun && gameMode === "conquest" ? conquestRun.activeId : null)),
+  // Conquest ownership rings (only for a conquest plan / conquest flight).
+  getNodes: () => {
+    const isCq = preflight ? /^conquest/.test(preflight.mode) : gameMode === "conquest";
+    return (isCq && conquestRun) ? conquestRun.nodes : null;
+  },
+  getSelected: () => (preflight ? (pfPick && pfPick.node != null ? pfPick.node : null) : (conquestRun && gameMode === "conquest" ? conquestRun.activeId : null)),
+  // Air-start pick (free flight): drawn as the "you start here" plane marker.
+  getStartMarker: () => ((preflight && pfPick && pfPick.kind === "air") ? { x: pfPick.x, z: pfPick.z } : null),
   // Pre-flight launch-point picking (runways + carriers).
   getLaunchPoints: () => {
-    if (!preflight || !conquestRun) return null;
+    if (!preflight) return null;
     return preflight.spawns.map((s, i) => {
-      const n = conquestRun.node(s.node);
+      const n = (conquestRun && s.node != null) ? conquestRun.node(s.node) : null;
       return { id: i, x: s.x, z: s.z, kind: s.kind, name: s.name, held: !!(n && n.owner === "player"), selected: s === pfPick };
     });
   },
   onPickLaunch: (id) => { pfPick = preflight ? preflight.spawns[id] : null; afterPfPick(); },
   onPickIsland: (name) => pickLaunchByIsland(name),
+  onPickAir: (wx, wz) => { if (preflight && preflight.allowAir) { pfPick = { kind: "air", x: wx, z: wz, name: "Air start" }; afterPfPick(); } },
   onRouteUndo: () => routeUndo(),
   onRouteClear: () => routeClear(),
   getContacts: () => {                          // live bogeys on the nav map (in flight)
@@ -1503,8 +1544,15 @@ function placePlayer() {
   state = createState();
   flybyActive = false; flybyAnchor = null; // cancel any flyby on (re)spawn/teleport
   const cqSpawn = gameMode === "conquest" ? conquestSpawn : null;
-  if (cqSpawn) {
-    placeAtSpawn(cqSpawn);
+  const launch = cqSpawn || (gameMode !== "conquest" ? pendingSpawn : null);
+  if (launch && launch.kind === "air") {
+    // Free-flight air start: fly in over the chosen point.
+    state.position.set(launch.x, AIR_START_ALT, launch.z);
+    state.velocity.set(0, 0, -180);
+    state.quaternion.identity();
+    input.kbThrottle = 0.7;
+  } else if (launch) {
+    placeAtSpawn(launch);
   } else if (startPos === "air" && spawnOverride) {
     // Campaign mission on a far island: drop in to its south, already flying in.
     state.position.set(spawnOverride.x, 1200, spawnOverride.z + 7000);
@@ -1535,7 +1583,7 @@ function placePlayer() {
   // Gear down for ground/carrier starts, up for air starts; flaps up. Snap the
   // animation so it doesn't visibly deploy on spawn. Conquest always launches
   // from a runway or carrier, so it's a ground start.
-  const groundStart = cqSpawn ? true : startPos !== "air";
+  const groundStart = launch ? (launch.kind !== "air") : (startPos !== "air");
   gearDown = groundStart;
   flapsDown = false;
   gearAnim = gearDown ? 1 : 0;

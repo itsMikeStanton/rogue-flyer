@@ -51,6 +51,7 @@ export class MapView {
     this.carrierMode = false; this._carrierGhost = null; // planting the ally carrier
     this.targetMode = false; // click an island to flag it as the current target
     this.preflightOn = false; // pre-flight planner: pick a launch point + LAUNCH
+    this.preflightAir = false; // free flight: allow air-start-anywhere clicks
     this.labelsOn = true;
     try { this.labelsOn = localStorage.getItem("rf.mapLabels") !== "0"; } catch (_) { /* ignore */ }
     this._top = this.embedded ? 0 : 40;       // header band
@@ -116,7 +117,7 @@ export class MapView {
   }
   setPreflight(on) {
     this.preflightOn = !!on; // launch-point picking + LAUNCH bar (pre-flight only)
-    if (!on) { this.routeMode = false; this.carrierMode = false; this.targetMode = false; this._carrierGhost = null; }
+    if (!on) { this.routeMode = false; this.carrierMode = false; this.targetMode = false; this._carrierGhost = null; this.preflightAir = false; }
     this.canvas.style.cursor = "";
     if (this.isOpen) this.draw();
   }
@@ -743,6 +744,7 @@ export class MapView {
       if (lp) { if (this.opts.onPickLaunch) this.opts.onPickLaunch(lp.id); return; }
       const is = this._hitIsland(p.x, p.y);
       if (is && this.opts.onPickIsland) { this.opts.onPickIsland(is.name); return; }
+      if (this.preflightAir && this.opts.onPickAir) { this.opts.onPickAir(this._tf.toWX(p.x), this._tf.toWZ(p.y)); return; } // free flight: air-start anywhere
       return; // swallow stray clicks while planning (pan/zoom still work)
     }
     if (this.routeMode) {
