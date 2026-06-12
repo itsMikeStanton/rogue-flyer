@@ -18,6 +18,9 @@ import { wptType, legBearing, legDist } from "./waypoints.js";
 
 const PLAN_SPEED = 231; // ~450 kt in m/s, for route ETA
 
+// Hex colour number (e.g. 0x46c8ff from a waypoint type) -> "#rrggbb" CSS string.
+function css(hex) { return "#" + (hex & 0xffffff).toString(16).padStart(6, "0"); }
+
 const SIDE_COL = { hostile: "#d9774a", friendly: "#62c98a", neutral: "#97a4ac" };
 // Which installation kinds get a persistent text label (the rest are hover-only,
 // so the map isn't buried under every AA gun).
