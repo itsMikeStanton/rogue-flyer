@@ -214,4 +214,22 @@ export class Weather {
       this.hemi.intensity = (this._baseHemi != null ? this._baseHemi : PRESETS[this.mode].hemi) + f * f * 1.9;
     }
   }
+
+  // Human-readable time of day for the HUD: an HH:MM clock + phase word, mapped
+  // from the cycle position (noon at peak day, 18:00 dusk, 00:00 deep night,
+  // 06:00 dawn). Only meaningful while auto-cycling.
+  todInfo() {
+    if (!this.autoCycle || this.tod == null) return null;
+    const t = this.tod;
+    const phase = t < 0.42 ? "DAY" : t < 0.58 ? "DUSK" : t < 0.92 ? "NIGHT" : "DAWN";
+    const A = [[0.21, 12], [0.50, 18], [0.75, 24], [0.96, 30], [1.21, 36]]; // tod -> clock hour
+    const tt = t < 0.21 ? t + 1 : t;
+    let h = 12;
+    for (let i = 0; i < A.length - 1; i++) {
+      if (tt >= A[i][0] && tt < A[i + 1][0]) { h = A[i][1] + (tt - A[i][0]) / (A[i + 1][0] - A[i][0]) * (A[i + 1][1] - A[i][1]); break; }
+    }
+    h = ((h % 24) + 24) % 24;
+    const hh = Math.floor(h), mm = Math.floor((h - hh) * 60);
+    return { clock: String(hh).padStart(2, "0") + ":" + String(mm).padStart(2, "0"), phase };
+  }
 }

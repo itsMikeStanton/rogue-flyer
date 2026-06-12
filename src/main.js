@@ -2816,6 +2816,7 @@ function frame(now) {
       approach: approachHud,
       route: radarOff ? null : routeHud,
       supply: supplyHud,
+      tod: weather.todInfo(),
     });
   } else {
     hud.ctx.clearRect(0, 0, hud.w, hud.h);

@@ -99,6 +99,20 @@ export class Hud {
     ctx.fillText(extra.jetName, 20, 26);
     if (extra.camName) ctx.fillText("CAM: " + extra.camName, 20, 44);
 
+    // Time of day (top centre, above the heading tape) — so the day/night cycle
+    // is visible: a phase word + HH:MM clock, tinted to match the sky.
+    if (extra.tod) {
+      ctx.save();
+      ctx.textAlign = "center";
+      ctx.font = "12px 'Consolas', monospace";
+      const ph = extra.tod.phase;
+      ctx.fillStyle = ph === "DAY" ? "#ffe08a" : ph === "DUSK" ? "#ffb066" : ph === "DAWN" ? "#ffc890" : "#9fb6e8";
+      const icon = ph === "DAY" ? "☀" : ph === "NIGHT" ? "☾" : "◑";
+      ctx.fillText(`${icon} ${ph}  ${extra.tod.clock}`, cx, 14);
+      ctx.restore();
+      ctx.textAlign = "left";
+    }
+
     // Threat / detection state (top centre): are they onto you?
     if (extra.threat) {
       const tracking = extra.threat === "tracking";
