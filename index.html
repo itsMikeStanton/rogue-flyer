@@ -365,9 +365,15 @@
     <div class="map-tools">
       <button id="map-route" class="map-toggle" title="Plot a flight route: click to add/insert waypoints, drag to move, right-click to undo">◇ ROUTE</button>
       <button id="map-route-clear" class="map-toggle" title="Clear the route">✕ CLR</button>
+      <button id="map-routes" class="map-toggle" title="Flight plans: switch between named routes, add, rename or delete">⌁ PLANS</button>
       <button id="map-carrier" class="map-toggle" title="Plant your carrier: click deep water clear of hostile islands">⊟ CARRIER</button>
       <button id="map-target" class="map-toggle" title="Set your current target island: click an island to flag it (prominent on the in-flight HUD)">◎ TARGET</button>
       <button id="map-labels" class="map-toggle on" title="Toggle item labels">◫ LABELS</button>
+    </div>
+    <div id="routes-panel" class="routes-panel hidden">
+      <div class="rp-head">FLIGHT PLANS <button id="rp-close" title="Close">✕</button></div>
+      <div id="rp-list" class="rp-list"></div>
+      <button id="rp-new" class="rp-new">+ New plan</button>
     </div>
     <div id="preflight-bar" class="preflight-bar hidden">
       <div class="pf-info">

@@ -847,6 +847,31 @@ button.vr:hover { background: rgba(46,230,166,0.26); }
 /* While planning, lift the tool buttons to the top-left, clear of the bar + sidebar. */
 #mapview.planning .map-tools { top: 48px; left: 16px; right: auto; bottom: auto; }
 
+/* Named flight-plans panel (toggled by the PLANS tool). */
+.routes-panel {
+  position: absolute; top: 92px; left: 16px; z-index: 4; width: 226px;
+  background: rgba(8,16,24,0.94); border: 1px solid rgba(120,150,180,0.3); border-radius: 10px;
+  padding: 10px; display: flex; flex-direction: column; gap: 8px;
+}
+.routes-panel.hidden { display: none; }
+.rp-head { display: flex; align-items: center; justify-content: space-between;
+  font: 700 11px ui-monospace, 'Consolas', monospace; letter-spacing: 2px; color: #cfe7f0; }
+.rp-head button { background: none; border: none; color: #8aa0b2; font-size: 13px; cursor: pointer; padding: 0 2px; }
+.rp-head button:hover { color: #fff; }
+.rp-list { display: flex; flex-direction: column; gap: 5px; max-height: 240px; overflow-y: auto; }
+.rp-row { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-radius: 7px; cursor: pointer;
+  background: rgba(18,28,40,0.7); border: 1px solid transparent; }
+.rp-row:hover { background: rgba(26,38,54,0.85); }
+.rp-row.active { border-color: rgba(120,200,224,0.6); background: rgba(20,40,52,0.9); }
+.rp-name { flex: 1 1 auto; min-width: 0; font-size: 12px; color: #dfeaf2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rp-row.active .rp-name { color: #cfe7f0; font-weight: 700; }
+.rp-count { font-size: 10px; color: #7d93a4; }
+.rp-row button { background: none; border: none; color: #8aa0b2; font-size: 12px; cursor: pointer; padding: 0 2px; }
+.rp-row button:hover { color: #fff; }
+.rp-new { background: rgba(20,30,42,0.8); color: #cfe7f0; border: 1px solid rgba(120,150,180,0.3);
+  border-radius: 8px; padding: 7px; cursor: pointer; font-size: 12px; }
+.rp-new:hover { background: rgba(34,46,62,0.9); }
+
 /* --- Waypoint inspector (map route planner) ---------------------------- */
 .wpt-inspector {
   position: absolute; bottom: 56px; right: 16px; z-index: 3; width: 216px;

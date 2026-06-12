@@ -617,7 +617,8 @@ function openPreflight(cfg) {
   // Pre-flight is a planning context: full editing tools available, none active.
   mapView.editable = true;
   mapView.setRouteMode(false); mapView.setCarrierMode(false); mapView.setTargetMode(false);
-  for (const t of ["map-route", "map-route-clear", "map-carrier", "map-target", "map-labels"]) { const e = el(t); if (e) e.style.display = ""; }
+  for (const t of ["map-route", "map-route-clear", "map-routes", "map-carrier", "map-target", "map-labels"]) { const e = el(t); if (e) e.style.display = ""; }
+  hideRoutesPanel();
   syncRouteBtn();
   updatePfReadout();
   el("pf-launch").disabled = !pfPick;
@@ -646,6 +647,7 @@ function teardownPreflight() {
   preflight = null; pfPick = null;
   mapView.setPreflight(false);
   const bar = document.getElementById("preflight-bar"); if (bar) bar.classList.add("hidden");
+  hideRoutesPanel();
   document.getElementById("mapview").classList.remove("planning");
   if (mapView.isOpen) mapView.close();
 }
@@ -665,6 +667,7 @@ function cancelPreflight() {
   preflight = null; pfPick = null;
   mapView.setPreflight(false);
   const bar = document.getElementById("preflight-bar"); if (bar) bar.classList.add("hidden");
+  hideRoutesPanel();
   document.getElementById("mapview").classList.remove("planning");
   ui.showMenu();
 }
@@ -890,7 +893,9 @@ const ui = new UI(input, {
 // flight (a tactical kneeboard; the sim keeps running underneath).
 // --- Flight-plan route: waypoints drawn on the map, flown in-game ------------
 const ROUTE_REACH = 450;   // pass within this (m) of a waypoint to tick it off
-let route = [];     // [{x, z, alt, type, snap}] world coords
+let route = [];     // [{x, z, alt, type, snap}] world coords — the ACTIVE route's wpts
+let routes = [];    // [{ id, name, wpts }] all named routes
+let activeRouteId = null;
 let routeIdx = 0;   // index of the current target waypoint (auto-advances)
 let routeOn = true; // in-game route visibility (toggle with P)
 function routeAlt(x, z) { return Math.max(terrainHeight(x, z) + 300, SEA_LEVEL + 500); }
@@ -898,8 +903,70 @@ function normWpt(w) {
   return { x: +w.x, z: +w.z, alt: isFinite(w.alt) ? w.alt : (isFinite(w.y) ? w.y : routeAlt(+w.x, +w.z)),
     type: WPT_TYPES[w.type] ? w.type : "nav", snap: w.snap || null };
 }
-try { const r = JSON.parse(localStorage.getItem("rf.route") || "[]"); if (Array.isArray(r)) route = r.filter((w) => w && isFinite(w.x) && isFinite(w.z)).map(normWpt); } catch (_) { /* ignore */ }
-function saveRoute() { try { localStorage.setItem("rf.route", JSON.stringify(route)); } catch (_) { /* ignore */ } }
+function newRouteId() { return "r" + Date.now().toString(36) + Math.floor(Math.random() * 1000); }
+function activeRoute() { return routes.find((r) => r.id === activeRouteId) || routes[0]; }
+// Load named routes, migrating the legacy single `rf.route` into "Route 1".
+(function loadRoutes() {
+  try {
+    const raw = JSON.parse(localStorage.getItem("rf.routes") || "null");
+    if (raw && Array.isArray(raw.list) && raw.list.length) {
+      routes = raw.list.map((r) => ({ id: r.id || newRouteId(), name: r.name || "Route",
+        wpts: (r.wpts || []).filter((w) => w && isFinite(w.x) && isFinite(w.z)).map(normWpt) }));
+      activeRouteId = raw.active;
+    }
+  } catch (_) { /* ignore */ }
+  if (!routes.length) {
+    let legacy = [];
+    try { const r = JSON.parse(localStorage.getItem("rf.route") || "[]"); if (Array.isArray(r)) legacy = r.filter((w) => w && isFinite(w.x) && isFinite(w.z)).map(normWpt); } catch (_) { /* ignore */ }
+    routes = [{ id: newRouteId(), name: "Route 1", wpts: legacy }];
+  }
+  if (!routes.find((r) => r.id === activeRouteId)) activeRouteId = routes[0].id;
+  route = activeRoute().wpts;
+})();
+function saveRoute() { // persist all routes (kept the old name — many callers)
+  try { localStorage.setItem("rf.routes", JSON.stringify({ list: routes.map((r) => ({ id: r.id, name: r.name, wpts: r.wpts })), active: activeRouteId })); } catch (_) { /* ignore */ }
+  const p = document.getElementById("routes-panel"); // keep the plans panel's wp counts live
+  if (p && !p.classList.contains("hidden")) renderRoutesPanel();
+}
+// --- Named-route management (the ROUTES panel on the map) ---
+function setActiveRoute(id) {
+  if (!routes.find((r) => r.id === id)) return;
+  activeRouteId = id; route = activeRoute().wpts; routeIdx = 0;
+  saveRoute(); showWptInspector(null); if (mapView.isOpen) mapView.draw();
+}
+function addRoute(name) {
+  const r = { id: newRouteId(), name: (name && name.trim()) || ("Route " + (routes.length + 1)), wpts: [] };
+  routes.push(r); setActiveRoute(r.id); return r;
+}
+function renameRoute(id, name) { const r = routes.find((x) => x.id === id); if (r && name && name.trim()) { r.name = name.trim(); saveRoute(); } }
+function deleteRoute(id) {
+  if (routes.length <= 1) { const r = routes[0]; r.wpts.length = 0; routeIdx = 0; saveRoute(); } // keep one route; just empty it
+  else { routes = routes.filter((r) => r.id !== id); if (id === activeRouteId) { activeRouteId = routes[0].id; route = activeRoute().wpts; routeIdx = 0; } saveRoute(); }
+  showWptInspector(null); if (mapView.isOpen) mapView.draw();
+}
+function renderRoutesPanel() {
+  const list = document.getElementById("rp-list"); if (!list) return;
+  list.innerHTML = "";
+  for (const r of routes) {
+    const row = document.createElement("div");
+    row.className = "rp-row" + (r.id === activeRouteId ? " active" : "");
+    row.innerHTML = `<span class="rp-name"></span><span class="rp-count">${r.wpts.length} wp</span>`
+      + `<button data-ren title="Rename">✎</button><button data-del title="Delete">🗑</button>`;
+    row.querySelector(".rp-name").textContent = r.name;
+    row.addEventListener("click", (e) => { if (e.target.closest("button")) return; setActiveRoute(r.id); renderRoutesPanel(); });
+    row.querySelector("[data-ren]").addEventListener("click", () => { const n = window.prompt("Rename flight plan", r.name); if (n && n.trim()) { renameRoute(r.id, n); renderRoutesPanel(); } });
+    row.querySelector("[data-del]").addEventListener("click", () => { deleteRoute(r.id); renderRoutesPanel(); });
+    list.appendChild(row);
+  }
+}
+function toggleRoutesPanel(on) {
+  const p = document.getElementById("routes-panel"); if (!p) return;
+  const show = on == null ? p.classList.contains("hidden") : on;
+  p.classList.toggle("hidden", !show);
+  const b = document.getElementById("map-routes"); if (b) b.classList.toggle("on", show);
+  if (show) renderRoutesPanel();
+}
+function hideRoutesPanel() { toggleRoutesPanel(false); }
 function routeAdd(x, z, index) {
   const w = { x, z, alt: routeAlt(x, z), type: "nav", snap: null };
   if (index == null || index >= route.length) route.push(w); else route.splice(index, 0, w);
@@ -990,6 +1057,7 @@ function openMap() {
   mapView.setPreflight(false); // normal tactical map — never the planner
   const bar = document.getElementById("preflight-bar"); if (bar) bar.classList.add("hidden");
   document.getElementById("mapview").classList.remove("planning");
+  hideRoutesPanel();
   if (flying) { mapView.setRouteMode(false); mapView.setCarrierMode(false); showWptInspector(null); }
   // Route + carrier planning is pre-flight only; target designation stays usable
   // in flight (it's just a HUD flag, no world edits).
@@ -1016,6 +1084,12 @@ function openMap() {
   if (mcr) mcr.addEventListener("click", () => { mapView.setCarrierMode(!mapView.carrierMode); syncRouteBtn(); if (mapView.carrierMode) showWptInspector(null); });
   const mt = document.getElementById("map-target");
   if (mt) mt.addEventListener("click", () => { mapView.setTargetMode(!mapView.targetMode); syncRouteBtn(); if (mapView.targetMode) showWptInspector(null); });
+  const mrt = document.getElementById("map-routes");
+  if (mrt) mrt.addEventListener("click", () => toggleRoutesPanel());
+  const rpClose = document.getElementById("rp-close");
+  if (rpClose) rpClose.addEventListener("click", () => hideRoutesPanel());
+  const rpNew = document.getElementById("rp-new");
+  if (rpNew) rpNew.addEventListener("click", () => { addRoute(); renderRoutesPanel(); });
   const pfb = document.getElementById("pf-back");
   if (pfb) pfb.addEventListener("click", () => pfBack());
   const pfl = document.getElementById("pf-launch");
@@ -2186,7 +2260,9 @@ function frame(now) {
   if (flying && !inXR && controls.hangarPressed) { hangarMode ? exitHangar() : enterHangar(true); }
   if (controls.pausePressed) {
     if (mapView.isOpen) {
-      if (mapView.carrierMode) { mapView.setCarrierMode(false); syncRouteBtn(); } // first Esc leaves carrier-plant mode
+      const rp = document.getElementById("routes-panel");
+      if (rp && !rp.classList.contains("hidden")) { hideRoutesPanel(); } // first Esc closes the plans panel
+      else if (mapView.carrierMode) { mapView.setCarrierMode(false); syncRouteBtn(); } // first Esc leaves carrier-plant mode
       else if (mapView.targetMode) { mapView.setTargetMode(false); syncRouteBtn(); } // first Esc leaves target-pick mode
       else if (mapView.routeMode) { mapView.setRouteMode(false); syncRouteBtn(); showWptInspector(null); } // first Esc leaves route mode
       else mapView.close();
