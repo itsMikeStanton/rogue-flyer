@@ -398,6 +398,12 @@ export class Weapons {
       _to.multiplyScalar(1 / dist);
       return _fwd.dot(_to) > LOCK_COS;
     };
+    // In range to hold a lock — cone-independent (used once the lock is solid).
+    const inRange = (t) => {
+      if (!t || !t.alive || t.lockable === false) return false;
+      const d = _to.copy(t.position).sub(position).length();
+      return d >= 1 && d <= LOCK_RANGE;
+    };
     // Drop the break-lock skip once that target dies or you slew off it.
     if (this._exclude && (!this._exclude.alive || !inBox(this._exclude))) this._exclude = null;
     const search = (excl) => {
@@ -413,14 +419,18 @@ export class Weapons {
       }
       return b;
     };
-    let best = inBox(this.lock) ? this.lock : null; // keep the current target if still in the box
+    // Sticky lock: once it's solid, hold the target even as it slides out of your
+    // nose cone — drop it only when it dies, leaves range, or you break lock.
+    // While still acquiring, you must keep it in the box to build the lock.
+    const sticky = this.locked && inRange(this.lock);
+    let best = sticky ? this.lock : (inBox(this.lock) ? this.lock : null);
     if (!best) {
       best = search(this._exclude);
       if (!best && this._exclude) { this._exclude = null; best = search(null); } // nothing else — allow it back
     }
     if (best) {
       if (best !== this.lock) { this.lock = best; this.lockProgress = 0; } // new candidate — start over
-      else this.lockProgress = Math.min(1, this.lockProgress + dt / LOCK_TIME);
+      else if (!sticky) this.lockProgress = Math.min(1, this.lockProgress + dt / LOCK_TIME);
     } else {
       this.lockProgress = Math.max(0, this.lockProgress - dt / LOCK_DECAY);
       if (this.lockProgress <= 0) this.lock = null;
