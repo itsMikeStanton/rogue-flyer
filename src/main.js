@@ -787,7 +787,6 @@ const ui = new UI(input, {
     cqStartMarker = startMarker || null;        // plane icon at the chosen launch point
     cqMap.refresh();
   },
-  onOpenMap: () => openMap(),                    // conquest screen → full tactical map
   onOpenConquest: () => openConquestSaves(),    // menu "Conquest" → campaign picker
   onConquestLaunch: (spawn, lives, diff) => beginConquest(spawn, lives, diff),
   onConquestResume: (spawn) => resumeConquest(spawn), // launch a loaded campaign

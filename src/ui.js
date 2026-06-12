@@ -452,8 +452,6 @@ export class UI {
     });
     const cqBack = document.getElementById("cq-back");
     if (cqBack) cqBack.addEventListener("click", () => { this.hideConquest(); this.showMenu(); });
-    const cqMapBtn = document.getElementById("cq-map-btn");
-    if (cqMapBtn) cqMapBtn.addEventListener("click", () => { if (this.cb.onOpenMap) this.cb.onOpenMap(); });
     const bl = document.getElementById("brief-launch");
     if (bl) bl.addEventListener("click", () => {
       const lv = document.getElementById("brief-lives");
