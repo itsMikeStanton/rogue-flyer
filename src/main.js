@@ -279,6 +279,7 @@ let campaignProgress = campaign.loadProgress();
 let conquestRun = null;
 let conquestSpawn = null;     // {kind,x,z,...} runway/carrier the player launches from
 let startPos = "air"; // "air" | "runway" | "carrier"
+let preflight = null, pfPick = null; // strategic-map pre-flight planner: config + chosen launch point
 // Current target island: flagged on the planning map, drawn prominently in flight.
 let targetIslandName = null;
 try { targetIslandName = localStorage.getItem("rf.target") || null; } catch (_) { /* ignore */ }
@@ -562,16 +563,19 @@ function loadConquest(id) {
   const c = save.carrier;
   if (c && moveCarrier("ally", c.x, c.z) && world.carriers && world.carriers.ally) world.carriers.ally.position.set(c.x, SEA_LEVEL, c.z);
   ui.hideConquestSaves();
-  ui.showConquest(conquestRun, world, { mode: "resume" });
+  openPreflight({ mode: "conquest-resume", title: "RESUME CAMPAIGN",
+    hint: "Your held islands are yours — pick a captured airfield or carrier to launch from.",
+    rules: true, diff: conquestRun.difficulty, spawns: conquestRun.ownedSpawns() });
 }
 function resumeConquest(spawn) { conquestSpawn = spawn; startFlight(jetType, "conquest"); }
 
-// Open the map screen to choose a beachhead + rules, then launch.
+// Open the strategic map as the pre-flight planner: pick a beachhead + rules, then launch.
 function openConquest() {
   factions = new Factions(getFactionConfig()); // current allegiances drive who you must take
   conquestRun = new cq.ConquestRun(getIslandSpawns(), { difficulty: "veteran", factions });
-  flying = false;
-  ui.showConquest(conquestRun, world, { mode: "setup" });
+  openPreflight({ mode: "conquest-setup", title: "CHOOSE YOUR BEACHHEAD",
+    hint: "Pick an island to land and seize — click its airfield or carrier to launch from.",
+    rules: true, diff: "veteran", spawns: conquestRun.allSpawns() });
 }
 // Setup → flight: grant the chosen beachhead and launch from it.
 function beginConquest(spawn, lives, difficulty) {
@@ -583,14 +587,86 @@ function beginConquest(spawn, lives, difficulty) {
   conquestSpawn = spawn;
   startFlight(jetType, "conquest");
 }
-// Death with lives left → reopen the map to pick another owned runway/carrier.
+// Death with lives left → reopen the planner to pick another owned runway/carrier.
 function openConquestRespawn() {
-  ui.showConquest(conquestRun, world, { mode: "respawn" });
+  openPreflight({ mode: "conquest-respawn", title: "CHOOSE A LAUNCH POINT",
+    hint: "Aircraft down. Pick a captured airfield or carrier to get back in the fight.",
+    rules: false, spawns: conquestRun.ownedSpawns() });
 }
 function respawnConquest(spawn) {
   conquestSpawn = spawn;
-  ui.hideConquest();
   enterHangar(false); // drop into the vehicle bay at the chosen launch point
+}
+
+// --- Strategic-map pre-flight planner -------------------------------------
+// Opens the full tactical map with a bottom bar: pick a launch point (any
+// airfield/carrier), set rules, plot a route / plant the carrier / flag a
+// target, then LAUNCH. Replaces the old cramped beachhead panel.
+function openPreflight(cfg) {
+  preflight = cfg; pfPick = cfg.pick || null;
+  flying = false;
+  ui.hideConquestSaves(); ui.hideConquest(); // the full-screen map overlay covers the menu
+  const el = (id) => document.getElementById(id);
+  el("pf-title").textContent = cfg.title;
+  const rules = el("preflight-bar").querySelector(".pf-rules");
+  if (rules) rules.style.display = cfg.rules ? "" : "none";
+  const lv = el("pf-lives"); if (lv && cfg.lives) lv.value = cfg.lives;
+  const df = el("pf-diff"); if (df && cfg.diff) df.value = cfg.diff;
+  el("preflight-bar").classList.remove("hidden");
+  document.getElementById("mapview").classList.add("planning");
+  // Pre-flight is a planning context: full editing tools available, none active.
+  mapView.editable = true;
+  mapView.setRouteMode(false); mapView.setCarrierMode(false); mapView.setTargetMode(false);
+  for (const t of ["map-route", "map-route-clear", "map-carrier", "map-target", "map-labels"]) { const e = el(t); if (e) e.style.display = ""; }
+  syncRouteBtn();
+  updatePfReadout();
+  el("pf-launch").disabled = !pfPick;
+  mapView.setPreflight(true);
+  mapView.open();
+}
+function pickLaunchByIsland(name) {
+  if (!preflight || !conquestRun) return;
+  const node = conquestRun.nodes.find((n) => n.name === name); if (!node) return;
+  const sp = preflight.spawns.find((s) => s.node === node.id && s.kind === "runway") || preflight.spawns.find((s) => s.node === node.id);
+  if (!sp) return; // island has no available launch point (e.g. enemy island on respawn)
+  pfPick = sp; afterPfPick();
+}
+function afterPfPick() {
+  updatePfReadout();
+  const b = document.getElementById("pf-launch"); if (b) b.disabled = !pfPick;
+  if (mapView.isOpen) mapView.draw();
+}
+function updatePfReadout() {
+  const r = document.getElementById("pf-readout"); if (!r) return;
+  r.textContent = pfPick ? ("Launching from " + pfPick.name + (pfPick.kind === "carrier" ? " — carrier" : " — airfield"))
+    : "Click an airfield or carrier on the map to launch from";
+}
+// Tear down the planner UI (shared by launch / back / Esc).
+function teardownPreflight() {
+  preflight = null; pfPick = null;
+  mapView.setPreflight(false);
+  const bar = document.getElementById("preflight-bar"); if (bar) bar.classList.add("hidden");
+  document.getElementById("mapview").classList.remove("planning");
+  if (mapView.isOpen) mapView.close();
+}
+function pfLaunch() {
+  if (!pfPick || !preflight) return;
+  const mode = preflight.mode, pick = pfPick;
+  const lv = document.getElementById("pf-lives"), df = document.getElementById("pf-diff");
+  const lives = lv ? lv.value : "infinite", diff = df ? df.value : "veteran";
+  teardownPreflight();
+  if (mode === "conquest-setup") beginConquest(pick, lives, diff);
+  else if (mode === "conquest-resume") { if (conquestRun) conquestRun.difficulty = diff; setLives(lives); resumeConquest(pick); }
+  else respawnConquest(pick);
+}
+function pfBack() { teardownPreflight(); ui.showMenu(); }
+// Esc/✕ closed the map mid-plan: cancel and return to the menu.
+function cancelPreflight() {
+  preflight = null; pfPick = null;
+  mapView.setPreflight(false);
+  const bar = document.getElementById("preflight-bar"); if (bar) bar.classList.add("hidden");
+  document.getElementById("mapview").classList.remove("planning");
+  ui.showMenu();
 }
 // The nearest enemy island's pickets scramble as you arrive; its targets become
 // the active objective so the HUD marks them.
@@ -867,7 +943,20 @@ const mapView = new MapView(document.getElementById("map-canvas"), {
   onRouteDelete: (i) => routeDeleteAt(i),
   onRouteSnap: (i) => routeSnap(i),
   onSelectWaypoint: (i) => showWptInspector(i),
-  onClose: () => showWptInspector(null),
+  onClose: () => { showWptInspector(null); if (preflight) cancelPreflight(); }, // Esc/✕ out of the planner → menu
+  // Conquest ownership rings + the picked launch point's halo, shown on the big map.
+  getNodes: () => ((conquestRun && (preflight || gameMode === "conquest")) ? conquestRun.nodes : null),
+  getSelected: () => (preflight ? (pfPick ? pfPick.node : null) : (conquestRun && gameMode === "conquest" ? conquestRun.activeId : null)),
+  // Pre-flight launch-point picking (runways + carriers).
+  getLaunchPoints: () => {
+    if (!preflight || !conquestRun) return null;
+    return preflight.spawns.map((s, i) => {
+      const n = conquestRun.node(s.node);
+      return { id: i, x: s.x, z: s.z, kind: s.kind, name: s.name, held: !!(n && n.owner === "player"), selected: s === pfPick };
+    });
+  },
+  onPickLaunch: (id) => { pfPick = preflight ? preflight.spawns[id] : null; afterPfPick(); },
+  onPickIsland: (name) => pickLaunchByIsland(name),
   onRouteUndo: () => routeUndo(),
   onRouteClear: () => routeClear(),
   getContacts: () => {                          // live bogeys on the nav map (in flight)
@@ -898,6 +987,9 @@ function syncRouteBtn() {
 }
 function openMap() {
   mapView.editable = !flying;
+  mapView.setPreflight(false); // normal tactical map — never the planner
+  const bar = document.getElementById("preflight-bar"); if (bar) bar.classList.add("hidden");
+  document.getElementById("mapview").classList.remove("planning");
   if (flying) { mapView.setRouteMode(false); mapView.setCarrierMode(false); showWptInspector(null); }
   // Route + carrier planning is pre-flight only; target designation stays usable
   // in flight (it's just a HUD flag, no world edits).
@@ -924,6 +1016,10 @@ function openMap() {
   if (mcr) mcr.addEventListener("click", () => { mapView.setCarrierMode(!mapView.carrierMode); syncRouteBtn(); if (mapView.carrierMode) showWptInspector(null); });
   const mt = document.getElementById("map-target");
   if (mt) mt.addEventListener("click", () => { mapView.setTargetMode(!mapView.targetMode); syncRouteBtn(); if (mapView.targetMode) showWptInspector(null); });
+  const pfb = document.getElementById("pf-back");
+  if (pfb) pfb.addEventListener("click", () => pfBack());
+  const pfl = document.getElementById("pf-launch");
+  if (pfl) pfl.addEventListener("click", () => pfLaunch());
   const ar = document.getElementById("auto-rearm");
   if (ar) { ar.checked = autoRearm; ar.addEventListener("change", () => setAutoRearm(ar.checked)); }
 }

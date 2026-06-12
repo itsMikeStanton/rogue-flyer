@@ -50,6 +50,7 @@ export class MapView {
     this._selWpt = null; this._wptDrag = null; this._suppressClick = false; this.editable = true;
     this.carrierMode = false; this._carrierGhost = null; // planting the ally carrier
     this.targetMode = false; // click an island to flag it as the current target
+    this.preflightOn = false; // pre-flight planner: pick a launch point + LAUNCH
     this.labelsOn = true;
     try { this.labelsOn = localStorage.getItem("rf.mapLabels") !== "0"; } catch (_) { /* ignore */ }
     this._top = this.embedded ? 0 : 40;       // header band
@@ -112,6 +113,39 @@ export class MapView {
     if (this.targetMode) { this.routeMode = false; this.carrierMode = false; this._carrierGhost = null; }
     this.canvas.style.cursor = this.targetMode ? "pointer" : "";
     if (this.isOpen) this.draw();
+  }
+  setPreflight(on) {
+    this.preflightOn = !!on; // launch-point picking + LAUNCH bar (pre-flight only)
+    if (!on) { this.routeMode = false; this.carrierMode = false; this.targetMode = false; this._carrierGhost = null; }
+    this.canvas.style.cursor = "";
+    if (this.isOpen) this.draw();
+  }
+  _hitLaunch(px, py) {
+    const lps = this.opts.getLaunchPoints && this.opts.getLaunchPoints();
+    if (!lps || !this._tf) return null;
+    const tf = this._tf; let best = null, bd = 16;
+    for (const lp of lps) { const d = Math.hypot(tf.toX(lp.x) - px, tf.toY(lp.z) - py); if (d < bd) { bd = d; best = lp; } }
+    return best;
+  }
+  // Selectable launch points (runways/carriers) in the pre-flight planner.
+  _drawLaunchPoints(tf) {
+    const lps = this.opts.getLaunchPoints && this.opts.getLaunchPoints();
+    if (!lps) return;
+    const ctx = this.ctx;
+    ctx.save(); ctx.textAlign = "center"; ctx.textBaseline = "top";
+    for (const lp of lps) {
+      const x = tf.toX(lp.x), y = tf.toY(lp.z), sel = lp.selected;
+      const col = sel ? "#ffd23f" : (lp.held ? "#62c98a" : "#9fc8e6");
+      if (sel) { ctx.strokeStyle = "#ffd23f"; ctx.lineWidth = 2; ctx.globalAlpha = 0.95; ctx.beginPath(); ctx.arc(x, y, 14, 0, Math.PI * 2); ctx.stroke(); }
+      ctx.globalAlpha = 1; ctx.fillStyle = col; ctx.strokeStyle = "#06121a"; ctx.lineWidth = 2;
+      if (lp.kind === "carrier") { ctx.strokeRect(x - 8, y - 4, 16, 8); ctx.fillRect(x - 8, y - 4, 16, 8); ctx.fillStyle = "#06121a"; ctx.fillRect(x - 2, y - 7, 5, 4); }
+      else { ctx.beginPath(); ctx.moveTo(x, y - 8); ctx.lineTo(x + 6, y + 6); ctx.lineTo(x - 6, y + 6); ctx.closePath(); ctx.fill(); ctx.stroke(); }
+      ctx.font = (sel ? "700 10px" : "10px") + " ui-monospace, 'Consolas', monospace";
+      const w = ctx.measureText(lp.name).width;
+      ctx.fillStyle = "rgba(4,10,16,0.74)"; ctx.fillRect(x - w / 2 - 4, y + 9, w + 8, 13);
+      ctx.fillStyle = col; ctx.fillText(lp.name, x, y + 10);
+    }
+    ctx.restore();
   }
   // Can the ally carrier be planted at this world point? Deep-enough water and a
   // standoff from every hostile island's edge.
@@ -481,6 +515,9 @@ export class MapView {
       ctx.restore();
     }
 
+    // Pre-flight planner: selectable launch points (runways + carriers).
+    if (this.preflightOn) this._drawLaunchPoints(tf);
+
     // Selected launch point (pre-spawn): a "you start here" plane icon.
     const sm = this.opts.getStartMarker && this.opts.getStartMarker();
     if (sm) {
@@ -700,6 +737,13 @@ export class MapView {
       const is = this._hitIsland(p.x, p.y);
       if (is && this.opts.onPickTarget) { this.opts.onPickTarget(is.name); this.draw(); }
       return;
+    }
+    if (this.preflightOn) {
+      const lp = this._hitLaunch(p.x, p.y);
+      if (lp) { if (this.opts.onPickLaunch) this.opts.onPickLaunch(lp.id); return; }
+      const is = this._hitIsland(p.x, p.y);
+      if (is && this.opts.onPickIsland) { this.opts.onPickIsland(is.name); return; }
+      return; // swallow stray clicks while planning (pan/zoom still work)
     }
     if (this.routeMode) {
       const wi = this._hitWaypoint(p.x, p.y);

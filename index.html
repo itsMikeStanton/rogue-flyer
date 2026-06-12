@@ -369,6 +369,32 @@
       <button id="map-target" class="map-toggle" title="Set your current target island: click an island to flag it (prominent on the in-flight HUD)">◎ TARGET</button>
       <button id="map-labels" class="map-toggle on" title="Toggle item labels">◫ LABELS</button>
     </div>
+    <div id="preflight-bar" class="preflight-bar hidden">
+      <div class="pf-info">
+        <div id="pf-title" class="pf-title">CHOOSE YOUR BEACHHEAD</div>
+        <div id="pf-readout" class="pf-readout">Click a runway or carrier on the map to launch from</div>
+      </div>
+      <div class="pf-rules">
+        <label class="start-opt">Lives
+          <select id="pf-lives">
+            <option value="infinite">Infinite (kid)</option>
+            <option value="3">3 lives</option>
+            <option value="1">1 — Pro</option>
+          </select>
+        </label>
+        <label class="start-opt">Defenses
+          <select id="pf-diff">
+            <option value="recruit">Recruit — light</option>
+            <option value="veteran" selected>Veteran</option>
+            <option value="ace">Ace — heavy</option>
+          </select>
+        </label>
+      </div>
+      <div class="pf-actions">
+        <button id="pf-back">◂ Back</button>
+        <button id="pf-launch" class="primary launch" disabled>LAUNCH ▸</button>
+      </div>
+    </div>
     <div id="wpt-inspector" class="wpt-inspector hidden">
       <div class="wi-head">WAYPOINT <span id="wi-num"></span><button id="wi-close" title="Close">✕</button></div>
       <div class="wi-types" id="wi-types"></div>
