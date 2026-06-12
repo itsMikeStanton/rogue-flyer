@@ -231,6 +231,15 @@ export class Weapons {
     const lo = loadout || {};
     return this.missileCount < (lo.missiles || 0) || this.rocketCount < (lo.rockets || 0) || this.bombCount < (lo.bombs || 0);
   }
+  // True when any carried ordnance is running low — 2 or fewer left of a type
+  // the aircraft carries (and not already fully stocked). Drives the resupply
+  // balloon so it only comes when you're actually short, not after one shot.
+  lowAmmo(loadout) {
+    const lo = loadout || {};
+    return (lo.missiles > 0 && this.missileCount <= 2 && this.missileCount < lo.missiles)
+      || (lo.rockets > 0 && this.rocketCount <= 2 && this.rocketCount < lo.rockets)
+      || (lo.bombs > 0 && this.bombCount <= 2 && this.bombCount < lo.bombs);
+  }
 
   // Break the current lock and skip that target on the next acquisition, so you
   // can fire at one bandit and immediately lock a DIFFERENT one before it dies.

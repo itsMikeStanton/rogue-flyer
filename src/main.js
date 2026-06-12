@@ -444,6 +444,9 @@ function doRearm(sub) {
   comms("Rearmed and ready", "rearm", 0);
 }
 function needsRearm() { return player.health < 100 || weapons.needsRearm(def.loadout); }
+// The supply balloon is the costlier "call it in" path, so it waits until you're
+// actually short: hurt, or down to 2-or-fewer of any ordnance you carry.
+function needsResupply() { return player.health < 100 || weapons.lowAmmo(def.loadout); }
 // Drop a supply balloon offshore on the player's side, out near the safe range.
 function spawnSupplyBalloon() {
   const n = nearestIsland();
@@ -478,7 +481,7 @@ function updateResupply(dt) {
     return;
   }
   supplyCd -= dt;
-  if (supplyCd <= 0 && needsRearm()) { spawnSupplyBalloon(); supplyCd = 1e9; } // stays until reached
+  if (supplyCd <= 0 && needsResupply()) { spawnSupplyBalloon(); supplyCd = 1e9; } // stays until reached
 }
 // Landing-approach guidance (toggle with L / a joystick button). Targets the
 // home runway at the island origin.
