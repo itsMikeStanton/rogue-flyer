@@ -232,8 +232,8 @@ weapons.onHit = (t) => {
 
 // Weather / time of day (sky, fog, lights, stars, rain).
 const weather = new Weather(scene, world);
-let weatherMode = "day";
-try { weatherMode = localStorage.getItem("rf.weather") || "day"; } catch (_) { /* ignore */ }
+let weatherMode = "cycle"; // default to the deterministic real-clock day/night cycle
+try { weatherMode = localStorage.getItem("rf.weather") || "cycle"; } catch (_) { /* ignore */ }
 function applyWeather(mode) {
   if (mode === "cycle") weather.setAutoCycle(true);
   else { weather.setAutoCycle(false); weather.setMode(mode); }
@@ -2599,7 +2599,7 @@ function frame(now) {
   updateSky(camera, true); // ocean + clouds follow the active camera
   weather.update(simDt, _skyPos); // stars/rain follow the camera; storm lightning
   if (post.enabled) post.setBloomScale(THREE.MathUtils.lerp(1.0, 0.5, weather.daylight || 0)); // tame daytime bloom
-  ground.night = weatherMode === "night" || weatherMode === "storm"; // gate searchlights to darkness
+  ground.night = weatherMode === "night" || weatherMode === "storm" || (weather.autoCycle && (weather.daylight || 0) < 0.25); // gate searchlights to darkness (incl. the cycle's night)
   if (world.spinners) for (const s of world.spinners) s.obj.rotation.y += dt * s.speed; // lighthouse beacons sweep
   // Smoke plumes: scenery sources + any still-alive power-plant strike targets.
   const dyn = smoke.dynamic; dyn.length = 0;

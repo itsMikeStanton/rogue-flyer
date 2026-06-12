@@ -141,9 +141,11 @@ export class Weather {
 
   // Start/stop the automatic day→sunset→night→sunrise loop (period in seconds;
   // default 16 min ≈ 8 min day + 8 min night), with occasional rain spells.
+  // Time-of-day is derived from the real wall clock, so it's deterministic and
+  // refresh-stable: a full 16-min cycle is just the real day compressed ~90×.
   setAutoCycle(on, period = 16 * 60) {
     this.autoCycle = !!on; this.cyclePeriod = period;
-    if (on && this.tod == null) this.tod = 0;
+    if (on) { this.tod = ((Date.now() / 1000) / this.cyclePeriod) % 1; this._advanceCycle(0); } // apply the right sky at once
   }
 
   // Apply a (possibly blended) preset to the sky/fog/lights/bodies.
@@ -168,7 +170,10 @@ export class Weather {
 
   // Advance the automatic day/night loop one step and apply the blended sky.
   _advanceCycle(dt) {
-    this.tod = (this.tod + dt / this.cyclePeriod) % 1;
+    // Anchor to the real clock (deterministic / refresh-stable) rather than
+    // accumulating frame deltas — so reloading keeps the same time of day, and
+    // the sky keeps turning even when the sim is paused or on the menu.
+    this.tod = ((Date.now() / 1000) / this.cyclePeriod) % 1;
     let a = CYCLE[0], b = CYCLE[CYCLE.length - 1];
     for (let i = 0; i < CYCLE.length - 1; i++) { if (this.tod >= CYCLE[i].at && this.tod < CYCLE[i + 1].at) { a = CYCLE[i]; b = CYCLE[i + 1]; break; } }
     const t = (this.tod - a.at) / Math.max(1e-4, b.at - a.at);
