@@ -51,6 +51,7 @@ const LOCK_RANGE = 5460;                           // 1.3× further out
 const LOCK_COS = Math.cos((22 * Math.PI) / 180);  // must be loosely pointed at it
 const LOCK_TIME = 0.8;                             // seconds holding it in the box to lock
 const LOCK_DECAY = 0.6;                            // seconds to lose progress once it leaves
+const LOCK_GIMBAL_COS = Math.cos((80 * Math.PI) / 180); // a solid lock holds until the target slides ~80° off boresight
 
 const _fwd = new THREE.Vector3();
 const _up = new THREE.Vector3();
@@ -398,11 +399,15 @@ export class Weapons {
       _to.multiplyScalar(1 / dist);
       return _fwd.dot(_to) > LOCK_COS;
     };
-    // In range to hold a lock — cone-independent (used once the lock is solid).
-    const inRange = (t) => {
+    // Can a solid lock keep holding this target? In range and within the seeker's
+    // gimbal (~80° off boresight) — but cone-independent within that, so a bandit
+    // jinking off your nose stays locked until it's nearly abeam/behind you.
+    const canHold = (t) => {
       if (!t || !t.alive || t.lockable === false) return false;
-      const d = _to.copy(t.position).sub(position).length();
-      return d >= 1 && d <= LOCK_RANGE;
+      _to.copy(t.position).sub(position);
+      const d = _to.length();
+      if (d < 1 || d > LOCK_RANGE) return false;
+      return _fwd.dot(_to) / d > LOCK_GIMBAL_COS;
     };
     // Drop the break-lock skip once that target dies or you slew off it.
     if (this._exclude && (!this._exclude.alive || !inBox(this._exclude))) this._exclude = null;
@@ -422,7 +427,7 @@ export class Weapons {
     // Sticky lock: once it's solid, hold the target even as it slides out of your
     // nose cone — drop it only when it dies, leaves range, or you break lock.
     // While still acquiring, you must keep it in the box to build the lock.
-    const sticky = this.locked && inRange(this.lock);
+    const sticky = this.locked && canHold(this.lock);
     let best = sticky ? this.lock : (inBox(this.lock) ? this.lock : null);
     if (!best) {
       best = search(this._exclude);
