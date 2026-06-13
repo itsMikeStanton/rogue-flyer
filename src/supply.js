@@ -35,12 +35,13 @@ export class SupplyDrop {
     const beacon = new THREE.Mesh(new THREE.SphereGeometry(1.5, 8, 8), beaconMat);
     beacon.position.y = 17; g.add(beacon);
 
+    g.scale.setScalar(2);                 // big, easy-to-spot air drop
     g.position.set(x, surface + 1500, z); // drops in from high above
     this.scene.add(g);
     this._t = 0;
     this.active = {
       mesh: g, canopy, lines, beacon, beaconMat,
-      position: g.position, radius: 24, alive: true, lockable: true, delivered: false,
+      position: g.position, radius: 48, alive: true, lockable: true, delivered: false,
       hit() { this.delivered = true; },
       drift: new THREE.Vector3((Math.random() - 0.5) * 7, 0, (Math.random() - 0.5) * 7),
       bob: Math.random() * Math.PI * 2, sway: Math.random() * Math.PI * 2,
@@ -65,8 +66,8 @@ export class SupplyDrop {
         d.descending = false; d.floated = true; d.bob = 0;
         d.canopy.visible = false; d.lines.visible = false;
         d.beacon.position.y = -1; // beacon now rides just above the crate
-        d.radius = 38;            // bigger grab radius so you can still scoop it off the swell
-        d.mesh.scale.setScalar(1.4);
+        d.radius = 76;            // bigger grab radius so you can still scoop it off the swell
+        d.mesh.scale.setScalar(2.8);
       }
     } else {
       // Floating in the swell: bob with the waves and rock side to side.

@@ -853,12 +853,6 @@ export class Traffic {
       x0: A.x + 2000, x1: B.x - 2000, z: (A.z + B.z) / 2 + 1500, y: sea + 1650, len: Math.max(8000, Math.abs(B.x - A.x) - 4000), speed: 13,
     }));
 
-    // Freight train on an offshore viaduct south-west of the home island.
-    const xLane = A.x - 6000, zFar = A.z - 14400, zNear = A.z - 8800, vy = sea + 95;
-    this.viaduct = buildViaduct(xLane, zFar, zNear, vy);
-    scene.add(this.viaduct.group);
-    this.trains.push(new Train(this, { xLane, zFar, zNear, len: zNear - zFar, y: vy, speed: 60 }));
-
     // TWO trains running a continuous terrain-hugging loop on the home island,
     // pausing 15–20s at a few stations. The path + track + platforms are built
     // once and shared; the trains run half a lap apart so they never meet.

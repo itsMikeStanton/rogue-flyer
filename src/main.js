@@ -2358,11 +2358,10 @@ function frame(now) {
     if (controls.brake && !brakeActive) sound.brake(); // whoosh as the speedbrake pops
     brakeActive = !!controls.brake; // airbrake (air) / wheel brake (ground)
 
-    // Afterburner: only on turbo jets, only at the firewall (full throttle).
-    // controls.boost arrives as a held boolean; convert it to the thrust
-    // multiplier the physics reads (1 = off, BOOST_THRUST = lit).
+    // Afterburner: only on turbo jets, only at the firewall (full throttle), and
+    // not with the gear down (no burner on the takeoff/landing roll).
     const boostWas = boostActive;
-    boostActive = !!controls.boost && !!def.turbo && controls.throttle >= 0.98;
+    boostActive = !!controls.boost && !!def.turbo && controls.throttle >= 0.98 && !gearDown;
     controls.boost = boostActive ? BOOST_THRUST : 1;
     if (boostActive && !boostWas) comms("Burner", "boost", 2);
     if (boostActive && !state.onGround) addShake(dt * 9); // high-speed buffet while lit
