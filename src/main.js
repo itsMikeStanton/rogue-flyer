@@ -932,6 +932,8 @@ const ui = new UI(input, {
   onPauseMenu: () => exitToMenu(),
   onLives: (v) => setLives(v),                  // 1 / 3 / infinite respawns
   livesMode: () => livesMode,
+  getName: () => playerName,                    // current multiplayer call sign
+  onName: (n) => setPlayerName(n),
   onOpenCampaign: () => openCampaign(),         // menu "Campaign" → briefing room
   onBriefingLaunch: (missionId, type) => {      // briefing "Launch" → fly the mission
     const m = campaign.missionById(missionId);
@@ -1224,6 +1226,11 @@ try {
   playerName = localStorage.getItem("rf.name") || ("Pilot-" + Math.floor(Math.random() * 900 + 100));
   localStorage.setItem("rf.name", playerName);
 } catch (_) { /* ignore */ }
+// Set the multiplayer call sign (takes effect on the next FFA connect).
+function setPlayerName(n) {
+  playerName = (n && n.trim()) ? n.trim().slice(0, 16) : "";
+  try { localStorage.setItem("rf.name", playerName); } catch (_) { /* ignore */ }
+}
 function playerColor(id) { return new THREE.Color().setHSL(((id * 47) % 360) / 360, 0.62, 0.55).getHex(); }
 net.onEvent = (t, m) => {
   if (t === "leave") { const mesh = netMeshes.get(m.id); if (mesh) { scene.remove(mesh); netMeshes.delete(m.id); } }

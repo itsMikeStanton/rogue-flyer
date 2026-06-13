@@ -146,10 +146,13 @@ h3 { margin: 16px 0 8px; font-size: 14px; color: var(--accent); letter-spacing: 
   display: flex; align-items: center; gap: 8px;
   margin-top: 14px; font-size: 13px; color: #b9c8d6;
 }
-.start-opt select {
+.start-opt select, .start-opt input {
   background: #0b1320; color: #d7e3ee;
   border: 1px solid rgba(120,150,180,0.3); border-radius: 6px; padding: 6px;
 }
+.start-opt input { width: 130px; font: inherit; }
+.start-opt input::placeholder { color: #5d6f7e; }
+.start-opt.hidden { display: none; }
 
 /* ===== Mode strip (single-screen mode picker) ===== */
 .mode-strip-wrap {

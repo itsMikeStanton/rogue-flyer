@@ -162,6 +162,8 @@ export class UI {
     if (vr) vr.classList.toggle("hidden", !!m.opens); // VR only for direct-fly modes
     const plan = document.getElementById("btn-plan");
     if (plan) plan.classList.toggle("hidden", !!m.opens); // PLAN (strategic map) for quick/free modes
+    const cso = document.getElementById("callsign-opt");
+    if (cso) cso.classList.toggle("hidden", this.mode !== "ffa"); // call sign only matters in multiplayer
   }
 
   buildJetList() {
@@ -438,6 +440,13 @@ export class UI {
       this.hideAll();
       this.cb.onFly(this.selected, this.mode, this.startPos);
     });
+    const cs = document.getElementById("callsign");
+    if (cs) {
+      if (this.cb.getName) cs.value = this.cb.getName();
+      const apply = () => { if (this.cb.onName) this.cb.onName(cs.value); };
+      cs.addEventListener("input", apply);
+      cs.addEventListener("change", apply);
+    }
     const planBtn = document.getElementById("btn-plan");
     if (planBtn) planBtn.addEventListener("click", () => {
       if (this.mode === "campaign" || this.mode === "conquest") return; // those have their own flow
