@@ -171,7 +171,7 @@ export function defaultWorldConfig() {
         forest: { extent: 9000, gridN: 80, maxTrees: 7000, perCell: 10, density: null },
         river: null, landmarks: false, roads: [], bridges: [],
         settlements: [
-          { kind: "town", x: 5000, z: 700, radius: 2, spacing: 110, maxHeight: 120 },
+          { kind: "town", x: 5000, z: 700, radius: 2, spacing: 110, maxHeight: 120, primary: true }, // Coral Halo's main harbour town
           { kind: "town", x: -3700, z: 3700, radius: 2, spacing: 110, maxHeight: 110 },
           { kind: "village", x: 900, z: -5100, radius: 1, spacing: 90, maxHeight: 70 },
           { kind: "village", x: -5000, z: -1400, radius: 1, spacing: 90, maxHeight: 70 },
@@ -191,7 +191,7 @@ export function defaultWorldConfig() {
         forest: { extent: 11000, gridN: 96, maxTrees: 16000, perCell: 14, density: null },
         river: null, landmarks: false, spire: true, roads: [], bridges: [],
         settlements: [
-          { kind: "city", x: 9000, z: 0, radius: 3, spacing: 128, maxHeight: 260 },
+          { kind: "city", x: 9000, z: 0, radius: 3, spacing: 128, maxHeight: 260, primary: true }, // Medusa's core
           { kind: "town", x: 4500, z: 7800, radius: 2, spacing: 120, maxHeight: 170 },
           { kind: "town", x: -4500, z: 7800, radius: 2, spacing: 120, maxHeight: 170 },
           { kind: "city", x: -9000, z: 0, radius: 3, spacing: 128, maxHeight: 250 },
@@ -233,7 +233,7 @@ export function defaultWorldConfig() {
         forest: { extent: 9500, gridN: 96, maxTrees: 22000, perCell: 16, density: null },
         river: null, landmarks: false, spire: true, roads: [], bridges: [],
         settlements: [
-          { kind: "city", x: 0, z: 3600, radius: 3, spacing: 130, maxHeight: 230 },
+          { kind: "city", x: 0, z: 3600, radius: 3, spacing: 130, maxHeight: 230, primary: true }, // Gemini's main works
           { kind: "town", x: 0, z: -4200, radius: 2, spacing: 120, maxHeight: 170 },
           { kind: "town", x: 5200, z: 3200, radius: 2, spacing: 120, maxHeight: 160 },
           { kind: "town", x: -5200, z: 3200, radius: 2, spacing: 120, maxHeight: 160 },
@@ -270,7 +270,7 @@ export function defaultWorldConfig() {
         forest: { extent: 9200, gridN: 96, maxTrees: 14000, perCell: 13, density: null },
         river: null, landmarks: false, spire: true, roads: [], bridges: [],
         settlements: [
-          { kind: "city", x: 4400, z: 2600, radius: 3, spacing: 128, maxHeight: 240 },
+          { kind: "city", x: 4400, z: 2600, radius: 3, spacing: 128, maxHeight: 240, primary: true }, // Maelstrom's main works
           { kind: "town", x: -3800, z: 3400, radius: 2, spacing: 120, maxHeight: 160 },
           { kind: "town", x: -3600, z: -3800, radius: 2, spacing: 120, maxHeight: 160 },
           { kind: "village", x: 2600, z: -3600, radius: 1, spacing: 95, maxHeight: 90 },
