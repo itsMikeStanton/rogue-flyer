@@ -914,6 +914,17 @@ function exitFlightToBriefing(missionId) {
 }
 
 
+// Multiplayer call sign — declared before the UI is built, since bindButtons
+// reads it on construction to prefill the field (avoid a TDZ on boot).
+let playerName = "Pilot";
+try {
+  playerName = localStorage.getItem("rf.name") || ("Pilot-" + Math.floor(Math.random() * 900 + 100));
+  localStorage.setItem("rf.name", playerName);
+} catch (_) { /* ignore */ }
+function setPlayerName(n) { // takes effect on the next FFA connect
+  playerName = (n && n.trim()) ? n.trim().slice(0, 16) : "";
+  try { localStorage.setItem("rf.name", playerName); } catch (_) { /* ignore */ }
+}
 const ui = new UI(input, {
   onFly: (type, mode, start) => { pendingSpawn = null; startFlight(type, mode, start); }, // "Launch now" — quick start
   onPlan: (type, mode) => openQuickPlanner(type, mode), // "Plan" — open the strategic map planner
@@ -1221,16 +1232,6 @@ const cqMap = new MapView(document.getElementById("cq-map"), {
 const net = new Net();
 const netMeshes = new Map(); // remote player id -> jet mesh
 const netTargets = [];       // weapons.js-compatible {position,radius,alive,hit} for remote jets
-let playerName = "Pilot";
-try {
-  playerName = localStorage.getItem("rf.name") || ("Pilot-" + Math.floor(Math.random() * 900 + 100));
-  localStorage.setItem("rf.name", playerName);
-} catch (_) { /* ignore */ }
-// Set the multiplayer call sign (takes effect on the next FFA connect).
-function setPlayerName(n) {
-  playerName = (n && n.trim()) ? n.trim().slice(0, 16) : "";
-  try { localStorage.setItem("rf.name", playerName); } catch (_) { /* ignore */ }
-}
 function playerColor(id) { return new THREE.Color().setHSL(((id * 47) % 360) / 360, 0.62, 0.55).getHex(); }
 net.onEvent = (t, m) => {
   if (t === "leave") { const mesh = netMeshes.get(m.id); if (mesh) { scene.remove(mesh); netMeshes.delete(m.id); } }
