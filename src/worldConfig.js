@@ -49,6 +49,8 @@ function island(o) {
     spawn: o.spawn || { ...HOME_SPAWN },
     carriers: o.carriers || [],
     settlements: o.settlements || HOME_SETTLEMENTS.map((s) => ({ ...s })),
+    culture: o.culture || null,    // island-wide building archetype ("coastal"|"colonial"|"modern"|"industrial"); overrides the per-kind default
+
     bridges: o.bridges || [-1600, 2600],
     roads: o.roads || HOME_ROADS.map((r) => r.map((p) => [...p])),
     missionBases: o.missionBases || [],
@@ -161,7 +163,7 @@ export function defaultWorldConfig() {
       // Coral Halo — an ATOLL: a wobbling reef ring around a turquoise lagoon,
       // with a lone airstrip islet flattened at its heart. Neutral free port.
       island({
-        name: "Coral Halo", faction: "coral", seed: 0x10ffa3, center: { x: -38000, z: 8000 },
+        name: "Coral Halo", faction: "coral", seed: 0x10ffa3, center: { x: -38000, z: 8000 }, culture: "coastal", // peaceful low whitewashed coast
         terrain: { islandInner: 6000, islandOuter: 9000, deep: -650 },
         shape: { type: "atoll", ring: 5200, width: 1500, ramp: 650, lagoon: 900, wobble: 5 },
         cliff: { x: 0, z: 5200, r: 850, h: 460 }, // a beacon knoll on the reef
@@ -223,7 +225,7 @@ export function defaultWorldConfig() {
       // Gemini — TWIN PEAKS flanking a valley airstrip in the saddle; one summit
       // is a sheer cliff topped by a spire. Enemy.
       island({
-        name: "Gemini", faction: "stormcrown", seed: 0x9e2255, center: { x: 54000, z: -30000 },
+        name: "Gemini", faction: "stormcrown", seed: 0x9e2255, center: { x: 54000, z: -30000 }, culture: "industrial", // Stormcrown war-works
         terrain: { islandInner: 6000, islandOuter: 9500, deep: -1000 },
         shape: { type: "ridges", peaks: [{ x: -2900, z: 200, h: 980, r: 1700 }, { x: 2900, z: -200, h: 900, r: 1600 }] },
         cliff: { x: -2900, z: 200, r: 1000, h: 1010 },
@@ -260,7 +262,7 @@ export function defaultWorldConfig() {
       // Maelstrom — a SPIRAL ridge of stone winding inward to a calm "eye" where
       // the runway sits; a headland on the outer arm wears a spire. Enemy.
       island({
-        name: "Maelstrom", faction: "stormcrown", seed: 0x5e7a91, center: { x: -58000, z: -10000 },
+        name: "Maelstrom", faction: "stormcrown", seed: 0x5e7a91, center: { x: -58000, z: -10000 }, culture: "industrial", // Stormcrown war-works
         terrain: { islandInner: 6000, islandOuter: 9200, deep: -1000 },
         shape: { type: "spiral", spiralR: 6200, turns: 2.6, pitch: 1500, height: 820 },
         cliff: { x: 4400, z: 2600, r: 1100, h: 980 },

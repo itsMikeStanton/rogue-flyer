@@ -1141,42 +1141,67 @@ function buildIsland(scene, is, waveMats, colliders, smokeSources, trees, spinne
     const antennas = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.4, 0.4, 1, 5), detailMat, 250);
     buildings.castShadow = buildings.receiveShadow = true;
     flatRoofs.castShadow = hipRoofs.castShadow = caps.castShadow = acUnits.castShadow = antennas.castShadow = true;
-    // Cement/concrete greys (cool, low-saturation) rather than warm brick tones.
-    const wallTones = [0xc4c4c0, 0xb8bab9, 0xc9c6be, 0xa9acab, 0xbfbcb4, 0x9ea2a3];
-    const roofTones = [0x52565b, 0x40474d, 0x6b6f74, 0x3a4148];
+    // Settlement archetypes — each one gives a distinct read instead of "boxes
+    // at different heights". Form: base = height floor, peak = how much of the
+    // settlement's maxHeight it actually uses, hip = share of pitched roofs,
+    // foot = [minW,maxW] footprint, gap = skip rate (density), ant = antenna
+    // chance. Palette: walls / roofs colour families.
+    const STYLES = {
+      coastal: {   // fishing village: low whitewashed cottages, pitched roofs, sparse
+        base: 7, peak: 0.20, hip: 0.92, foot: [13, 22], gap: 0.24, ant: 0.0,
+        walls: [0xeae6dc, 0xe2ddcf, 0xf2eee4, 0xd9d3c3, 0xccc6b6, 0xe6ddca],
+        roofs: [0xb0563f, 0x9a4a36, 0x39536b, 0x6d6a60, 0x844a3a],
+      },
+      colonial: {  // old town: mid-rise cream/ochre masonry, tiled roofs, mixed
+        base: 12, peak: 0.50, hip: 0.58, foot: [16, 28], gap: 0.15, ant: 0.07,
+        walls: [0xe8d8b4, 0xdcc79a, 0xe9dfc6, 0xd2b890, 0xcabfa4, 0xe0cba0],
+        roofs: [0x9c5436, 0x884632, 0xa8603e, 0x6a5a48, 0x7d4630],
+      },
+      modern: {    // metropolis: tall flat-roof glass/cement towers + antennas
+        base: 24, peak: 1.0, hip: 0.08, foot: [24, 46], gap: 0.12, ant: 0.45,
+        walls: [0xc4c4c0, 0xb8bab9, 0xc9c6be, 0xa9acab, 0xbfbcb4, 0x9ea2a3],
+        roofs: [0x52565b, 0x40474d, 0x6b6f74, 0x3a4148],
+      },
+      industrial: { // port works: wide low grey/rust sheds, all flat, vents
+        base: 9, peak: 0.26, hip: 0.0, foot: [30, 56], gap: 0.20, ant: 0.22,
+        walls: [0x9a9c98, 0x8c8a82, 0xa6a39a, 0x7e756a, 0x6e6a62, 0x8a6a58],
+        roofs: [0x55524c, 0x6b4a3a, 0x4a4742, 0x5e544a],
+      },
+    };
+    const KIND_STYLE = { village: "coastal", town: "colonial", city: "modern", port: "industrial", industrial: "industrial" };
     const tmpCol = new THREE.Color();
     let n = 0, fr = 0, hr = 0, cp = 0, ac = 0, an = 0;
     for (const s of is.settlements) {
       const cx = s.x, cz = s.z, gr = s.radius, sp = s.spacing, mh = s.maxHeight;
+      const st = STYLES[s.style || is.culture || KIND_STYLE[s.kind] || "modern"]; // per-settlement > island culture > kind default
       for (let gx = -gr; gx <= gr && n < MAX; gx++) {
         for (let gz = -gr; gz <= gr && n < MAX; gz++) {
-          if (rnd() < 0.12) continue;
+          if (rnd() < st.gap) continue;
           const x = cx + gx * sp + (rnd() - 0.5) * 40;
           const z = cz + gz * sp + (rnd() - 0.5) * 40;
           const h = H(x, z);
           if (h < 4 || onRiver(x, z)) continue;
           const edge = Math.max(Math.abs(gx), Math.abs(gz));
-          // Scale pass: lift the height FLOOR (18 -> 34) and bulk up FOOTPRINTS
-          // (~1.8x) so settlements read as substantial from the air — they felt
-          // too small. Peak heights (maxHeight) are untouched so the
-          // village/town/city hierarchy still holds.
-          const bh = 34 + rnd() * mh * (1 - edge / (gr + 1.5));
-          const tall = bh > 50;
-          const bw = (tall ? 16 + rnd() * 18 : 20 + rnd() * 24) * 1.8;
-          const bd = (tall ? 16 + rnd() * 18 : 20 + rnd() * 24) * 1.8;
+          // Height: the style's floor + a slice of the settlement's maxHeight
+          // (so the village/town/city scale hierarchy still holds), tapering out
+          // toward the edges. A pitched roof only on the smaller, "hip" buildings.
+          const bh = st.base + rnd() * mh * st.peak * (1 - edge / (gr + 1.5));
+          const flat = bh > 50 || rnd() > st.hip;
+          const bw = st.foot[0] + rnd() * (st.foot[1] - st.foot[0]);
+          const bd = st.foot[0] + rnd() * (st.foot[1] - st.foot[0]);
           tp.set(x, h + bh / 2, z); ts.set(bw, bh, bd);
           buildings.setMatrixAt(n, m4.compose(tp, noRot, ts));
-          buildings.setColorAt(n, tmpCol.setHex(wallTones[(rnd() * wallTones.length) | 0]));
-          if (tall) {
+          buildings.setColorAt(n, tmpCol.setHex(st.walls[(rnd() * st.walls.length) | 0]));
+          if (flat) {
             tp.set(x, h + bh + 1.2, z); ts.set(bw + 2, 2.4, bd + 2);
             flatRoofs.setMatrixAt(fr, m4.compose(tp, noRot, ts));
-            flatRoofs.setColorAt(fr, tmpCol.setHex(roofTones[(rnd() * roofTones.length) | 0])); fr++;
-            if (ac < 500) { // a rooftop AC/plant box
+            flatRoofs.setColorAt(fr, tmpCol.setHex(st.roofs[(rnd() * st.roofs.length) | 0])); fr++;
+            if (bh > 28 && ac < 500) { // a rooftop AC/plant box (real buildings only)
               const aw = 4 + rnd() * 5;
               tp.set(x + (rnd() - 0.5) * bw * 0.4, h + bh + 2.4 + aw / 2, z + (rnd() - 0.5) * bd * 0.4); ts.set(aw, aw, aw);
               acUnits.setMatrixAt(ac++, m4.compose(tp, noRot, ts));
             }
-            if (rnd() < 0.45 && an < 250) { // an antenna mast
+            if (rnd() < st.ant && an < 250) { // an antenna mast
               const ah = 7 + rnd() * 12;
               tp.set(x + (rnd() - 0.5) * bw * 0.3, h + bh + 2.4 + ah / 2, z + (rnd() - 0.5) * bd * 0.3); ts.set(1, ah, 1);
               antennas.setMatrixAt(an++, m4.compose(tp, noRot, ts));
@@ -1185,13 +1210,13 @@ function buildIsland(scene, is, waveMats, colliders, smokeSources, trees, spinne
               const ch = 10 + rnd() * 16;
               tp.set(x, h + bh + ch / 2, z); ts.set(bw * 0.6, ch, bd * 0.6);
               caps.setMatrixAt(cp, m4.compose(tp, noRot, ts));
-              caps.setColorAt(cp, tmpCol.setHex(wallTones[(rnd() * wallTones.length) | 0])); cp++;
+              caps.setColorAt(cp, tmpCol.setHex(st.walls[(rnd() * st.walls.length) | 0])); cp++;
             }
           } else {
-            const roofH = 5 + rnd() * 5; // pitched hip roof
+            const roofH = Math.min(bh * 0.6, 4 + rnd() * 6); // pitched hip roof, proportional
             tp.set(x, h + bh + roofH / 2, z); ts.set(bw + 2, roofH, bd + 2);
             hipRoofs.setMatrixAt(hr, m4.compose(tp, noRot, ts));
-            hipRoofs.setColorAt(hr, tmpCol.setHex(roofTones[(rnd() * roofTones.length) | 0])); hr++;
+            hipRoofs.setColorAt(hr, tmpCol.setHex(st.roofs[(rnd() * st.roofs.length) | 0])); hr++;
           }
           colliders.push({ x: x + cx0, z: z + cz0, hx: bw / 2 + 1, hz: bd / 2 + 1, top: h + bh });
           n++;
