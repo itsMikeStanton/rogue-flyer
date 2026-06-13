@@ -629,7 +629,7 @@ function openPreflight(cfg) {
   mapView.editable = true;
   mapView.setRouteMode(false); mapView.setCarrierMode(false); mapView.setTargetMode(false);
   mapView.preflightAir = !!cfg.allowAir; // free flight: click open map to air-start anywhere
-  for (const t of ["map-route", "map-route-clear", "map-routes", "map-carrier", "map-target", "map-labels"]) { const e = el(t); if (e) e.style.display = ""; }
+  for (const t of ["map-routes", "map-carrier", "map-target", "map-labels"]) { const e = el(t); if (e) e.style.display = ""; }
   hideRoutesPanel();
   syncRouteBtn();
   updatePfReadout();
@@ -1002,7 +1002,11 @@ function toggleRoutesPanel(on) {
   const show = on == null ? p.classList.contains("hidden") : on;
   p.classList.toggle("hidden", !show);
   const b = document.getElementById("map-routes"); if (b) b.classList.toggle("on", show);
-  if (show) renderRoutesPanel();
+  if (show) {
+    const ed = document.getElementById("rp-edit"); if (ed) ed.classList.toggle("hidden", !mapView.editable); // editing only when not flying
+    renderRoutesPanel();
+    syncRouteBtn();
+  } else if (mapView.routeMode) { mapView.setRouteMode(false); syncRouteBtn(); } // closing the panel ends plotting
 }
 function hideRoutesPanel() { toggleRoutesPanel(false); }
 function routeAdd(x, z, index) {
@@ -1089,8 +1093,9 @@ const mapView = new MapView(document.getElementById("map-canvas"), {
 // Open the tactical map. Editable (route planning) only when NOT flying; in
 // flight it's a read-only nav system, so the route tools are hidden.
 function syncRouteBtn() {
-  const mr = document.getElementById("map-route");
-  if (mr) { mr.classList.toggle("on", mapView.routeMode); mr.textContent = mapView.routeMode ? "✓ DONE" : "◇ ROUTE"; }
+  const rp = document.getElementById("rp-plot"); // plotting now lives in the PLANS panel
+  if (rp) { rp.classList.toggle("on", mapView.routeMode); rp.textContent = mapView.routeMode ? "✓ Plotting" : "◇ Plot"; }
+  const rh = document.getElementById("rp-hint"); if (rh) rh.classList.toggle("hidden", !mapView.routeMode);
   const mcr = document.getElementById("map-carrier");
   if (mcr) { mcr.classList.toggle("on", mapView.carrierMode); mcr.textContent = mapView.carrierMode ? "✓ DONE" : "⊟ CARRIER"; }
   const mt = document.getElementById("map-target");
@@ -1103,10 +1108,10 @@ function openMap() {
   document.getElementById("mapview").classList.remove("planning");
   hideRoutesPanel();
   if (flying) { mapView.setRouteMode(false); mapView.setCarrierMode(false); showWptInspector(null); }
-  // Route + carrier planning is pre-flight only; target designation stays usable
-  // in flight (it's just a HUD flag, no world edits).
-  const rt = document.getElementById("map-route"), rc = document.getElementById("map-route-clear"), mcr = document.getElementById("map-carrier");
-  for (const el of [rt, rc, mcr]) if (el) el.style.display = flying ? "none" : "";
+  // Carrier planting is pre-flight only; PLANS (switch active) + TARGET stay
+  // usable in flight, and the PLANS panel hides its EDIT section when read-only.
+  const mcr = document.getElementById("map-carrier");
+  if (mcr) mcr.style.display = flying ? "none" : "";
   syncRouteBtn();
   mapView.open();
 }
@@ -1120,10 +1125,10 @@ function openMap() {
     ml.classList.toggle("on", mapView.labelsOn);
     ml.addEventListener("click", () => { mapView.setLabels(!mapView.labelsOn); ml.classList.toggle("on", mapView.labelsOn); });
   }
-  const mr = document.getElementById("map-route");
-  if (mr) mr.addEventListener("click", () => { mapView.setRouteMode(!mapView.routeMode); syncRouteBtn(); if (!mapView.routeMode) showWptInspector(null); });
-  const mrc = document.getElementById("map-route-clear");
-  if (mrc) mrc.addEventListener("click", () => { routeClear(); showWptInspector(null); mapView.draw(); });
+  const rpPlot = document.getElementById("rp-plot");
+  if (rpPlot) rpPlot.addEventListener("click", () => { if (!mapView.editable) return; mapView.setRouteMode(!mapView.routeMode); syncRouteBtn(); if (!mapView.routeMode) showWptInspector(null); });
+  const rpClear = document.getElementById("rp-clear");
+  if (rpClear) rpClear.addEventListener("click", () => { if (!mapView.editable) return; routeClear(); showWptInspector(null); mapView.draw(); renderRoutesPanel(); });
   const mcr = document.getElementById("map-carrier");
   if (mcr) mcr.addEventListener("click", () => { mapView.setCarrierMode(!mapView.carrierMode); syncRouteBtn(); if (mapView.carrierMode) showWptInspector(null); });
   const mt = document.getElementById("map-target");
