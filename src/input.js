@@ -109,6 +109,11 @@ export class Input {
 
   hasGamepad() { return !!this.getPad(); }
 
+  // True only for a HOTAS-style absolute throttle axis (a physical lever whose
+  // position IS the throttle). Keyboard and gamepad-trigger throttles integrate
+  // from zero, so they need no "sync to idle" before flight.
+  hasAbsoluteThrottle() { const pad = this.getPad(); return !!pad && !this._useGamepadScheme(pad); }
+
   setControllerType(t) {
     this.controllerType = t;
     try { localStorage.setItem(CTRL_KEY, t); } catch (_) {}

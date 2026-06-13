@@ -374,8 +374,8 @@ function updateSpeedLines(dt, amt) {
 }
 
 // Throttle "arming" gesture before a flight begins (see updateArming).
-let armActive = false, armUp = false, armOpposite = false, armInit = false, armHint = "";
-const ARM_HI = 0.9, ARM_LO = 0.08;
+let armActive = false, armHint = "";
+const ARM_LO = 0.08;
 
 const CAMS = ["Chase", "Far Chase", "Cockpit", "Rear View"];
 function camList() { return CAMS; }
@@ -1609,10 +1609,10 @@ function placePlayer() {
   touch.setGearFlaps(gearDown, flapsDown);
   touch.setVtol(false);
   ui.hideBanner();
-  // Require a deliberate throttle gesture before the sim runs.
-  armActive = true;
-  armUp = !groundStart;
-  armInit = false;
+  // Only a physical (HOTAS) throttle needs syncing before the sim runs, so its
+  // lever can't blast you off the runway — pull it to idle first. Keyboard /
+  // gamepad-trigger throttles start at zero already: no gate, just throttle up.
+  armActive = groundStart && input.hasAbsoluteThrottle();
   armHint = "";
 }
 
@@ -2028,23 +2028,11 @@ function menuCinematic(dt) {
 // (bump up-then-down if the lever is already idle); air starts arm at full
 // (bump down-then-up if already full). Clears armActive when satisfied.
 function updateArming(controls) {
-  const t = controls.throttle;
-  if (!armInit) {
-    armInit = true;
-    armOpposite = armUp ? t >= ARM_HI : t <= ARM_LO;
-  }
-  if (armOpposite) {
-    if (armUp ? t <= ARM_LO : t >= ARM_HI) armOpposite = false;
-  } else if (armUp ? t >= ARM_HI : t <= ARM_LO) {
-    armActive = false;
-    armHint = "";
-    ui.hideBanner();
-    return;
-  }
-  const hint = armUp
-    ? (armOpposite ? "Throttle to IDLE, then to FULL to launch" : "Throttle to FULL to launch")
-    : (armOpposite ? "Throttle UP, then back to IDLE to launch" : "Throttle to IDLE to launch");
-  if (hint !== armHint) { armHint = hint; ui.showBanner("READY?", hint); }
+  // HOTAS only: clear once the physical lever is pulled back to idle (syncing
+  // it), then it controls the throttle normally — advance it to take off / fly.
+  if (controls.throttle <= ARM_LO) { armActive = false; armHint = ""; ui.hideBanner(); return; }
+  const hint = "Pull throttle to IDLE to sync, then advance to fly";
+  if (hint !== armHint) { armHint = hint; ui.showBanner("SYNC THROTTLE", hint); }
 }
 
 // --- Seated VR: cockpit interior, in-headset HUD, comfort options ---
