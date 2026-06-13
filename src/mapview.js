@@ -739,6 +739,11 @@ export class MapView {
       if (is && this.opts.onPickTarget) { this.opts.onPickTarget(is.name); this.draw(); }
       return;
     }
+    if (this.routeMode) {
+      const wi = this._hitWaypoint(p.x, p.y);
+      if (wi >= 0) { this._selWpt = wi; if (this.opts.onSelectWaypoint) this.opts.onSelectWaypoint(wi); this.draw(); return; }
+      if (this.opts.onRouteAdd) { this.opts.onRouteAdd(this._tf.toWX(p.x), this._tf.toWZ(p.y), this._insertIndex(p.x, p.y)); this.draw(); return; }
+    }
     if (this.preflightOn) {
       const lp = this._hitLaunch(p.x, p.y);
       if (lp) { if (this.opts.onPickLaunch) this.opts.onPickLaunch(lp.id); return; }
@@ -746,11 +751,6 @@ export class MapView {
       if (is && this.opts.onPickIsland) { this.opts.onPickIsland(is.name); return; }
       if (this.preflightAir && this.opts.onPickAir) { this.opts.onPickAir(this._tf.toWX(p.x), this._tf.toWZ(p.y)); return; } // free flight: air-start anywhere
       return; // swallow stray clicks while planning (pan/zoom still work)
-    }
-    if (this.routeMode) {
-      const wi = this._hitWaypoint(p.x, p.y);
-      if (wi >= 0) { this._selWpt = wi; if (this.opts.onSelectWaypoint) this.opts.onSelectWaypoint(wi); this.draw(); return; }
-      if (this.opts.onRouteAdd) { this.opts.onRouteAdd(this._tf.toWX(p.x), this._tf.toWZ(p.y), this._insertIndex(p.x, p.y)); this.draw(); return; }
     }
     const is = this._hitIsland(p.x, p.y);
     if (is) this._zoomToIsland(is.name);
