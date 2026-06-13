@@ -593,7 +593,16 @@ function beginConquest(spawn, lives, difficulty) {
   if (!conquestRun) return;
   setLives(lives);
   conquestRun.difficulty = difficulty || conquestRun.difficulty;
-  conquestRun.setStart(spawn.node);
+  // Launching from the carrier seizes whichever island it's stationed nearest
+  // (it isn't tied to a home island); a runway launch seizes that island.
+  let startNode = spawn.node;
+  if (spawn.kind === "carrier") {
+    const c = getCarriers().find((k) => k.team === "ally") || spawn;
+    let best = null, bd = Infinity;
+    for (const n of conquestRun.nodes) { const d = Math.hypot(c.x - n.center.x, c.z - n.center.z); if (d < bd) { bd = d; best = n; } }
+    if (best) startNode = best.id;
+  }
+  conquestRun.setStart(startNode);
   saveConquest(); // record the new campaign with its beachhead
   conquestSpawn = spawn;
   startFlight(jetType, "conquest");
