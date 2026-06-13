@@ -1156,10 +1156,14 @@ function buildIsland(scene, is, waveMats, colliders, smokeSources, trees, spinne
           const h = H(x, z);
           if (h < 4 || onRiver(x, z)) continue;
           const edge = Math.max(Math.abs(gx), Math.abs(gz));
-          const bh = 18 + rnd() * mh * (1 - edge / (gr + 1.5));
+          // Scale pass: lift the height FLOOR (18 -> 34) and bulk up FOOTPRINTS
+          // (~1.8x) so settlements read as substantial from the air — they felt
+          // too small. Peak heights (maxHeight) are untouched so the
+          // village/town/city hierarchy still holds.
+          const bh = 34 + rnd() * mh * (1 - edge / (gr + 1.5));
           const tall = bh > 50;
-          const bw = tall ? 16 + rnd() * 18 : 20 + rnd() * 24;
-          const bd = tall ? 16 + rnd() * 18 : 20 + rnd() * 24;
+          const bw = (tall ? 16 + rnd() * 18 : 20 + rnd() * 24) * 1.8;
+          const bd = (tall ? 16 + rnd() * 18 : 20 + rnd() * 24) * 1.8;
           tp.set(x, h + bh / 2, z); ts.set(bw, bh, bd);
           buildings.setMatrixAt(n, m4.compose(tp, noRot, ts));
           buildings.setColorAt(n, tmpCol.setHex(wallTones[(rnd() * wallTones.length) | 0]));
@@ -1286,7 +1290,7 @@ function buildIsland(scene, is, waveMats, colliders, smokeSources, trees, spinne
     const cd = Math.hypot(cf.x, cf.z) || 1;
     const lx = (-cf.x / cd) * 6900, lz = (-cf.z / cd) * 6900; // opposite side, near the coast
     const lh = buildLighthouse();
-    lh.scale.set(3.4, 4.4, 3.4); // big, and noticeably taller than wide
+    lh.scale.set(1.7, 2.2, 1.7); // ~5x real (was ~10x) — still a tall landmark, less cartoonish
     lh.position.set(lx, Math.max(H(lx, lz), SEA_LEVEL + 2), lz);
     grp.add(lh);
     if (spinners && lh.userData.beacon) spinners.push({ obj: lh.userData.beacon, speed: 0.35 });
