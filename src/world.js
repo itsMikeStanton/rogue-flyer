@@ -1173,7 +1173,12 @@ function buildIsland(scene, is, waveMats, colliders, smokeSources, trees, spinne
     let n = 0, fr = 0, hr = 0, cp = 0, ac = 0, an = 0;
     for (const s of is.settlements) {
       const cx = s.x, cz = s.z, gr = s.radius, sp = s.spacing, mh = s.maxHeight;
-      const st = STYLES[s.style || is.culture || KIND_STYLE[s.kind] || "modern"]; // per-settlement > island culture > kind default
+      const baseSt = STYLES[s.style || is.culture || KIND_STYLE[s.kind] || "modern"]; // per-settlement > island culture > kind default
+      // A `primary` settlement is the island's standout, more-developed centre:
+      // denser, taller, more antennas than its satellites (same palette/style).
+      const st = s.primary
+        ? { ...baseSt, base: baseSt.base * 1.25, peak: baseSt.peak * 1.4, gap: baseSt.gap * 0.35, ant: Math.min(1, baseSt.ant * 1.6) }
+        : baseSt;
       for (let gx = -gr; gx <= gr && n < MAX; gx++) {
         for (let gz = -gr; gz <= gr && n < MAX; gz++) {
           if (rnd() < st.gap) continue;

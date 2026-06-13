@@ -13,7 +13,7 @@ const HOME_SETTLEMENTS = [
   { kind: "town", x: 3200, z: -3500, radius: 2, spacing: 115, maxHeight: 150 },
   { kind: "town", x: -4200, z: 2600, radius: 2, spacing: 115, maxHeight: 140 },
   { kind: "town", x: 1600, z: 5200, radius: 2, spacing: 110, maxHeight: 130 },
-  { kind: "city", x: 5200, z: 2600, radius: 3, spacing: 130, maxHeight: 230 },
+  { kind: "city", x: 5200, z: 2600, radius: 3, spacing: 130, maxHeight: 230, primary: true }, // home's downtown
   { kind: "city", x: -2600, z: -5200, radius: 3, spacing: 130, maxHeight: 240 },
   { kind: "village", x: -1000, z: 3400, radius: 1, spacing: 90, maxHeight: 70 },
   { kind: "village", x: 4200, z: -1200, radius: 1, spacing: 90, maxHeight: 70 },
@@ -138,7 +138,7 @@ export function defaultWorldConfig() {
         forest: { extent: 11200, gridN: 96, maxTrees: 18000, perCell: 12, density: null },
         // A ring of tall districts terraced around the peak's base.
         settlements: [
-          { kind: "city", x: 3400, z: 1600, radius: 4, spacing: 132, maxHeight: 330 },
+          { kind: "city", x: 3400, z: 1600, radius: 4, spacing: 132, maxHeight: 330, primary: true }, // the towering capital
           { kind: "city", x: -3000, z: 2400, radius: 4, spacing: 132, maxHeight: 310 },
           { kind: "city", x: -1600, z: -3600, radius: 3, spacing: 128, maxHeight: 300 },
           { kind: "city", x: 3000, z: -2800, radius: 3, spacing: 128, maxHeight: 290 },
@@ -212,7 +212,7 @@ export function defaultWorldConfig() {
         forest: { extent: 10000, gridN: 96, maxTrees: 20000, perCell: 16, density: null },
         river: null, landmarks: false, roads: [], bridges: [],
         settlements: [
-          { kind: "city", x: 0, z: 5200, radius: 3, spacing: 130, maxHeight: 240 },
+          { kind: "city", x: 0, z: 5200, radius: 3, spacing: 130, maxHeight: 240, style: "industrial", primary: true }, // standout industrial hub amid normal towns
           { kind: "town", x: 5200, z: 1600, radius: 2, spacing: 120, maxHeight: 160 },
           { kind: "town", x: -5200, z: 1600, radius: 2, spacing: 120, maxHeight: 160 },
           { kind: "town", x: 6200, z: -3200, radius: 2, spacing: 115, maxHeight: 140 },
@@ -252,7 +252,7 @@ export function defaultWorldConfig() {
         forest: { extent: 3500, gridN: 64, maxTrees: 2500, perCell: 8, density: null },
         river: null, landmarks: false, roads: [], bridges: [],
         settlements: [
-          { kind: "city", x: 0, z: 1100, radius: 3, spacing: 120, maxHeight: 300 },
+          { kind: "city", x: 0, z: 1100, radius: 3, spacing: 120, maxHeight: 300, primary: true }, // the eyrie's crowning core
           { kind: "town", x: 1300, z: -1100, radius: 2, spacing: 110, maxHeight: 200 },
           { kind: "town", x: -1300, z: -1100, radius: 2, spacing: 110, maxHeight: 200 },
         ],
