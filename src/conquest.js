@@ -47,6 +47,7 @@ export class ConquestRun {
         faction: is.faction,
         stance,                 // "enemy" | "neutral" | "ally" toward the player
         center: { x: is.center.x, z: is.center.z },
+        outer: is.outer || 9500, // island radius — used to bind only on-island targets
         spawns: is.spawns.map((s) => ({ ...s })),
         owner: friendly ? "player" : "enemy", // "player" once captured / if friendly
         captured: friendly,
@@ -110,7 +111,9 @@ export class ConquestRun {
         const d = dx * dx + dz * dz;
         if (d < bd) { bd = d; best = n; }
       }
-      if (best) { t._node = best.id; best.targets.push(t); }
+      // Only bind a target that actually sits on the island — off-island things
+      // (e.g. the enemy carrier far offshore) are NOT capture objectives.
+      if (best && bd <= Math.pow((best.outer || 9500) * 1.2, 2)) { t._node = best.id; best.targets.push(t); }
     }
     for (const n of this.ownedNodes()) for (const t of n.targets) {
       t.alive = false;

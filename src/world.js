@@ -118,7 +118,7 @@ export function getIslandSpawns() {
       if (c.team !== "ally") continue; // only the player's single carrier is a launch point (enemy carriers are targets, not bases)
       spawns.push({ kind: "carrier", name: "Carrier", team: c.team, x: c.x + is.center.x, z: c.z + is.center.z, halfL: c.halfL, halfW: c.halfW });
     }
-    out.push({ name: is.name, faction: is.faction, center: { x: is.center.x, z: is.center.z }, spawns });
+    out.push({ name: is.name, faction: is.faction, center: { x: is.center.x, z: is.center.z }, outer: (is.terrain && is.terrain.islandOuter) || 9500, spawns });
   }
   return out;
 }

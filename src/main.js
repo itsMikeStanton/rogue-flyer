@@ -719,6 +719,24 @@ function cancelPreflight() {
 }
 // The nearest enemy island's pickets scramble as you arrive; its targets become
 // the active objective so the HUD marks them.
+// Build the capture checklist for an island from the actual installations bound
+// to it — one objective per target type, so the HUD lists the specific things
+// left to destroy (not a single vague "Seize" line).
+const OBJ_NAME = { powerplant: "Power plant", carrier: "Enemy carrier", sam: "SAM sites", radar: "Radar", bunker: "Bunkers", tank: "Fuel depots", aa: "AA guns" };
+const OBJ_ORDER = ["powerplant", "carrier", "sam", "radar", "bunker", "tank", "aa"];
+function conquestObjectives(node) {
+  const ess = (node.targets || []).filter((t) => !t.ambient);
+  const types = [];
+  for (const t of ess) { const ty = t.info ? "carrier" : t.type; if (ty && !types.includes(ty)) types.push(ty); }
+  types.sort((a, b) => (OBJ_ORDER.indexOf(a) + 1 || 99) - (OBJ_ORDER.indexOf(b) + 1 || 99));
+  const objs = types.map((ty, i) => ({
+    type: "destroy", priority: i === 0 ? "primary" : "secondary",
+    label: OBJ_NAME[ty] || ty.toUpperCase(),
+    match: (t) => t._node === node.id && !t.ambient && (ty === "carrier" ? !!t.info : t.type === ty),
+  }));
+  if (!objs.length) objs.push({ type: "destroy", priority: "primary", label: "Seize " + node.name, match: (t) => t._node === node.id && !t.ambient });
+  return objs;
+}
 function wakeIsland(node) {
   node.awake = true;
   conquestRun.activeId = node.id;
@@ -734,7 +752,7 @@ function wakeIsland(node) {
     }
   }
   missionDone = false;
-  missions.load({ objectives: [{ type: "destroy", priority: "primary", label: "Seize " + node.name, match: (t) => t._node === node.id }] }, ground);
+  missions.load({ objectives: conquestObjectives(node) }, ground);
   flashBanner("DEFENSES SCRAMBLING", node.name + " is defending — clear it out", 3);
 }
 // Plant the friendly carrier at a player-chosen world point. The map already
@@ -2671,9 +2689,12 @@ function frame(now) {
     }
     // Objective checklist (the in-world targets are drawn as the yellow objective
     // contacts below — no separate nearest-objective marker, to avoid double-yellow).
-    let objectives = null;
+    let objectives = null, objectiveTitle = null;
     const isMissionHud = gameMode === "mission" || gameMode === "campaign" || gameMode === "conquest";
     if (isMissionHud) objectives = missions.hudData(projectHud, state.position).objectives;
+    if (gameMode === "conquest" && conquestRun && conquestRun.activeId != null) {
+      const an = conquestRun.node(conquestRun.activeId); if (an) objectiveTitle = "SEIZE " + an.name.toUpperCase();
+    }
     // Nav markers to other islands (so the open ocean isn't a void).
     let islandMarkers = null;
     if (world.islands && world.islands.length > 1) {
@@ -2807,6 +2828,7 @@ function frame(now) {
       // contacts, radar); nav island markers + instruments stay.
       lock: radarOff ? null : lock,
       objectives: radarOff ? null : objectives,
+      objectiveTitle: radarOff ? null : objectiveTitle,
       objectivesLeft: radarOff ? 0 : objCount,
       threat: radarOff ? null : threatState, // "tracking" | "hunting" | null
 

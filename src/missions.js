@@ -110,10 +110,15 @@ export class MissionManager {
     }
     let objective = null;
     if (bp) objective = { dist: bd, ...project(bp) };
-    const objectives = this.objectives.map((o) => ({
-      label: o.label, priority: o.priority, state: o.state,
-      timeLeft: o.timer != null && o.state === "active" ? Math.max(0, Math.ceil(o.timeLeft)) : null,
-    }));
+    const objectives = this.objectives.map((o) => {
+      const counted = (o.type === "destroy" || o.type === "defend") && o.targets;
+      return {
+        label: o.label, priority: o.priority, state: o.state,
+        left: counted ? o.targets.filter((t) => t.alive).length : null, // targets still standing
+        total: counted ? o.targets.length : null,
+        timeLeft: o.timer != null && o.state === "active" ? Math.max(0, Math.ceil(o.timeLeft)) : null,
+      };
+    });
     return { objective, objectives };
   }
 }

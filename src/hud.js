@@ -200,7 +200,7 @@ export class Hud {
 
     // Objective checklist panel (top-left). The in-world targets are the yellow
     // objective contacts (drawn with the air/ground contacts).
-    if (extra.objectives && extra.objectives.length) this.objectiveList(extra.objectives);
+    if (extra.objectives && extra.objectives.length) this.objectiveList(extra.objectives, extra.objectiveTitle);
     // Must-destroy count (strike/conquest): how many targets left to clear.
     if (extra.objectivesLeft > 0) {
       ctx.textAlign = "center"; ctx.fillStyle = "#ffe14a"; ctx.font = "700 13px 'Consolas', monospace";
@@ -639,19 +639,20 @@ export class Hud {
   }
 
   // Mission objective checklist, top-left under the ordnance row.
-  objectiveList(list) {
+  objectiveList(list, title) {
     const ctx = this.ctx;
     ctx.save();
     ctx.textAlign = "left";
     ctx.font = "12px 'Consolas', monospace";
     let y = 124;
     ctx.fillStyle = "#9fb3c4";
-    ctx.fillText("OBJECTIVES", 20, y); y += 18;
+    ctx.fillText(title || "OBJECTIVES", 20, y); y += 18;
     for (const o of list) {
       const done = o.state === "done", failed = o.state === "failed";
       const mark = done ? "✓" : failed ? "✗" : o.priority === "optional" ? "○" : o.priority === "secondary" ? "◆" : "●";
       ctx.fillStyle = done ? "#36ff9a" : failed ? "#ff5b5b" : o.priority === "optional" ? "#8fa0b0" : "#ffd23f";
       let label = `${mark} ${o.label}`;
+      if (!done && !failed && o.total != null && o.total > 1) label += `  ×${o.left}`; // how many of this type remain
       if (o.timeLeft != null) label += `  ${o.timeLeft}s`;
       ctx.fillText(label, 20, y);
       y += 17;
