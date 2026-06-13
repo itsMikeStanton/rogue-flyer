@@ -1610,6 +1610,15 @@ function placePlayer() {
     state.onGround = true;
     input.kbThrottle = 0.7;
   }
+  // FFA: scatter air spawns (and random heading) so pilots don't stack on the
+  // same point each launch/respawn.
+  if (gameMode === "ffa" && !state.onGround) {
+    const a = Math.random() * Math.PI * 2, r = 500 + Math.random() * 2200;
+    state.position.x += Math.cos(a) * r;
+    state.position.z += Math.sin(a) * r;
+    state.quaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.random() * Math.PI * 2);
+    state.velocity.set(0, 0, -180).applyQuaternion(state.quaternion);
+  }
   weapons.reset(def.loadout); // per-aircraft loadout (missiles / rockets / bombs)
   enemyOrdnance.reset();      // a fresh aircraft shouldn't inherit incoming fire
   camShake = 0;
