@@ -8,10 +8,10 @@ LAN play works with no HTTPS/cert/mixed-content hassle.
 ```bash
 cd server
 npm install     # once — pulls in `ws`
-npm start       # serves on port 8080 (set PORT=xxxx to change)
+npm start       # serves on port 7359 ("RFLY"; set PORT=xxxx to change)
 ```
 
-It prints a `http://<your-ip>:8080` URL. Everyone on the same Wi-Fi opens that
+It prints a `http://<your-ip>:7359` URL. Everyone on the same Wi-Fi opens that
 URL, picks **Multiplayer FFA** from the mode list, and flies. You'll see each
 other and (once enabled) shoot each other.
 

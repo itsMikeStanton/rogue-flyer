@@ -2,7 +2,7 @@
 //
 // Serves the game's static files AND a WebSocket relay on the SAME port, so the
 // browser connects to ws://<same-host> with no mixed-content/HTTPS problems.
-// Everyone on the Wi-Fi opens http://<your-ip>:8080 and plays.
+// Everyone on the Wi-Fi opens http://<your-ip>:7359 and plays.
 //
 //   cd server && npm install && npm start
 //
@@ -16,7 +16,7 @@ const os = require("os");
 const { WebSocketServer } = require("ws");
 
 const ROOT = path.resolve(__dirname, "..");        // repo root = the game
-const PORT = process.env.PORT || 8080;
+const PORT = process.env.PORT || 7359; // "RFLY" — Rogue Flyer's own port (avoids the usual dev-server clashes)
 const MIME = {
   ".html": "text/html", ".js": "text/javascript", ".mjs": "text/javascript",
   ".css": "text/css", ".json": "application/json", ".png": "image/png",
