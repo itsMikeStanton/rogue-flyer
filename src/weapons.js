@@ -379,6 +379,41 @@ export class Weapons {
     return true;
   }
 
+  // Visual-only projectile fired by ANOTHER player (networked from main.js). It
+  // flies and trails for show but deals NO damage and uses NO ammo — the
+  // shooter's own sim resolves hits via the netTarget proxies. This just lets
+  // every pilot SEE each other's gunfire / missiles / rockets / bombs.
+  spawnRemote(kind, px, py, pz, dx, dy, dz) {
+    const p = new THREE.Vector3(px, py, pz);
+    const d = new THREE.Vector3(dx, dy, dz);
+    if (d.lengthSq() < 1e-6) d.set(0, 0, -1);
+    d.normalize();
+    const q = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, -1), d);
+    if (kind === "gun") {
+      const m = new THREE.Mesh(this.bulletGeo, this.bulletMat);
+      m.position.copy(p); m.quaternion.copy(q); this.scene.add(m);
+      this.bullets.push({ mesh: m, vel: d.clone().multiplyScalar(BULLET_SPEED), life: BULLET_LIFE, ghost: true });
+    } else if (kind === "missile" || kind === "rocket") {
+      const rocket = kind === "rocket";
+      const m = rocket ? new THREE.Mesh(this.rocketGeo, this.mslMat) : this._missileMesh();
+      m.position.copy(p); m.quaternion.copy(q);
+      const flame = new THREE.Mesh(this.mslFlameGeo, this.mslFlameMat.clone());
+      flame.rotation.x = Math.PI / 2; flame.position.z = rocket ? 1.0 : 1.7; if (rocket) flame.scale.setScalar(0.7); flame.visible = false;
+      m.add(flame); this.scene.add(m);
+      this.missiles.push({
+        mesh: m, vel: d.clone().multiplyScalar(rocket ? ROCKET_SPEED : 200), flame,
+        trail: rocket ? new Ribbon(this.scene, { baseW: 0.3, expand: 7, alpha: 0.4 }) : new Ribbon(this.scene),
+        target: null, fwd0: d.clone(),
+        age: MSL_DROP, lit: false, life: rocket ? ROCKET_LIFE : MSL_LIFE,
+        smokeTimer: 0, smokeEvery: rocket ? 0.05 : SMOKE_INTERVAL, dmg: 0, rocket, ghost: true,
+      });
+    } else if (kind === "bomb") {
+      const m = new THREE.Mesh(this.bombGeo, this.bombMat);
+      m.position.copy(p); m.quaternion.copy(q); this.scene.add(m);
+      this.bombs.push({ mesh: m, vel: d.clone().multiplyScalar(60), life: 14, ghost: true });
+    }
+  }
+
   _emitSmoke(pos) {
     const s0 = 0.55 + Math.random() * 1.25;       // much wider size variation per puff
     const op0 = 0.35 + Math.random() * 0.3;
@@ -486,7 +521,7 @@ export class Weapons {
         this.fx.add(bp, 0.4, 0x9a8a6a, true);
         hit = true;
       }
-      if (!hit) for (const t of targets) {
+      if (!hit && !b.ghost) for (const t of targets) {
         if (!t.alive) continue;
         if (bp.distanceTo(t.position) < t.radius) {
           t.hit(GUN_DAMAGE);
@@ -564,7 +599,7 @@ export class Weapons {
         detonate = true;
       }
       // Proximity-detonate near ANY target, so unguided rockets also score hits.
-      if (!detonate) for (const t of targets) {
+      if (!detonate && !m.ghost) for (const t of targets) {
         if (!t.alive) continue;
         if (mp.distanceTo(t.position) < MSL_PROX) {
           t.hit(m.dmg);
@@ -590,11 +625,11 @@ export class Weapons {
       b.life -= dt;
       const bp = b.mesh.position;
       let boom = bp.y <= surfaceAt(bp.x, bp.z);
-      if (!boom) for (const t of targets) { if (t.alive && bp.distanceTo(t.position) < t.radius + 16) { boom = true; break; } }
+      if (!boom && !b.ghost) for (const t of targets) { if (t.alive && bp.distanceTo(t.position) < t.radius + 16) { boom = true; break; } }
       if (boom || b.life <= 0) {
         this.fx.add(bp, 4.2);                                  // big blast
         if (this.onGroundImpact) this.onGroundImpact(bp);      // scorch + fire on land
-        for (const t of targets) if (t.alive && bp.distanceTo(t.position) < BOMB_RADIUS) { t.hit(BOMB_DAMAGE); if (this.onHit) this.onHit(t); }
+        if (!b.ghost) for (const t of targets) if (t.alive && bp.distanceTo(t.position) < BOMB_RADIUS) { t.hit(BOMB_DAMAGE); if (this.onHit) this.onHit(t); }
         this.scene.remove(b.mesh);
         this.bombs.splice(i, 1);
       }

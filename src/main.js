@@ -1228,15 +1228,30 @@ function playerColor(id) { return new THREE.Color().setHSL(((id * 47) % 360) / 3
 net.onEvent = (t, m) => {
   if (t === "leave") { const mesh = netMeshes.get(m.id); if (mesh) { scene.remove(mesh); netMeshes.delete(m.id); } }
   else if (t === "hit") { if (flying && gameMode === "ffa") player.applyDamage(m.dmg); } // someone hit us
-  else if (t === "fire" && m.kind === "flare" && m.p) {
-    // Another pilot popped flares: show them and add decoys so OUR missiles
-    // tracking that player can be lured off (the decoy runs on the shooter's side).
-    const fp = _v.set(m.p[0], m.p[1], m.p[2]).clone();
-    const away = (m.dir ? _v2.set(m.dir[0], m.dir[1], m.dir[2]) : _v2.set(0, 0, 1)).clone().multiplyScalar(120);
-    for (let i = 0; i < 6; i++) fx.flare(fp, away);
-    weapons.addFlares(fp);
+  else if (t === "fire" && m.p) {
+    const px = m.p[0], py = m.p[1], pz = m.p[2];
+    const dx = m.dir ? m.dir[0] : 0, dy = m.dir ? m.dir[1] : 0, dz = m.dir ? m.dir[2] : -1;
+    if (m.kind === "flare") {
+      // Another pilot popped flares: show them and add decoys so OUR missiles
+      // tracking that player can be lured off (the decoy runs on the shooter's side).
+      const fp = _v.set(px, py, pz).clone();
+      const away = (m.dir ? _v2.set(dx, dy, dz) : _v2.set(0, 0, 1)).clone().multiplyScalar(120);
+      for (let i = 0; i < 6; i++) fx.flare(fp, away);
+      weapons.addFlares(fp);
+    } else {
+      // Gun / missile / rocket / bomb: spawn a visual-only round so we SEE it.
+      weapons.spawnRemote(m.kind, px, py, pz, dx, dy, dz);
+      if (m.kind === "missile" || m.kind === "rocket") sound.missile();
+    }
   }
 };
+// Broadcast a weapon discharge so other pilots SEE it (visual only — damage is
+// resolved by our own sim hitting their netTarget proxies).
+function netFire(kind) {
+  if (gameMode !== "ffa" || !net.connected) return;
+  const f = _v.set(0, 0, -1).applyQuaternion(state.quaternion).normalize();
+  net.sendFire(kind, state.position, f);
+}
 function clearRemotePlayers() { for (const mesh of netMeshes.values()) scene.remove(mesh); netMeshes.clear(); netTargets.length = 0; }
 function updateRemotePlayers(dt) {
   net.interpolate(dt);
@@ -2425,10 +2440,10 @@ function frame(now) {
     if (supply.active) activeTargets.push(supply.active); // gun/missile-lockable resupply
     // No weapons while the afterburner is lit — it's pure high-speed travel.
     if (!boostActive) {
-      if (controls.fire && weapons.fire(state.position, state.quaternion, activeTargets)) sound.gun();
-      if (controls.missilePressed && weapons.fireMissile(state.position, state.quaternion, state.velocity)) { sound.missile(); comms("Fox two", "msl", 0.7); }
-      if (controls.rocketPressed && weapons.fireRocket(state.position, state.quaternion, state.velocity)) { sound.missile(); comms("Rifle", "rkt", 0.7); }
-      if (controls.bombPressed && weapons.dropBomb(state.position, state.quaternion, state.velocity)) { sound.bomb(); comms("Bombs away", "bomb", 0.9); }
+      if (controls.fire && weapons.fire(state.position, state.quaternion, activeTargets)) { sound.gun(); netFire("gun"); }
+      if (controls.missilePressed && weapons.fireMissile(state.position, state.quaternion, state.velocity)) { sound.missile(); comms("Fox two", "msl", 0.7); netFire("missile"); }
+      if (controls.rocketPressed && weapons.fireRocket(state.position, state.quaternion, state.velocity)) { sound.missile(); comms("Rifle", "rkt", 0.7); netFire("rocket"); }
+      if (controls.bombPressed && weapons.dropBomb(state.position, state.quaternion, state.velocity)) { sound.bomb(); comms("Bombs away", "bomb", 0.9); netFire("bomb"); }
     }
     weapons.update(dt, state.position, state.quaternion, activeTargets);
     updateResupply(dt);
