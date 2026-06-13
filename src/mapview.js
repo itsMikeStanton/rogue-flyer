@@ -25,7 +25,7 @@ function css(hex) { return "#" + (hex & 0xffffff).toString(16).padStart(6, "0");
 // level (no beaching it in the shallows), and stand off at least this far from
 // the edge of any island the player is at war with.
 const CARRIER_MIN_DEPTH = 12;
-const CARRIER_STANDOFF = 3200;
+const CARRIER_STANDOFF = 4500;
 
 const SIDE_COL = { hostile: "#d9774a", friendly: "#62c98a", neutral: "#97a4ac" };
 // Which installation kinds get a persistent text label (the rest are hover-only,
@@ -154,8 +154,10 @@ export class MapView {
     if (terrainHeight(wx, wz) > SEA_LEVEL - CARRIER_MIN_DEPTH) return false; // land or shallows
     const F = this.opts.getFactions && this.opts.getFactions();
     for (const is of this._islands()) {
-      const hostile = F && this.opts.factionOf && F.vsPlayer(this.opts.factionOf(is.name)) === "enemy";
-      if (!hostile) continue;
+      // Stand off any island that isn't friendly — enemy or unknown/neutral
+      // (so the rule still holds on the menu map, where there's no faction yet).
+      const stance = (F && this.opts.factionOf) ? F.vsPlayer(this.opts.factionOf(is.name)) : "neutral";
+      if (stance === "ally") continue; // may station close to a friendly island
       if (Math.hypot(wx - is.center.x, wz - is.center.z) - (is.outer || 9000) < CARRIER_STANDOFF) return false;
     }
     return true;

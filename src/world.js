@@ -115,7 +115,8 @@ export function getIslandSpawns() {
     const sp = is.spawn || { x: 0, z: 520 };
     const spawns = [{ kind: "runway", name: is.name + " airfield", x: (sp.x || 0) + is.center.x, z: (sp.z || 0) + is.center.z }];
     for (const c of (is.carriers || [])) {
-      spawns.push({ kind: "carrier", name: is.name + " carrier", team: c.team, x: c.x + is.center.x, z: c.z + is.center.z, halfL: c.halfL, halfW: c.halfW });
+      if (c.team !== "ally") continue; // only the player's single carrier is a launch point (enemy carriers are targets, not bases)
+      spawns.push({ kind: "carrier", name: "Carrier", team: c.team, x: c.x + is.center.x, z: c.z + is.center.z, halfL: c.halfL, halfW: c.halfW });
     }
     out.push({ name: is.name, faction: is.faction, center: { x: is.center.x, z: is.center.z }, spawns });
   }
