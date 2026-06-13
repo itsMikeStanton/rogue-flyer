@@ -25,7 +25,8 @@ function css(hex) { return "#" + (hex & 0xffffff).toString(16).padStart(6, "0");
 // level (no beaching it in the shallows), and stand off at least this far from
 // the edge of any island the player is at war with.
 const CARRIER_MIN_DEPTH = 12;
-const CARRIER_STANDOFF = 4500;
+const CARRIER_STANDOFF = 4500;     // clearance from a non-friendly island's edge
+const CARRIER_ENEMY_SHIP = 6000;   // clearance from a hostile carrier
 
 const SIDE_COL = { hostile: "#d9774a", friendly: "#62c98a", neutral: "#97a4ac" };
 // Which installation kinds get a persistent text label (the rest are hover-only,
@@ -159,6 +160,11 @@ export class MapView {
       const stance = (F && this.opts.factionOf) ? F.vsPlayer(this.opts.factionOf(is.name)) : "neutral";
       if (stance === "ally") continue; // may station close to a friendly island
       if (Math.hypot(wx - is.center.x, wz - is.center.z) - (is.outer || 9000) < CARRIER_STANDOFF) return false;
+    }
+    // Keep clear of the hostile carrier too.
+    const sites = (this.opts.getSites && this.opts.getSites()) || [];
+    for (const s of sites) {
+      if (s.kind === "carrier" && s.side === "hostile" && Math.hypot(wx - s.x, wz - s.z) < CARRIER_ENEMY_SHIP) return false;
     }
     return true;
   }
