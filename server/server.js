@@ -71,6 +71,16 @@ wss.on("connection", (ws) => {
   ws.on("error", () => {});
 });
 
+server.on("error", (err) => {
+  if (err.code === "EADDRINUSE") {
+    console.error(`\n  Port ${PORT} is already in use — a server is probably still running.`);
+    console.error(`  Free it:              lsof -ti:${PORT} | xargs kill -9`);
+    console.error(`  Or pick another port: PORT=${Number(PORT) + 1} npm start\n`);
+    process.exit(1);
+  }
+  throw err;
+});
+
 server.listen(PORT, () => {
   const ips = [];
   for (const ifs of Object.values(os.networkInterfaces())) for (const i of ifs) if (i.family === "IPv4" && !i.internal) ips.push(i.address);
