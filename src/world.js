@@ -1308,6 +1308,86 @@ function buildIsland(scene, is, waveMats, colliders, smokeSources, trees, spinne
 
   // (Suspension bridges removed along with the river.)
 
+  // ---- Farmland: a patchwork of crop / tilled field tiles across the gentle
+  //      lowlands, clustered by a coarse noise so it reads as worked land from
+  //      the air (this is what fills the empty green between settlements). ----
+  {
+    const FIELD_MAX = 2800;
+    const fields = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1),
+      new THREE.MeshStandardMaterial({ roughness: 0.96, flatShading: true }), FIELD_MAX);
+    fields.receiveShadow = true;
+    const flat = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2);
+    const cropTones = [0x7a8f3e, 0x90a04a, 0xb9ad5a, 0xd2c878, 0x9c8a4e, 0x8a6f43, 0x6f8137, 0xafb56e, 0xc7b85e];
+    const fc = new THREE.Color();
+    const e = is.forest.extent, step = 150;
+    let nf = 0;
+    for (let z = -e; z <= e && nf < FIELD_MAX; z += step) {
+      for (let x = -e; x <= e && nf < FIELD_MAX; x += step) {
+        const fn = smoothNoise((x + cx0) * 0.00045, (z + cz0) * 0.00045);
+        if (fn < 0.40 || fn > 0.78) continue;                 // farmland belts, not blanket coverage
+        const jx = x + (rnd() - 0.5) * step * 0.5, jz = z + (rnd() - 0.5) * step * 0.5;
+        if (Math.abs(jx) < 130 && Math.abs(jz) < 1100) continue; // keep off the runway
+        const h = H(jx, jz);
+        if (h < SEA_LEVEL + 6 || h > SEA_LEVEL + 320) continue;  // lowland only, not beach/water/highland
+        const s = step * 0.42;
+        const h1 = H(jx - s, jz - s), h2 = H(jx + s, jz - s), h3 = H(jx - s, jz + s), h4 = H(jx + s, jz + s);
+        if (Math.max(h, h1, h2, h3, h4) - Math.min(h, h1, h2, h3, h4) > 10) continue; // gentle slope only
+        const w = step * (0.74 + rnd() * 0.46), d = step * (0.74 + rnd() * 0.46);
+        tp.set(jx, h + 0.4, jz); ts.set(w, d, 1);
+        fields.setMatrixAt(nf, m4.compose(tp, flat, ts));
+        fields.setColorAt(nf, fc.setHex(cropTones[(rnd() * cropTones.length) | 0]));
+        nf++;
+      }
+    }
+    fields.count = nf;
+    fields.instanceMatrix.needsUpdate = true;
+    if (fields.instanceColor) fields.instanceColor.needsUpdate = true;
+    if (nf) grp.add(fields);
+  }
+
+  // ---- Airfield buildout: hangars, a control tower and fuel tanks alongside
+  //      the runway, so a base reads as a base instead of a bare strip. ----
+  {
+    const ry2 = H(0, 0);
+    const hangarWall = new THREE.MeshStandardMaterial({ color: 0x6f7479, flatShading: true, roughness: 0.85, metalness: 0.2 });
+    const hangarRoof = new THREE.MeshStandardMaterial({ color: 0x8a9097, flatShading: true, roughness: 0.7, metalness: 0.3 });
+    const towerMat = new THREE.MeshStandardMaterial({ color: 0x9aa0a6, flatShading: true, roughness: 0.8 });
+    const glassMat = new THREE.MeshStandardMaterial({ color: 0x2b3a44, emissive: 0x18323e, emissiveIntensity: 0.6, roughness: 0.3, metalness: 0.4 });
+    const tankMat = new THREE.MeshStandardMaterial({ color: 0xb7bcc0, flatShading: true, roughness: 0.7, metalness: 0.25 });
+    // Hangars: an arched (half-cylinder) roof on a low box, opening toward the apron.
+    for (let i = 0; i < 3; i++) {
+      const hx = 150, hz = -560 + i * 150, gy = H(hx, hz);
+      if (gy < SEA_LEVEL + 2) continue;
+      const body = new THREE.Mesh(new THREE.BoxGeometry(46, 16, 64), hangarWall);
+      body.position.set(hx, gy + 8, hz); body.castShadow = body.receiveShadow = true; grp.add(body);
+      const arch = new THREE.Mesh(new THREE.CylinderGeometry(23, 23, 64, 14, 1, false, 0, Math.PI), hangarRoof);
+      arch.rotation.z = Math.PI / 2; arch.rotation.y = Math.PI / 2; arch.position.set(hx, gy + 16, hz); arch.castShadow = true; grp.add(arch);
+      colliders.push({ x: cx0 + hx, z: cz0 + hz, hx: 24, hz: 33, top: gy + 38 });
+    }
+    // Control tower: a slim shaft with a cantilevered glass cab + a mast.
+    {
+      const tx = -130, tz = 280, gy = H(tx, tz);
+      if (gy > SEA_LEVEL + 2) {
+        const shaft = new THREE.Mesh(new THREE.CylinderGeometry(4.5, 6, 42, 8), towerMat);
+        shaft.position.set(tx, gy + 21, tz); shaft.castShadow = true; grp.add(shaft);
+        const cab = new THREE.Mesh(new THREE.CylinderGeometry(9, 8, 8, 8), glassMat);
+        cab.position.set(tx, gy + 46, tz); cab.castShadow = true; grp.add(cab);
+        const cap = new THREE.Mesh(new THREE.ConeGeometry(9, 4, 8), towerMat); cap.position.set(tx, gy + 52, tz); grp.add(cap);
+        const mast = new THREE.Mesh(new THREE.CylinderGeometry(0.4, 0.4, 16, 5), towerMat); mast.position.set(tx, gy + 62, tz); grp.add(mast);
+        colliders.push({ x: cx0 + tx, z: cz0 + tz, hx: 9, hz: 9, top: gy + 54 });
+      }
+    }
+    // Fuel-farm tanks: a couple of squat cylinders behind the hangars.
+    for (let i = 0; i < 3; i++) {
+      const fx = 215, fz = -520 + i * 70, gy = H(fx, fz);
+      if (gy < SEA_LEVEL + 2) continue;
+      const tank = new THREE.Mesh(new THREE.CylinderGeometry(15, 15, 16, 16), tankMat);
+      tank.position.set(fx, gy + 8, fz); tank.castShadow = true; grp.add(tank);
+      const lid = new THREE.Mesh(new THREE.CylinderGeometry(15, 13, 3, 16), tankMat); lid.position.set(fx, gy + 17, fz); grp.add(lid);
+      colliders.push({ x: cx0 + fx, z: cz0 + fz, hx: 15, hz: 15, top: gy + 18 });
+    }
+  }
+
   // ---- Landmarks: a lattice radio tower on the cliff, a lighthouse on the
   //      far shore (opposite the cliff). Both big, low-poly. Home's signature;
   //      islands can opt out (landmarks:false). ----
