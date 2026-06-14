@@ -301,6 +301,8 @@ function setTargetIsland(name) {
 // In-game vehicle bay: sim paused, camera orbits the parked vehicle at the spawn.
 let hangarMode = false, hangarAngle = 0;
 let hangarSpin = 0, hangarRadius = 8; // showroom preview: spin + auto-frame by size
+let bayInitial = false, bayReady = false, bayLaunching = false; // FFA lobby ready-up state
+let bayCountTimer = null;             // synchronized launch countdown
 const _hbBox = new THREE.Box3(), _hbTmp = new THREE.Box3(), _hbSph = new THREE.Sphere();
 function measureHangarVehicle() {
   if (!mesh) { hangarRadius = 8; return; }
@@ -1267,6 +1269,8 @@ function playerColor(id) { return new THREE.Color().setHSL(((id * 47) % 360) / 3
 net.onEvent = (t, m) => {
   if (t === "welcome") { syncRoomUrl(m.room); if (hangarMode) updateBayRoster(); } // address bar = the shareable invite
   else if (t === "join") { if (hangarMode) updateBayRoster(); } // someone joined while you wait in the bay
+  else if (t === "lobby") { if (hangarMode) updateBayRoster(); } // ready states changed in the room
+  else if (t === "launch") { if (hangarMode && bayInitial) startBayCountdown(m.n > 1 ? 3 : 1); } // everyone's ready — go together
   else if (t === "leave") { const mesh = netMeshes.get(m.id); if (mesh) { scene.remove(mesh); netMeshes.delete(m.id); } if (hangarMode) updateBayRoster(); }
   else if (t === "hit") { if (flying && gameMode === "ffa") player.applyDamage(m.dmg); } // someone hit us
   else if (t === "fire" && m.p) {
@@ -2037,6 +2041,8 @@ function startFlight(type, mode, start, vr) {
 function enterHangar(canStay) {
   hangarMode = true;
   hangarAngle = 0; hangarSpin = 0;
+  bayInitial = !canStay;         // ready-up only on the launch bay, not in-game reopens
+  bayReady = false; bayLaunching = false;
   placePlayer();                 // soft: park a fresh vehicle, world untouched
   gearDown = true; gearAnim = 1; flapsDown = false; // wheels down for the showroom
   measureHangarVehicle();        // frame the current vehicle in the showroom
@@ -2075,21 +2081,76 @@ function updateBayRoster() {
   if (!el) return;
   const show = hangarMode && gameMode === "ffa";
   el.classList.toggle("hidden", !show);
+  // The default SPAWN button only drives the ready-up flow; on the launch bay we
+  // hand the wheel to READY / Launch-now below, so hide it there.
+  const spawnBtn = document.getElementById("hangar-spawn");
+  if (spawnBtn) spawnBtn.classList.toggle("hidden", show && bayInitial);
   if (!show) return;
   const room = net.room || normRoomCode(playerRoom) || "PUBLIC";
   const isPrivate = room && room !== "PUBLIC";
-  const others = [];
-  for (const p of net.players.values()) if (p.id !== net.id) others.push(p.name || "Pilot");
+
+  // Roster: prefer the server lobby (carries ready/inGame); fall back to the
+  // plain player list before the first lobby message lands.
+  const lobby = (net.lobby || []).filter((p) => !p.inGame);
+  let rows, readyN = 0, waitN = 0;
+  if (lobby.length) {
+    waitN = lobby.length;
+    rows = lobby.map((p) => {
+      const mine = p.id === net.id;
+      if (p.ready) readyN++;
+      return `<div class="${mine ? "hbr-me" : ""}">${p.ready ? '<span class="hbr-rdy">✓</span>' : '<span class="hbr-wait">○</span>'} ${escHtml(p.name || "Pilot")}${mine ? ' <span class="hbr-tag">you</span>' : ""}</div>`;
+    }).join("");
+  } else {
+    waitN = 1; if (bayReady) readyN = 1;
+    rows = `<div class="hbr-me">${bayReady ? '<span class="hbr-rdy">✓</span>' : '<span class="hbr-wait">○</span>'} ${escHtml(playerName || "You")} <span class="hbr-tag">you</span></div>`;
+  }
   const head = (isPrivate ? "ROOM&nbsp;" + escHtml(room) : "PUBLIC GAME") +
-    ` <span class="hbr-count">${others.length + 1} ${others.length ? "pilots" : "pilot — waiting…"}</span>`;
-  const body = net.status === "error" ? `<div class="hbr-warn">No server reachable — start the host.</div>`
-    : net.status === "connecting" ? `<div class="hbr-warn">Connecting…</div>`
-    : `<div class="hbr-list"><div class="hbr-me">${escHtml(playerName || "You")} <span class="hbr-tag">you</span></div>` +
-      others.map((n) => `<div>${escHtml(n)}</div>`).join("") + `</div>`;
-  el.innerHTML = `<div class="hbr-head">${head}</div>${body}` +
-    `<button type="button" id="hbr-invite" class="ghost invite">⧉&nbsp;Copy invite link</button>`;
+    ` <span class="hbr-count">${readyN}/${waitN} ready</span>`;
+
+  let controls;
+  if (bayLaunching) {
+    controls = `<div class="hbr-launching">LAUNCHING…</div>`;
+  } else if (net.status === "error") {
+    controls = `<div class="hbr-warn">No server reachable — start the host.</div>`;
+  } else if (net.status === "connecting") {
+    controls = `<div class="hbr-warn">Connecting…</div>`;
+  } else {
+    controls =
+      `<button type="button" id="hbr-ready" class="${bayReady ? "primary" : ""} ready-btn">${bayReady ? "✓&nbsp;READY — waiting…" : "READY UP"}</button>` +
+      `<div class="hbr-row"><button type="button" id="hbr-launch" class="ghost">Launch now ▸</button>` +
+      `<button type="button" id="hbr-invite" class="ghost invite">⧉&nbsp;Invite</button></div>`;
+  }
+  el.innerHTML = `<div class="hbr-head">${head}</div><div class="hbr-list">${rows}</div>${controls}`;
+  const rdy = document.getElementById("hbr-ready");
+  if (rdy) rdy.onclick = () => { bayReady = !bayReady; net.sendReady(bayReady); updateBayRoster(); };
+  const lnow = document.getElementById("hbr-launch");
+  if (lnow) lnow.onclick = () => spawnFromBay(true);
   const inv = document.getElementById("hbr-invite");
   if (inv) inv.onclick = () => copyInviteLink(room, inv);
+}
+// Leave the bay into flight. notify=true tells the server we took off (solo
+// "Launch now"); the synchronized-launch path already marked us in-game.
+function spawnFromBay(notify) {
+  if (bayCountTimer) { clearInterval(bayCountTimer); bayCountTimer = null; }
+  if (!hangarMode) return;
+  bayLaunching = false; bayReady = false;
+  if (notify && net.connected) net.sendSpawned();
+  pickVehicle(jetType); // spawn the currently-previewed ride (same as SPAWN)
+}
+// Server says the whole ready lobby launches together — count down in sync.
+function startBayCountdown(secs) {
+  if (!hangarMode || bayLaunching) return;
+  bayLaunching = true;
+  let n = Math.max(1, secs | 0);
+  const tick = () => {
+    if (n <= 0) { clearInterval(bayCountTimer); bayCountTimer = null; spawnFromBay(false); return; }
+    const el = document.getElementById("hbr-launching");
+    if (el) el.textContent = "LAUNCHING IN " + n + "…";
+    n--;
+  };
+  updateBayRoster(); // swap controls to the LAUNCHING banner
+  tick();
+  bayCountTimer = setInterval(tick, 1000);
 }
 // Swap the previewed (rotating) vehicle without leaving the bay.
 function previewVehicle(type) {
@@ -2098,6 +2159,8 @@ function previewVehicle(type) {
 }
 function exitHangar() {
   hangarMode = false;
+  bayLaunching = false;
+  if (bayCountTimer) { clearInterval(bayCountTimer); bayCountTimer = null; }
   ui.hideHangar();
   placePlayer();                 // re-arm at the spawn so the throttle gate runs
   sound.startEngine();           // (restarts it after a crash silenced it)

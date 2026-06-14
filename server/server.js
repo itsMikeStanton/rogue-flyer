@@ -58,8 +58,27 @@ function broadcast(obj, room, exceptWs) {
   }
 }
 
+// Lobby = pilots in a room who are still in the vehicle bay (inGame === false).
+// "Launch together": when every waiting pilot in a room is ready (and there's at
+// least one), the whole lobby is launched at once. Solo readies up and goes too.
+function lobbyRoster(room) {
+  const out = [];
+  for (const c of clients.values()) if (c.room === room) out.push({ id: c.id, name: c.name, jet: c.jet, ready: !!c.ready, inGame: !!c.inGame });
+  return out;
+}
+function broadcastLobby(room) { broadcast({ t: "lobby", room, players: lobbyRoster(room) }, room); }
+function checkLaunch(room) {
+  const waiting = [];
+  for (const [ws, c] of clients) if (c.room === room && !c.inGame) waiting.push([ws, c]);
+  if (!waiting.length || !waiting.every(([, c]) => c.ready)) return;
+  const n = waiting.length;
+  const msg = JSON.stringify({ t: "launch", n });
+  for (const [ws, c] of waiting) { c.inGame = true; c.ready = false; if (ws.readyState === 1) ws.send(msg); }
+  broadcastLobby(room); // tell the room the launchers are now flying
+}
+
 wss.on("connection", (ws) => {
-  const me = { id: nextId++, name: "Pilot", jet: "f16", last: null, room: "PUBLIC" };
+  const me = { id: nextId++, name: "Pilot", jet: "f16", last: null, room: "PUBLIC", ready: false, inGame: false };
   clients.set(ws, me);
   ws.on("message", (buf) => {
     let m; try { m = JSON.parse(buf.toString()); } catch (_) { return; }
@@ -67,10 +86,19 @@ wss.on("connection", (ws) => {
       me.name = String(m.name || "Pilot").slice(0, 20);
       me.jet = m.jet || me.jet;
       me.room = normRoom(m.room);
+      me.ready = false; me.inGame = false; // a fresh join starts in the bay/lobby
       const players = [];
       for (const c of clients.values()) if (c.id !== me.id && c.room === me.room && c.last) players.push({ id: c.id, name: c.name, jet: c.jet, ...c.last });
       ws.send(JSON.stringify({ t: "welcome", id: me.id, room: me.room, players }));
       broadcast({ t: "join", id: me.id, name: me.name, jet: me.jet }, me.room, ws);
+      broadcastLobby(me.room);
+    } else if (m.t === "ready") {
+      me.ready = !!m.ready;
+      broadcastLobby(me.room);
+      checkLaunch(me.room);
+    } else if (m.t === "spawned") { // took off (ready-launch or solo "launch now")
+      me.inGame = true; me.ready = false;
+      broadcastLobby(me.room);
     } else if (m.t === "state") {
       me.jet = m.jet || me.jet;
       me.last = { p: m.p, q: m.q, health: m.health, alive: m.alive };
@@ -81,7 +109,7 @@ wss.on("connection", (ws) => {
       broadcast({ t: "hit", target: m.target, by: me.id, dmg: m.dmg }, me.room); // to the room (target applies it)
     }
   });
-  ws.on("close", () => { const room = me.room; clients.delete(ws); broadcast({ t: "leave", id: me.id }, room); });
+  ws.on("close", () => { const room = me.room; clients.delete(ws); broadcast({ t: "leave", id: me.id }, room); broadcastLobby(room); });
   ws.on("error", () => {});
 });
 
