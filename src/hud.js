@@ -1,6 +1,9 @@
 // Canvas-2D heads-up display drawn over the 3D scene.
 import { drawEmblem } from "./factionEmblems.js";
 
+// Corrupted interface colours the green symbology flickers to during a glitch.
+const GLITCH_COLS = ["#ff2d55", "#2de1ff", "#ffe23a", "#ff8a00", "#36ff9a", "#ffffff"];
+
 export class Hud {
   constructor(canvas) {
     this.canvas = canvas;
@@ -28,7 +31,10 @@ export class Hud {
     ctx.save();
     if (gl > 0.02) ctx.translate((Math.random() - 0.5) * 9 * gl, (Math.random() - 0.5) * 6 * gl);
     const cx = w / 2, cy = h / 2;
-    const green = t.stall ? "#ff5b5b" : "#36ff9a";
+    // The interface colour itself corrupts during a glitch — the green flickers
+    // to broken hues, so the actual symbology (not just an overlay) glitches.
+    let green = t.stall ? "#ff5b5b" : "#36ff9a";
+    if (gl > 0.02 && Math.random() < gl * 0.5) green = GLITCH_COLS[(Math.random() * GLITCH_COLS.length) | 0];
     ctx.strokeStyle = green;
     ctx.fillStyle = green;
     ctx.lineWidth = 1.5;
@@ -241,6 +247,16 @@ export class Hud {
   glitch(g) {
     const ctx = this.ctx, w = this.w, h = this.h;
     ctx.save();
+    // RGB-split chroma ghosts: redraw the rendered HUD hue-shifted + offset so
+    // the actual green lines smear into red/cyan fringes (chromatic aberration).
+    const dx = (2 + 12 * g) * (Math.random() < 0.5 ? 1 : -1);
+    ctx.globalCompositeOperation = "lighter"; ctx.globalAlpha = 0.45 * g;
+    if ("filter" in ctx) {
+      ctx.filter = "hue-rotate(135deg)"; ctx.drawImage(this.canvas, -dx, 0);   // cyan-shifted ghost
+      ctx.filter = "hue-rotate(-105deg)"; ctx.drawImage(this.canvas, dx, 0);   // red/orange-shifted ghost
+      ctx.filter = "none";
+    } else { ctx.drawImage(this.canvas, dx, 0); }                              // fallback: plain double-image
+    ctx.globalCompositeOperation = "source-over"; ctx.globalAlpha = 1;
     // Tear bands: copy a horizontal slice of the rendered HUD and offset it.
     const bands = 1 + Math.floor(g * 6);
     for (let i = 0; i < bands; i++) {
