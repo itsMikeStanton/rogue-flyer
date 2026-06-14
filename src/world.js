@@ -461,8 +461,35 @@ function buildCarrier(parent, c) {
   return g;
 }
 
-// Water material with a gentle GPU vertex-wave animation (drive uTime each frame).
-function waveMaterial(color, opacity) {
+// Bake a coarse world heightfield the ocean shader samples for depth effects:
+// R = depth below sea (0 at the waterline .. 1 at ~800m), G = floor steepness
+// near shore (for cliff churn). One-time at startup.
+function buildDepthTexture() {
+  const N = 512, EXT = 90000, span = 2 * EXT;
+  const depth = new Float32Array(N * N);
+  for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+    const x = (i / (N - 1) - 0.5) * span, z = (j / (N - 1) - 0.5) * span;
+    depth[j * N + i] = Math.max(0, Math.min(1, (SEA_LEVEL - terrainHeight(x, z)) / 800));
+  }
+  const data = new Uint8Array(N * N * 4);
+  for (let j = 0; j < N; j++) for (let i = 0; i < N; i++) {
+    const k = j * N + i;
+    const l = depth[j * N + Math.max(0, i - 1)], r = depth[j * N + Math.min(N - 1, i + 1)];
+    const u = depth[Math.max(0, j - 1) * N + i], dn = depth[Math.min(N - 1, j + 1) * N + i];
+    const slope = Math.min(1, Math.hypot(r - l, dn - u) * 7);
+    data[k * 4] = depth[k] * 255; data[k * 4 + 1] = slope * 255; data[k * 4 + 2] = 0; data[k * 4 + 3] = 255;
+  }
+  const tex = new THREE.DataTexture(data, N, N, THREE.RGBAFormat, THREE.UnsignedByteType);
+  tex.minFilter = tex.magFilter = THREE.LinearFilter;
+  tex.wrapS = tex.wrapT = THREE.ClampToEdgeWrapping;
+  tex.needsUpdate = true;
+  return { tex, ext: EXT };
+}
+
+// Water material with a gentle GPU vertex-wave animation (drive uTime each
+// frame). `depthInfo` (from buildDepthTexture) drives shallows colour, shore
+// tide foam and cliff churn.
+function waveMaterial(color, opacity, depthInfo) {
   // Matte water. Detail comes from procedural fbm noise in the fragment shader
   // (so it's crisp regardless of mesh resolution): subtle colour mottling plus
   // lighter foam on the wave crests. The vertices ripple with a few sines.
@@ -471,6 +498,7 @@ function waveMaterial(color, opacity) {
   });
   mat.onBeforeCompile = (shader) => {
     shader.uniforms.uTime = { value: 0 };
+    if (depthInfo) { shader.uniforms.uDepth = { value: depthInfo.tex }; shader.uniforms.uDepthExt = { value: depthInfo.ext }; }
     let vs = "uniform float uTime;\nvarying float vWave;\nvarying vec2 vWorld;\n" + shader.vertexShader;
     vs = vs.replace(
       "#include <begin_vertex>",
@@ -494,6 +522,8 @@ function waveMaterial(color, opacity) {
 varying float vWave;
 varying vec2 vWorld;
 uniform float uTime;
+uniform sampler2D uDepth;
+uniform float uDepthExt;
 float wHash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float wNoise(vec2 p){ vec2 i = floor(p), f = fract(p); vec2 u = f * f * (3.0 - 2.0 * f);
   return mix(mix(wHash(i), wHash(i + vec2(1.0, 0.0)), u.x),
@@ -512,15 +542,28 @@ float wFbm(vec2 p){ float v = 0.0, a = 0.5; for (int k = 0; k < 4; k++){ v += a 
   // colour variety: drift between teal and deeper-blue zones
   diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.80, 1.08, 1.05), smoothstep(0.45, 0.75, nc));
   diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.72, 0.84, 1.18), smoothstep(0.45, 0.18, nc));
-  // foam: domain-warped fbm (organic patches that wander) with only a light
-  // contribution from the wave crests, so it reads as scattered whitecaps rather
-  // than a diamond grid aligned to the sine waves.
+  // --- depth-driven water (sampled from the baked world heightfield) ---
+  vec2 duv = vWorld / (2.0 * uDepthExt) + 0.5;
+  vec4 dsamp = texture2D(uDepth, duv);
+  float depth01 = dsamp.r;          // 0 at the waterline .. 1 at ~800m deep
+  float dslope  = dsamp.g;          // floor steepness near shore
+  float shallow = 1.0 - depth01;
+  // shallows glow lighter turquoise as the floor rises toward the coast
+  diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.34, 0.70, 0.72), smoothstep(0.45, 0.96, shallow) * 0.8);
+  // foam: domain-warped fbm whitecaps (organic, not a diamond grid)...
   vec2 fwarp = vec2(wFbm(vWorld * 0.0035 + uTime * 0.03),
                     wFbm(vWorld * 0.0035 + 7.3 - uTime * 0.025)) - 0.5;
   float fn = wFbm(vWorld * 0.02 + fwarp * 4.0 - vec2(uTime * 0.05, 0.0));
   float foam = smoothstep(0.60, 0.93, vWave * 0.26 + fn * 0.92);
   foam += smoothstep(0.88, 1.0, n3) * 0.45;
-  diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.86, 0.93, 0.97), clamp(foam, 0.0, 1.0) * 0.6);`
+  // ...plus tide foam rolling onto the shore: bright contour lines moving in...
+  float shoreBand = smoothstep(0.82, 1.0, shallow);
+  float tide = pow(sin(depth01 * 130.0 - uTime * 1.7 + fn * 2.5) * 0.5 + 0.5, 3.0);
+  foam = max(foam, shoreBand * (0.35 + 0.65 * tide));
+  // ...and cliff churn where it's shallow AND the floor drops steeply.
+  float cliff = smoothstep(0.6, 0.98, shallow) * smoothstep(0.22, 0.65, dslope) * (0.55 + 0.45 * fn);
+  foam = max(foam, cliff);
+  diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.90, 0.95, 0.98), clamp(foam, 0.0, 1.0) * 0.7);`
     );
     shader.fragmentShader = fs;
     mat.userData.shader = shader;
@@ -595,7 +638,8 @@ export function buildWorld(scene) {
   // single system means water exists everywhere, not just around islands.
   const oceanGeo = new THREE.PlaneGeometry(56000, 56000, 256, 256);
   oceanGeo.rotateX(-Math.PI / 2);
-  const oceanMat = waveMaterial(0x21506e, 1.0);
+  const depthInfo = buildDepthTexture(); // world heightfield for shallows / shore foam / cliff churn
+  const oceanMat = waveMaterial(0x21506e, 1.0, depthInfo);
   const ocean = new THREE.Mesh(oceanGeo, oceanMat);
   ocean.position.y = SEA_LEVEL;
   ocean.renderOrder = -1; // draw before land props that sit at the shoreline
