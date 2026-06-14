@@ -133,7 +133,7 @@ traffic.onFire = (pos) => sound.enemyGun(pos);         // ship / zeppelin flak
 enemyOrdnance.onLaunch = (pos) => sound.missile();     // incoming missile/rocket whoosh
 ground.onLaunch = (pos) => sound.missile();            // SAM launch
 // A detonation near the player jolts the camera — a real hit jolts it harder.
-enemyOrdnance.onNearMiss = (pos, didDamage) => addShake(didDamage ? 4.5 : 3.0);
+enemyOrdnance.onNearMiss = (pos, didDamage) => { addShake(didDamage ? 4.5 : 3.0); hudShock = Math.min(1, hudShock + (didDamage ? 0.9 : 0.55)); };
 let lastLocked = false;
 const hud = new Hud(document.getElementById("hud"));
 
@@ -323,6 +323,9 @@ let crashHandled = false, respawnTimer = 0; // crash → wreckage → soft respa
 // (addShake), applied to the camera each frame once it's been positioned.
 let camShake = 0;
 function addShake(amt) { camShake = Math.min(7, camShake + amt); }
+// HUD electronic-glitch drivers: a decaying "shock" (hits / nearby blasts) and
+// the volcano ash proximity; combined with stall/storm into the HUD glitch.
+let hudShock = 0, volcanoAshI = 0, hudGlitch = 0;
 
 // Afterburner / turbo boost: hold the throttle at the firewall (turbo jets only)
 // for ~1.7x thrust. boostFx is the eased 0..1 visual amount (engine cones, FOV
@@ -849,6 +852,7 @@ const player = {
   applyDamage(d) {
     if (!this.alive) return;
     this.health = Math.max(0, this.health - d);
+    hudShock = Math.min(1, hudShock + 0.55 + d * 0.012); // bigger hits glitch the HUD harder
     sound.hit();
     if (this.health <= 0) { state.crashed = true; handleCrash("SHOT DOWN"); }
     else comms(this.health < 35 ? "We're hit, going down" : "We're hit", "hit", 3);
@@ -1479,6 +1483,7 @@ function applyVolcanoFx(dt) {
   // Rumble carries far; the ash veil only when you're close.
   sound.setRumble(eI * THREE.MathUtils.clamp(1 - dist / 24000, 0, 1) * (flying ? 1 : 0.6));
   const ashI = eI * THREE.MathUtils.clamp(1 - dist / 7000, 0, 1);
+  volcanoAshI = ashI; // feed the HUD glitch
   ashPoints.material.opacity = ashI * 0.85; ashPoints.visible = ashI > 0.01;
   if (ashI <= 0.01) { // no ash: remember the clean weather fog/lights to veil from
     if (scene.fog) { _veil.fogFar = scene.fog.far; _veil.fogCol.copy(scene.fog.color); }
@@ -2992,7 +2997,18 @@ function frame(now) {
     _v2.set(1, 0, 0).applyQuaternion(state.quaternion);
     _v3.set(0, 1, 0).applyQuaternion(state.quaternion);
     const rollAng = Math.atan2(_v2.y, _v3.y);
+    // HUD electronic glitch: stall, recent shock (hits/blasts), eruption ash, or
+    // a storm. Eased so it flickers but doesn't snap.
+    hudShock = Math.max(0, hudShock - simDt * 2.0);
+    let gTarget = 0;
+    if (state.telemetry.stall) gTarget = Math.max(gTarget, 0.45);
+    gTarget = Math.max(gTarget, hudShock);
+    gTarget = Math.max(gTarget, volcanoAshI * 0.8);
+    if (weatherMode === "storm") gTarget = Math.max(gTarget, 0.26);
+    else if (weatherMode === "rain") gTarget = Math.max(gTarget, 0.12);
+    hudGlitch += (gTarget - hudGlitch) * Math.min(1, simDt * 10);
     hud.draw(state.telemetry, {
+      glitch: hudGlitch,
       pitch: pitchAng,
       roll: rollAng,
       jetName: def.name,

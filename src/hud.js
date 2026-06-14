@@ -22,6 +22,11 @@ export class Hud {
     const ctx = this.ctx;
     const { w, h } = this;
     ctx.clearRect(0, 0, w, h);
+    // Electronic glitch (stall / blast / eruption / storm): jitter the whole HUD,
+    // then tear + fuzz + corrupt it in an overlay below.
+    const gl = extra.glitch || 0;
+    ctx.save();
+    if (gl > 0.02) ctx.translate((Math.random() - 0.5) * 9 * gl, (Math.random() - 0.5) * 6 * gl);
     const cx = w / 2, cy = h / 2;
     const green = t.stall ? "#ff5b5b" : "#36ff9a";
     ctx.strokeStyle = green;
@@ -227,6 +232,39 @@ export class Hud {
     if (extra.route) this.route(extra.route);
     // Resupply balloon marker.
     if (extra.supply) this.supplyMarker(extra.supply);
+    ctx.restore();
+    if (gl > 0.02) this.glitch(gl);
+  }
+
+  // Electronic-glitch overlay: horizontal tears (slice the HUD and shove it
+  // sideways), RGB-ish split, scanline fuzz, and scattered corrupt glyphs.
+  glitch(g) {
+    const ctx = this.ctx, w = this.w, h = this.h;
+    ctx.save();
+    // Tear bands: copy a horizontal slice of the rendered HUD and offset it.
+    const bands = 1 + Math.floor(g * 6);
+    for (let i = 0; i < bands; i++) {
+      if (Math.random() > 0.35 + g * 0.6) continue;
+      const by = Math.random() * h, bh = 3 + Math.random() * 26 * g, dx = (Math.random() - 0.5) * 70 * g;
+      ctx.globalAlpha = 0.85;
+      ctx.drawImage(this.canvas, 0, by, w, bh, dx, by, w, bh);                 // shifted copy
+      ctx.globalAlpha = 0.4 * g; ctx.fillStyle = Math.random() < 0.5 ? "#ff2d55" : "#2de1ff";
+      ctx.fillRect(dx * 0.5, by, w, bh);                                       // chroma tint on the tear
+    }
+    // Scanline fuzz.
+    ctx.globalAlpha = 0.05 + 0.08 * g; ctx.fillStyle = "#39ff9a";
+    for (let y = (Math.random() * 3) | 0; y < h; y += 3) if (Math.random() < 0.5) ctx.fillRect(0, y, w, 1);
+    // Corrupt glyphs scattered across the panel (character-swap feel).
+    ctx.font = "13px 'Consolas', monospace"; ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
+    const glyphs = "▓▒░█#@%&!?<>/\\|=+*01010xФД";
+    const count = Math.floor(g * 26);
+    for (let i = 0; i < count; i++) {
+      ctx.globalAlpha = 0.35 + Math.random() * 0.6;
+      ctx.fillStyle = Math.random() < 0.28 ? "#ff3b30" : "#39ff9a";
+      ctx.fillText(glyphs[(Math.random() * glyphs.length) | 0], Math.random() * w, Math.random() * h);
+    }
+    ctx.globalAlpha = 1;
+    ctx.restore();
   }
 
   // Air-drop resupply balloon: a pulsing cyan chute icon + distance, with an edge
