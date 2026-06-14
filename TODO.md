@@ -10,9 +10,13 @@ each section. Tuning knobs note the file/number so they're quick to change.
 - [x] **Vehicle-bay room roster** — the bay (post-connect, pre-takeoff) shows
       the room, who's here live (join/leave), and a copy-invite link. Acts as the
       lobby without a flow change.
-- [ ] **Full lobby ready-up** — explicit "ready"/"launch together" coordination
-      (needs a server lobby-vs-ingame state + ready flags + host start). The bay
-      roster covers presence; this is the synchronized-start layer on top.
+- [x] **Full lobby ready-up** — server tracks ready/inGame per pilot; when every
+      waiting pilot in a room is ready they launch together (synced countdown);
+      solo readies up and goes. Bay shows READY UP + ✓/○ ticks + X/Y ready, with
+      a "Launch now" bypass. (`checkLaunch` in server.js; bay roster in main.js.)
+- [ ] **Ready-up polish** — host-only force-start, a kick/idle timeout for an
+      AFK pilot who never readies (today one un-ready pilot blocks the group's
+      synced launch — others can still "Launch now").
 - [x] **Copy-invite button** — menu "Invite" mints a private code if blank and
       copies the `?room=CODE` link; bay has a copy-link too. (QR still optional.)
 - [ ] **Kill feed** — on-screen "A splashed B" log.
