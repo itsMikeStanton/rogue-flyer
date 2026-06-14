@@ -609,7 +609,7 @@ export function buildWorld(scene) {
   for (const is of CFG.islands) {
     const built = buildIsland(scene, is, waveMats, colliders, smokeSources, trees, spinners);
     if (!firstTerrain) firstTerrain = built.terrain;
-    islands.push({ group: built.group, center: is.center, name: is.name, faction: is.faction, terrain: built.terrain });
+    islands.push({ group: built.group, center: is.center, name: is.name, faction: is.faction, terrain: built.terrain, detail: built.detail || null, outer: (is.terrain && is.terrain.islandOuter) || 9500 });
     if (is.volcano) volcano = { center: is.center, lava: built.lava, plume: built.plume, flows: built.flows, glow: built.glow, craterY: built.lava ? built.lava.position.y - 4 : 0 };
   }
 
@@ -1881,5 +1881,11 @@ function buildIsland(scene, is, waveMats, colliders, smokeSources, trees, spinne
     }
   }
 
-  return { group: grp, terrain };
+  // LOD: move everything except the terrain shape into a `detail` sub-group so
+  // main.js can hide an island's interiors (buildings/infra/forests/props) until
+  // the camera is in range, and hide the whole island when it's beyond the fog.
+  const detail = new THREE.Group();
+  for (let i = grp.children.length - 1; i >= 0; i--) { const c = grp.children[i]; if (c !== terrain) { grp.remove(c); detail.add(c); } }
+  grp.add(detail);
+  return { group: grp, terrain, detail };
 }

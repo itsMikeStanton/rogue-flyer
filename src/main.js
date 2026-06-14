@@ -1266,6 +1266,18 @@ function netFire(kind) {
   const f = _v.set(0, 0, -1).applyQuaternion(state.quaternion).normalize();
   net.sendFire(kind, state.position, f);
 }
+// Island LOD: hide an island entirely once it's beyond the fog (saves the whole
+// terrain + everything), and hide its interiors (buildings/infra/forests) until
+// the camera is within range. Collision/terrain height are data-driven, so this
+// is purely visual. ~one island per few km — cheap to run every frame.
+function cullIslands() {
+  const cx = camera.position.x, cz = camera.position.z;
+  for (const is of world.islands) {
+    const d = Math.hypot(cx - is.center.x, cz - is.center.z);
+    is.group.visible = d < is.outer + 22000;        // past the fog → drop the whole island
+    if (is.detail) is.detail.visible = d < is.outer + 8000; // interiors only in range
+  }
+}
 function clearRemotePlayers() { for (const mesh of netMeshes.values()) scene.remove(mesh); netMeshes.clear(); netTargets.length = 0; }
 function updateRemotePlayers(dt) {
   net.interpolate(dt);
@@ -2818,6 +2830,7 @@ function frame(now) {
   sound.setBoost(flying && !paused ? boostFx : 0); // staticy afterburner roar
   updateSpeedLines(dt, boostFx);
   updateSky(camera, true); // ocean + clouds follow the active camera
+  cullIslands();            // LOD: hide far islands + out-of-range interiors
   weather.update(simDt, _skyPos); // stars/rain follow the camera; storm lightning
   if (post.enabled) post.setBloomScale(THREE.MathUtils.lerp(1.0, 0.5, weather.daylight || 0)); // tame daytime bloom
   ground.night = weatherMode === "night" || weatherMode === "storm" || (weather.autoCycle && (weather.daylight || 0) < 0.25); // gate searchlights to darkness (incl. the cycle's night)
