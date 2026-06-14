@@ -67,6 +67,12 @@ function lobbyRoster(room) {
   return out;
 }
 function broadcastLobby(room) { broadcast({ t: "lobby", room, players: lobbyRoster(room) }, room); }
+function scoreRoster(room) {
+  const out = [];
+  for (const c of clients.values()) if (c.room === room) out.push({ id: c.id, name: c.name, kills: c.kills | 0, deaths: c.deaths | 0 });
+  return out;
+}
+function broadcastScores(room) { broadcast({ t: "score", scores: scoreRoster(room) }, room); }
 function checkLaunch(room) {
   const waiting = [];
   for (const [ws, c] of clients) if (c.room === room && !c.inGame) waiting.push([ws, c]);
@@ -78,7 +84,7 @@ function checkLaunch(room) {
 }
 
 wss.on("connection", (ws) => {
-  const me = { id: nextId++, name: "Pilot", jet: "f16", last: null, room: "PUBLIC", ready: false, inGame: false };
+  const me = { id: nextId++, name: "Pilot", jet: "f16", last: null, room: "PUBLIC", ready: false, inGame: false, kills: 0, deaths: 0 };
   clients.set(ws, me);
   ws.on("message", (buf) => {
     let m; try { m = JSON.parse(buf.toString()); } catch (_) { return; }
@@ -92,6 +98,7 @@ wss.on("connection", (ws) => {
       ws.send(JSON.stringify({ t: "welcome", id: me.id, room: me.room, players }));
       broadcast({ t: "join", id: me.id, name: me.name, jet: me.jet }, me.room, ws);
       broadcastLobby(me.room);
+      broadcastScores(me.room);
     } else if (m.t === "ready") {
       me.ready = !!m.ready;
       broadcastLobby(me.room);
@@ -107,9 +114,18 @@ wss.on("connection", (ws) => {
       broadcast({ t: "fire", id: me.id, kind: m.kind, p: m.p, dir: m.dir }, me.room, ws);
     } else if (m.t === "hit") {
       broadcast({ t: "hit", target: m.target, by: me.id, dmg: m.dmg }, me.room); // to the room (target applies it)
+    } else if (m.t === "death") {
+      // The victim reports its own death and who last hit it (kills are authored
+      // by the victim — it's the only side that knows the damage it took).
+      me.deaths++;
+      let killer = null;
+      for (const c of clients.values()) if (c.id === m.by && c.room === me.room) killer = c;
+      if (killer && killer.id !== me.id) killer.kills++;
+      broadcast({ t: "kill", killer: killer ? killer.id : 0, killerName: killer ? killer.name : "", victim: me.id, victimName: me.name }, me.room);
+      broadcastScores(me.room);
     }
   });
-  ws.on("close", () => { const room = me.room; clients.delete(ws); broadcast({ t: "leave", id: me.id }, room); broadcastLobby(room); });
+  ws.on("close", () => { const room = me.room; clients.delete(ws); broadcast({ t: "leave", id: me.id }, room); broadcastLobby(room); broadcastScores(room); });
   ws.on("error", () => {});
 });
 

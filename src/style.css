@@ -649,6 +649,25 @@ button.plan.hidden { display: none; }
 .overlay.picker { z-index: 20; }
 
 /* ---- Vehicle Bay: a showroom over the live 3D preview ---- */
+/* Multiplayer kill feed (top-right) — fading log of recent splashes. */
+.killfeed { position: fixed; top: 96px; right: 16px; z-index: 18; pointer-events: none;
+  display: flex; flex-direction: column; gap: 4px; align-items: flex-end; text-shadow: 0 1px 4px rgba(0,0,0,0.8); }
+.killfeed.hidden { display: none; }
+.kf-row { background: rgba(8,16,22,0.55); border-radius: 6px; padding: 3px 9px; font-size: 13px; color: #d7e3ee; }
+.kf-x { color: #ff8a3d; margin: 0 3px; font-size: 12px; }
+.kf-env { color: #8fa3b4; font-style: italic; }
+/* Tab scoreboard overlay (FFA). */
+.scoreboard { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 60;
+  min-width: 320px; background: rgba(8,16,22,0.92); border: 1px solid rgba(46,230,166,0.35);
+  border-radius: 12px; padding: 16px 20px; pointer-events: none; backdrop-filter: blur(5px); }
+.scoreboard.hidden { display: none; }
+.sb-title { font-size: 13px; font-weight: 800; letter-spacing: 2px; color: var(--accent); text-align: center; margin-bottom: 12px; }
+.sb-head, .sb-row { display: grid; grid-template-columns: 1fr 44px 44px; gap: 8px; padding: 4px 6px; font-size: 14px; }
+.sb-head { color: #7fa9c2; font-size: 11px; letter-spacing: 1px; text-transform: uppercase; border-bottom: 1px solid rgba(120,150,180,0.2); }
+.sb-head span:not(:first-child), .sb-row span:not(:first-child) { text-align: center; color: #cfe0d8; }
+.sb-row span:first-child { font-weight: 700; }
+.sb-me { background: rgba(46,230,166,0.12); border-radius: 6px; }
+
 .hangar-bay { position: fixed; inset: 0; z-index: 20; pointer-events: none; font-family: inherit; }
 .hangar-bay.hidden { display: none; }
 /* Multiplayer room roster, pinned bottom-left (info panel owns the top-left). */

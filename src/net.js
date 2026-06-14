@@ -9,6 +9,7 @@ export class Net {
     this.id = null;
     this.room = null;         // the room/lobby the server placed us in (set on welcome)
     this.lobby = [];          // [{id,name,ready,inGame}] roster of everyone in the room
+    this.scores = [];         // [{id,name,kills,deaths}] room scoreboard
     this.connected = false;
     this.status = "offline"; // offline | connecting | online | error
     this.players = new Map(); // id -> remote player record
@@ -31,7 +32,7 @@ export class Net {
   disconnect() {
     if (this.ws) { try { this.send({ t: "leave" }); this.ws.close(); } catch (_) { /* ignore */ } }
     this.ws = null; this.connected = false; this.status = "offline";
-    this.players.clear(); this.id = null; this.room = null; this.lobby = [];
+    this.players.clear(); this.id = null; this.room = null; this.lobby = []; this.scores = [];
   }
 
   send(o) { if (this.ws && this.ws.readyState === 1) this.ws.send(JSON.stringify(o)); }
@@ -52,6 +53,8 @@ export class Net {
       case "hit": if (m.target === this.id) this._emit("hit", m); break;
       case "lobby": this.lobby = m.players || []; this._emit("lobby", m); break;
       case "launch": this._emit("launch", m); break;
+      case "score": this.scores = m.scores || []; this._emit("score", m); break;
+      case "kill": this._emit("kill", m); break;
     }
   }
 
@@ -87,6 +90,7 @@ export class Net {
   sendHit(targetId, dmg) { this.send({ t: "hit", target: targetId, dmg }); }
   sendReady(ready) { this.send({ t: "ready", ready: !!ready }); }   // lobby ready toggle
   sendSpawned() { this.send({ t: "spawned" }); }                    // left the bay into flight
+  sendDeath(byId) { this.send({ t: "death", by: byId | 0 }); }      // I went down; byId = last attacker (0 = none)
 
   // Ease remote players toward their latest received transform each frame.
   interpolate(dt) {

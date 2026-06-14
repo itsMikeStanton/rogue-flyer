@@ -321,6 +321,9 @@ function measureHangarVehicle() {
 }
 let paused = false;                 // Esc pause menu (sim frozen)
 let crashHandled = false, respawnTimer = 0; // crash → wreckage → soft respawn
+let lastAttackerId = 0, lastAttackerAt = 0; // FFA kill attribution: who last hit us
+let scoreboardOn = false;                   // Tab-held scoreboard overlay (FFA)
+const killFeed = [];                        // {html, until} recent kill-feed entries
 // Camera shake: a decaying jolt that nearby blasts / missile hits add to
 // (addShake), applied to the camera each frame once it's been positioned.
 let camShake = 0;
@@ -869,6 +872,13 @@ const CRASH_CAM_TIME = 5.0; // death-cam length before the respawn switch
 function handleCrash(title) {
   if (crashHandled) return;
   crashHandled = true;
+  // FFA: report our death + the last pilot who hit us (within a few seconds) so
+  // the server can credit the kill. Stale/no attacker → an environment death.
+  if (gameMode === "ffa" && net.connected) {
+    const recent = lastAttackerId && (performance.now() - lastAttackerAt) < 6000;
+    net.sendDeath(recent ? lastAttackerId : 0);
+  }
+  lastAttackerId = 0;
   fx.add(state.position, 3.4, 0xffa233, true); // silent: the dedicated crash sound plays instead
   sound.crash(state.position);
   fx.shards(state.position, mesh, state.quaternion, 16); // fling actual pieces of the jet
@@ -1272,7 +1282,9 @@ net.onEvent = (t, m) => {
   else if (t === "lobby") { if (hangarMode) updateBayRoster(); } // ready states changed in the room
   else if (t === "launch") { if (hangarMode && bayInitial) startBayCountdown(m.n > 1 ? 3 : 1); } // everyone's ready — go together
   else if (t === "leave") { const mesh = netMeshes.get(m.id); if (mesh) { scene.remove(mesh); netMeshes.delete(m.id); } if (hangarMode) updateBayRoster(); }
-  else if (t === "hit") { if (flying && gameMode === "ffa") player.applyDamage(m.dmg); } // someone hit us
+  else if (t === "kill") { pushKillFeed(m); if (scoreboardOn) renderScoreboard(); } // someone splashed someone
+  else if (t === "score") { if (scoreboardOn) renderScoreboard(); } // live scoreboard refresh
+  else if (t === "hit") { if (flying && gameMode === "ffa") { lastAttackerId = m.by | 0; lastAttackerAt = performance.now(); player.applyDamage(m.dmg); } } // someone hit us — remember who
   else if (t === "fire" && m.p) {
     const px = m.p[0], py = m.p[1], pz = m.p[2];
     const dx = m.dir ? m.dir[0] : 0, dy = m.dir ? m.dir[1] : 0, dz = m.dir ? m.dir[2] : -1;
@@ -1297,6 +1309,40 @@ function netFire(kind) {
   if (gameMode !== "ffa" || !net.connected) return;
   const f = _v.set(0, 0, -1).applyQuaternion(state.quaternion).normalize();
   net.sendFire(kind, state.position, f);
+}
+
+// --- Kill feed + scoreboard (FFA) ----------------------------------------
+function colorFor(id) { return id ? "#" + playerColor(id).toString(16).padStart(6, "0") : "#9fb3c4"; }
+function pushKillFeed(m) {
+  const victim = `<b style="color:${colorFor(m.victim)}">${escHtml(m.victimName || "Pilot")}</b>`;
+  const html = m.killer
+    ? `<b style="color:${colorFor(m.killer)}">${escHtml(m.killerName || "Pilot")}</b> <span class="kf-x">✈➤</span> ${victim}`
+    : `${victim} <span class="kf-env">went down</span>`;
+  killFeed.push({ html, until: performance.now() + 6000 });
+  while (killFeed.length > 5) killFeed.shift();
+  renderKillFeed();
+}
+function renderKillFeed() {
+  const el = document.getElementById("killfeed");
+  if (!el) return;
+  const now = performance.now();
+  while (killFeed.length && killFeed[0].until <= now) killFeed.shift();
+  el.classList.toggle("hidden", killFeed.length === 0);
+  el.innerHTML = killFeed.map((k) => `<div class="kf-row">${k.html}</div>`).join("");
+}
+function renderScoreboard() {
+  const el = document.getElementById("scoreboard");
+  if (!el) return;
+  const rows = (net.scores || []).slice().sort((a, b) => (b.kills - a.kills) || (a.deaths - b.deaths));
+  el.innerHTML = `<div class="sb-title">${escHtml(net.room && net.room !== "PUBLIC" ? "ROOM " + net.room : "PUBLIC")} — SCORES</div>` +
+    `<div class="sb-head"><span>Pilot</span><span>K</span><span>D</span></div>` +
+    rows.map((s) => `<div class="sb-row${s.id === net.id ? " sb-me" : ""}"><span style="color:${colorFor(s.id)}">${escHtml(s.name || "Pilot")}</span><span>${s.kills | 0}</span><span>${s.deaths | 0}</span></div>`).join("");
+}
+function setScoreboard(on) {
+  scoreboardOn = on && gameMode === "ffa" && net.status === "online";
+  const el = document.getElementById("scoreboard");
+  if (el) el.classList.toggle("hidden", !scoreboardOn);
+  if (scoreboardOn) renderScoreboard();
 }
 // Island LOD: hide an island entirely once it's beyond the fog (saves the whole
 // terrain + everything), and hide its interiors (buildings/infra/forests) until
@@ -1606,7 +1652,9 @@ window.addEventListener("keydown", (e) => {
   if (e.code === "KeyP" && route.length) { routeOn = !routeOn; flashBanner(routeOn ? "ROUTE ON" : "ROUTE OFF", routeOn ? "Following the flight plan" : "Flight plan hidden", 1.6); }
   if (e.code === "KeyI" && flying && !paused) weapons.breakLock(); // break missile lock → next target
   if (e.code === "Digit9") startEruption(); // TEST: trigger a volcanic eruption on The Pyre
+  if (e.code === "Tab" && flying && gameMode === "ffa") { e.preventDefault(); setScoreboard(true); } // hold Tab → scores
 });
+window.addEventListener("keyup", (e) => { if (e.code === "Tab") setScoreboard(false); });
 
 // Floating in-flight button to reopen the vehicle bay.
 const hangarFab = document.getElementById("btn-hangar");
@@ -2202,6 +2250,7 @@ function exitToMenu() {
   touch.setVisible(false);
   sound.stopEngine(); sound.stopSeek(); sound.setBoost(0);
   if (net.status !== "offline") { net.disconnect(); clearRemotePlayers(); }
+  setScoreboard(false); killFeed.length = 0; renderKillFeed(); // clear MP overlays
   ui.showMenu();
   sound.startMenuMusic(); // back to the brooding menu loop
 }
@@ -3038,6 +3087,7 @@ function frame(now) {
   updateEruption(simDt); // volcanic eruption event (lava bombs, plume swell, shake)
   applyVolcanoFx(simDt);  // ash haze + falling ash + deep rumble (proximity-based)
   updateCoastSplashes(simDt); // breaking spray where swell meets steep shore
+  if (killFeed.length) renderKillFeed(); // fade out expired kill-feed rows
   wrecks.update(simDt, now / 1000); // crash wreckage fire flicker
   updateBurningTrees(simDt);         // burnt-down trees vanish
   // Post FX on flat screen; VR renders direct (composer + WebXR don't mix).
