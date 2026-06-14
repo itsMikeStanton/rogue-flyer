@@ -1278,6 +1278,44 @@ function cullIslands() {
     if (is.detail) is.detail.visible = d < is.outer + 8000; // interiors only in range
   }
 }
+// Coastline splashes: foam bursts where the swell meets STEEP shore near you —
+// the shader handles the wide cliff churn; these are the actual breaking spray.
+// Pooled additive sprites; probe a few points around the camera each tick.
+const SPLASH_TEX = lightPoolTexture();
+const _splashPool = [], _splashActive = [];
+let splashT = 0;
+function getSplash() {
+  for (const s of _splashPool) if (!s.sprite.visible) return s;
+  if (_splashPool.length < 90) {
+    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: SPLASH_TEX, color: 0xeaf2f5, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0 }));
+    sprite.visible = false; scene.add(sprite);
+    const s = { sprite, life: 0, max: 1, rise: 0 }; _splashPool.push(s); return s;
+  }
+  return null;
+}
+function updateCoastSplashes(dt) {
+  for (let i = _splashActive.length - 1; i >= 0; i--) {
+    const s = _splashActive[i]; s.life -= dt; const k = 1 - s.life / s.max;
+    s.sprite.position.y += s.rise * dt;
+    s.sprite.scale.setScalar(s.size * (0.5 + k * 1.2));
+    s.sprite.material.opacity = (1 - k) * 0.8;
+    if (s.life <= 0) { s.sprite.visible = false; _splashActive.splice(i, 1); }
+  }
+  if (!flying) return;
+  splashT -= dt; if (splashT > 0) return;
+  splashT = 0.06;
+  const cx = camera.position.x, cz = camera.position.z;
+  for (let k = 0; k < 4; k++) { // probe nearby for a steep waterline
+    const a = Math.random() * Math.PI * 2, r = 150 + Math.random() * 1700;
+    const dx = Math.cos(a), dz = Math.sin(a), x = cx + dx * r, z = cz + dz * r, h = terrainHeight(x, z);
+    if (Math.abs(h - SEA_LEVEL) > 18) continue;                       // not at the waterline
+    if (terrainHeight(x + dx * 42, z + dz * 42) - h < 14) continue;   // shore isn't steep enough
+    const s = getSplash(); if (!s) break;
+    s.sprite.position.set(x, SEA_LEVEL + 3, z); s.sprite.visible = true;
+    s.life = 0.55 + Math.random() * 0.5; s.max = s.life; s.size = 22 + Math.random() * 42; s.rise = 26 + Math.random() * 38;
+    _splashActive.push(s);
+  }
+}
 function clearRemotePlayers() { for (const mesh of netMeshes.values()) scene.remove(mesh); netMeshes.clear(); netTargets.length = 0; }
 function updateRemotePlayers(dt) {
   net.interpolate(dt);
@@ -2863,6 +2901,7 @@ function frame(now) {
   smoke.update(simDt, _skyPos);
   updateEruption(simDt); // volcanic eruption event (lava bombs, plume swell, shake)
   applyVolcanoFx(simDt);  // ash haze + falling ash + deep rumble (proximity-based)
+  updateCoastSplashes(simDt); // breaking spray where swell meets steep shore
   wrecks.update(simDt, now / 1000); // crash wreckage fire flicker
   updateBurningTrees(simDt);         // burnt-down trees vanish
   // Post FX on flat screen; VR renders direct (composer + WebXR don't mix).
