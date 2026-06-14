@@ -1340,6 +1340,74 @@ function toggleFullscreen() {
   }
 }
 
+// --- Volcanic eruption event (test: press 9) ---------------------------------
+// A 3-phase event on The Pyre: precursor (rumble + plume swell + lava glow) ->
+// eruption (towering ash, lava bombs arcing out, heavy shake near it) ->
+// cooldown. Lava bombs are ballistic hazards: a near miss/ground burst hurts.
+const LAVABOMB_GEO = new THREE.IcosahedronGeometry(6, 0);
+const LAVABOMB_MAT = new THREE.MeshStandardMaterial({ color: 0x3a1208, emissive: 0xff5a1e, emissiveIntensity: 3.2, roughness: 0.6, flatShading: true });
+const ERUPT = { PRECURSOR: 6, MAIN: 22, COOLDOWN: 11 };
+const eruption = { phase: "dormant", t: 0, bombT: 0, bombs: [],
+  base: (world.volcano && world.volcano.plume) ? { size: world.volcano.plume.size, rate: world.volcano.plume.rate } : null };
+function startEruption() {
+  if (!world.volcano || eruption.phase !== "dormant") return;
+  eruption.phase = "precursor"; eruption.t = 0;
+  flashBanner("THE PYRE STIRS", "Tremors from the volcano…", 3.2);
+}
+function spawnLavaBomb() {
+  const v = world.volcano; if (!v) return;
+  const m = new THREE.Mesh(LAVABOMB_GEO, LAVABOMB_MAT.clone());
+  m.position.set(v.center.x + (Math.random() - 0.5) * 220, v.craterY + 30, v.center.z + (Math.random() - 0.5) * 220);
+  const sc = 0.8 + Math.random() * 1.4; m.scale.setScalar(sc); scene.add(m);
+  const a = Math.random() * Math.PI * 2, out = 260 + Math.random() * 540, up = 290 + Math.random() * 240;
+  eruption.bombs.push({ mesh: m, vel: new THREE.Vector3(Math.cos(a) * out, up, Math.sin(a) * out), life: 10, sc });
+}
+function updateEruption(dt) {
+  const v = world.volcano, e = eruption; if (!v) return;
+  // Lava bombs always finish their arc (even after the phase ends).
+  for (let i = e.bombs.length - 1; i >= 0; i--) {
+    const b = e.bombs[i], p = b.mesh.position;
+    b.vel.y -= 260 * dt; p.addScaledVector(b.vel, dt); b.life -= dt;
+    b.mesh.rotation.x += dt * 3; b.mesh.rotation.z += dt * 2.4;
+    if (Math.random() < 0.55) fx.ember(p, 0.7 * b.sc);
+    let boom = false;
+    if (flying && !state.crashed && state.position.distanceTo(p) < 40 + b.sc * 6) { boom = true; player.applyDamage(36); }
+    const gh = groundHeightAt(p.x, p.z);
+    if (!boom && (p.y <= gh + 2 || p.y <= SEA_LEVEL + 2)) boom = true; // land or sea-surface splash
+    if (boom || b.life <= 0) {
+      fx.add(p, 2.4 * b.sc, 0xff7a2a);
+      if (flying && !state.crashed) { const dd = state.position.distanceTo(p); if (dd < 150) player.applyDamage(24 * (1 - dd / 150)); }
+      scene.remove(b.mesh); b.mesh.material.dispose(); e.bombs.splice(i, 1);
+    }
+  }
+  if (e.phase === "dormant") return;
+  if (flying) { // proximity screen-shake while active
+    const dist = Math.hypot(state.position.x - v.center.x, state.position.z - v.center.z);
+    const prox = THREE.MathUtils.clamp(1 - dist / 28000, 0, 1);
+    if (prox > 0) addShake(dt * (e.phase === "erupt" ? 16 : 5) * prox);
+  }
+  const setPlume = (size, rate) => { if (e.base) { v.plume.size = size; v.plume.rate = rate; } };
+  const glow = (g) => { if (v.lava) v.lava.material.emissiveIntensity = g; };
+  e.t += dt;
+  if (e.phase === "precursor") {
+    const k = Math.min(1, e.t / ERUPT.PRECURSOR);
+    if (e.base) setPlume(THREE.MathUtils.lerp(e.base.size, e.base.size * 2.2, k), THREE.MathUtils.lerp(e.base.rate, e.base.rate * 1.5, k));
+    glow(2.4 + 3 * k);
+    if (e.t >= ERUPT.PRECURSOR) { e.phase = "erupt"; e.t = 0; e.bombT = 0; flashBanner("ERUPTION", "The Pyre erupts!", 3.2); sound.explosion(3.4, new THREE.Vector3(v.center.x, v.craterY, v.center.z)); }
+  } else if (e.phase === "erupt") {
+    if (e.base) setPlume(e.base.size * 3.0, e.base.rate * 2.0);
+    glow(5.5 + Math.sin(performance.now() * 0.012) * 1.6);
+    e.bombT -= dt;
+    if (e.bombT <= 0) { e.bombT = 0.16 + Math.random() * 0.22; spawnLavaBomb(); if (Math.random() < 0.5) sound.explosion(1.8, new THREE.Vector3(v.center.x, v.craterY, v.center.z)); }
+    if (e.t >= ERUPT.MAIN) { e.phase = "cooldown"; e.t = 0; flashBanner("THE PYRE SETTLES", "The eruption is subsiding", 3); }
+  } else { // cooldown
+    const k = Math.min(1, e.t / ERUPT.COOLDOWN);
+    if (e.base) setPlume(THREE.MathUtils.lerp(e.base.size * 3.0, e.base.size, k), THREE.MathUtils.lerp(e.base.rate * 2.0, e.base.rate, k));
+    glow(THREE.MathUtils.lerp(5.5, 2.4, k));
+    if (e.t >= ERUPT.COOLDOWN) { e.phase = "dormant"; e.t = 0; setPlume(e.base ? e.base.size : 120, e.base ? e.base.rate : 8); glow(2.4); }
+  }
+}
+
 window.addEventListener("keydown", (e) => {
   // Pause (reset) and the vehicle bay (hangar) are remappable now — they're read
   // through input.getControls. Fullscreen / mute stay as fixed utility keys.
@@ -1348,6 +1416,7 @@ window.addEventListener("keydown", (e) => {
   if (e.code === "KeyO") { if (mapView.isOpen) mapView.close(); else openMap(); }
   if (e.code === "KeyP" && route.length) { routeOn = !routeOn; flashBanner(routeOn ? "ROUTE ON" : "ROUTE OFF", routeOn ? "Following the flight plan" : "Flight plan hidden", 1.6); }
   if (e.code === "KeyI" && flying && !paused) weapons.breakLock(); // break missile lock → next target
+  if (e.code === "Digit9") startEruption(); // TEST: trigger a volcanic eruption on The Pyre
 });
 
 // Floating in-flight button to reopen the vehicle bay.
@@ -2672,6 +2741,7 @@ function frame(now) {
     }
   }
   smoke.update(simDt, _skyPos);
+  updateEruption(simDt); // volcanic eruption event (lava bombs, plume swell, shake)
   wrecks.update(simDt, now / 1000); // crash wreckage fire flicker
   updateBurningTrees(simDt);         // burnt-down trees vanish
   // Post FX on flat screen; VR renders direct (composer + WebXR don't mix).

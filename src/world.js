@@ -605,11 +605,12 @@ export function buildWorld(scene) {
   const smokeSources = [];
   const trees = []; // subsample of tree handles, for igniting + removing trees near blasts
   const spinners = []; // scenery to rotate each frame (lighthouse beacons)
-  let firstTerrain = null;
+  let firstTerrain = null, volcano = null;
   for (const is of CFG.islands) {
     const built = buildIsland(scene, is, waveMats, colliders, smokeSources, trees, spinners);
     if (!firstTerrain) firstTerrain = built.terrain;
     islands.push({ group: built.group, center: is.center, name: is.name, faction: is.faction, terrain: built.terrain });
+    if (is.volcano) volcano = { center: is.center, lava: built.lava, plume: built.plume, craterY: built.lava ? built.lava.position.y - 4 : 0 };
   }
 
   // Clouds (global): a large tiled field of big, billowy cumulus that follows
@@ -619,7 +620,7 @@ export function buildWorld(scene) {
   const clouds = buildClouds(scene);
 
   const rings = [];
-  return { terrain: firstTerrain, rings, sun, hemi, clouds, ocean, carriers, colliders, waveMats, islands, smokeSources, trees, spinners };
+  return { terrain: firstTerrain, rings, sun, hemi, clouds, ocean, carriers, colliders, waveMats, islands, smokeSources, trees, spinners, volcano };
 }
 
 // One big tiled cumulus field. Returned mesh carries userData.tile so main can
@@ -1110,8 +1111,10 @@ function buildIsland(scene, is, waveMats, colliders, smokeSources, trees, spinne
     const crust = new THREE.Mesh(new THREE.RingGeometry(450, 540, 44),
       new THREE.MeshStandardMaterial({ color: 0x3a1c12, emissive: 0x7a2810, emissiveIntensity: 0.8, roughness: 0.8, side: THREE.DoubleSide }));
     crust.rotation.x = -Math.PI / 2; crust.position.set(0, craterY + 3, 0); grp.add(crust);
-    // Towering ash plume — ~8x the volume of the power-plant stacks.
-    if (smokeSources) smokeSources.push({ x: cx0, y: craterY + 60, z: cz0, size: 120, rate: 8, color: 0x2a2724, rise: 100, drift: 20, life: 11, grow: 6, wind: 18 });
+    // Towering ash plume — ~8x the volume of the power-plant stacks. Tagged so
+    // the eruption event can ramp it (size/rate) on demand.
+    const plume = { x: cx0, y: craterY + 60, z: cz0, size: 120, rate: 8, color: 0x2a2724, rise: 100, drift: 20, life: 11, grow: 6, wind: 18, volcano: true };
+    if (smokeSources) smokeSources.push(plume);
     // Basalt boulders strewn down the flanks (instanced).
     const boulders = new THREE.InstancedMesh(new THREE.DodecahedronGeometry(1, 0),
       new THREE.MeshStandardMaterial({ color: 0x33302b, flatShading: true, roughness: 1 }), 200);
@@ -1148,7 +1151,7 @@ function buildIsland(scene, is, waveMats, colliders, smokeSources, trees, spinne
     }
     ptr.count = npa; pcr.count = npa; ptr.instanceMatrix.needsUpdate = pcr.instanceMatrix.needsUpdate = true;
     if (npa) { grp.add(ptr); grp.add(pcr); }
-    return { group: grp, terrain };
+    return { group: grp, terrain, lava, plume };
   }
 
   // (Ocean is a single global, camera-following system — see buildWorld.)
