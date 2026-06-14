@@ -1366,6 +1366,14 @@ const LAVABOMB_GEO = new THREE.IcosahedronGeometry(6, 0);
 const LAVABOMB_MAT = new THREE.MeshStandardMaterial({ color: 0x3a1208, emissive: 0xff5a1e, emissiveIntensity: 3.2, roughness: 0.6, flatShading: true });
 const LAVASPRAY_GEO = new THREE.IcosahedronGeometry(2.6, 0);
 const LAVASPRAY_MAT = new THREE.MeshStandardMaterial({ color: 0xff7a2a, emissive: 0xff5a18, emissiveIntensity: 3.6, roughness: 0.5, flatShading: true }); // shared (no per-droplet dispose)
+// Mesh pools: reuse hidden meshes instead of new/dispose each spawn (no GC churn
+// during a heavy eruption). poolGet returns a free one, growing up to a cap.
+const _sprayPool = [], _bombPool = [];
+function poolGet(pool, geo, mat, cap) {
+  for (const m of pool) if (!m.visible) return m;
+  if (pool.length < cap) { const m = new THREE.Mesh(geo, mat); m.visible = false; scene.add(m); pool.push(m); return m; }
+  return null;
+}
 const ERUPT = { PRECURSOR: 6, MAIN: 22, COOLDOWN: 11 };
 const eruption = { phase: "dormant", t: 0, bombT: 0, sprayT: 0, boltT: 0, ambientT: 180 + Math.random() * 300, bombs: [], spray: [], bolts: [],
   base: (world.volcano && world.volcano.plume) ? { size: world.volcano.plume.size, rate: world.volcano.plume.rate } : null };
@@ -1390,10 +1398,10 @@ function updateBolts(dt) {
   }
 }
 function spawnSpray(power = 1) {
-  const v = world.volcano; if (!v || eruption.spray.length > 340) return;
-  const m = new THREE.Mesh(LAVASPRAY_GEO, LAVASPRAY_MAT);
+  const v = world.volcano; if (!v) return;
+  const m = poolGet(_sprayPool, LAVASPRAY_GEO, LAVASPRAY_MAT, 360); if (!m) return;
   m.position.set(v.center.x + (Math.random() - 0.5) * 130, v.craterY + 8, v.center.z + (Math.random() - 0.5) * 130);
-  m.scale.setScalar(0.7 + Math.random() * 2.4); scene.add(m);
+  m.scale.setScalar(0.7 + Math.random() * 2.4); m.visible = true;
   const a = Math.random() * Math.PI * 2, out = Math.random() * 170 * power, up = (240 + Math.random() * 300) * power;
   eruption.spray.push({ mesh: m, vel: new THREE.Vector3(Math.cos(a) * out, up, Math.sin(a) * out), life: 1.9 + Math.random() * 1.8 });
 }
@@ -1406,9 +1414,9 @@ function startEruption() {
 }
 function spawnLavaBomb() {
   const v = world.volcano; if (!v) return;
-  const m = new THREE.Mesh(LAVABOMB_GEO, LAVABOMB_MAT.clone());
+  const m = poolGet(_bombPool, LAVABOMB_GEO, LAVABOMB_MAT, 90); if (!m) return;
   m.position.set(v.center.x + (Math.random() - 0.5) * 220, v.craterY + 30, v.center.z + (Math.random() - 0.5) * 220);
-  const sc = 0.8 + Math.random() * 1.4; m.scale.setScalar(sc); scene.add(m);
+  const sc = 0.8 + Math.random() * 1.4; m.scale.setScalar(sc); m.visible = true;
   const a = Math.random() * Math.PI * 2, out = 260 + Math.random() * 540, up = 290 + Math.random() * 240;
   eruption.bombs.push({ mesh: m, vel: new THREE.Vector3(Math.cos(a) * out, up, Math.sin(a) * out), life: 10, sc });
 }
@@ -1427,13 +1435,13 @@ function updateEruption(dt) {
     if (boom || b.life <= 0) {
       fx.add(p, 2.4 * b.sc, 0xff7a2a);
       if (flying && !state.crashed) { const dd = state.position.distanceTo(p); if (dd < 150) player.applyDamage(24 * (1 - dd / 150)); }
-      scene.remove(b.mesh); b.mesh.material.dispose(); e.bombs.splice(i, 1);
+      b.mesh.visible = false; e.bombs.splice(i, 1); // back to the pool
     }
   }
   // Lava-fountain droplets (spurt from the crater, arc back).
   for (let i = e.spray.length - 1; i >= 0; i--) {
     const s = e.spray[i]; s.vel.y -= 300 * dt; s.mesh.position.addScaledVector(s.vel, dt); s.life -= dt;
-    if (s.life <= 0 || s.mesh.position.y < v.craterY - 90) { scene.remove(s.mesh); e.spray.splice(i, 1); }
+    if (s.life <= 0 || s.mesh.position.y < v.craterY - 90) { s.mesh.visible = false; e.spray.splice(i, 1); } // back to the pool
   }
   updateBolts(dt);
   if (e.phase === "dormant") { e.ambientT -= dt; if (e.ambientT <= 0) startEruption(); return; } // rare ambient eruptions
