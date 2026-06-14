@@ -1349,8 +1349,28 @@ const LAVABOMB_MAT = new THREE.MeshStandardMaterial({ color: 0x3a1208, emissive:
 const LAVASPRAY_GEO = new THREE.IcosahedronGeometry(2.6, 0);
 const LAVASPRAY_MAT = new THREE.MeshStandardMaterial({ color: 0xff7a2a, emissive: 0xff5a18, emissiveIntensity: 3.6, roughness: 0.5, flatShading: true }); // shared (no per-droplet dispose)
 const ERUPT = { PRECURSOR: 6, MAIN: 22, COOLDOWN: 11 };
-const eruption = { phase: "dormant", t: 0, bombT: 0, sprayT: 0, bombs: [], spray: [],
+const eruption = { phase: "dormant", t: 0, bombT: 0, sprayT: 0, boltT: 0, bombs: [], spray: [], bolts: [],
   base: (world.volcano && world.volcano.plume) ? { size: world.volcano.plume.size, rate: world.volcano.plume.rate } : null };
+const FLASH_TEX = lightPoolTexture();
+function spawnBolt() {
+  const v = world.volcano; if (!v) return;
+  const bx = v.center.x + (Math.random() - 0.5) * 420, bz = v.center.z + (Math.random() - 0.5) * 420;
+  const topY = v.craterY + 900 + Math.random() * 1200, botY = v.craterY + 150, segs = 9 + (Math.random() * 6 | 0), pts = [];
+  let x = bx, z = bz;
+  for (let i = 0; i <= segs; i++) { pts.push(new THREE.Vector3(x, topY + (botY - topY) * (i / segs), z)); x += (Math.random() - 0.5) * 150; z += (Math.random() - 0.5) * 150; }
+  const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: 0xdcebff, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+  scene.add(line);
+  const flash = new THREE.Sprite(new THREE.SpriteMaterial({ map: FLASH_TEX, color: 0xdfeaff, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+  flash.position.set(bx, (topY + botY) / 2, bz); flash.scale.set(900, 900, 1); scene.add(flash);
+  eruption.bolts.push({ line, flash, life: 0.16 });
+}
+function updateBolts(dt) {
+  for (let i = eruption.bolts.length - 1; i >= 0; i--) {
+    const b = eruption.bolts[i]; b.life -= dt; const o = Math.max(0, b.life / 0.16);
+    b.line.material.opacity = o; b.flash.material.opacity = o * 0.9;
+    if (b.life <= 0) { scene.remove(b.line); scene.remove(b.flash); b.line.geometry.dispose(); b.line.material.dispose(); b.flash.material.dispose(); eruption.bolts.splice(i, 1); }
+  }
+}
 function spawnSpray() {
   const v = world.volcano; if (!v || eruption.spray.length > 240) return;
   const m = new THREE.Mesh(LAVASPRAY_GEO, LAVASPRAY_MAT);
@@ -1395,6 +1415,7 @@ function updateEruption(dt) {
     const s = e.spray[i]; s.vel.y -= 300 * dt; s.mesh.position.addScaledVector(s.vel, dt); s.life -= dt;
     if (s.life <= 0 || s.mesh.position.y < v.craterY - 90) { scene.remove(s.mesh); e.spray.splice(i, 1); }
   }
+  updateBolts(dt);
   if (e.phase === "dormant") return;
   if (flying) { // proximity screen-shake while active
     const dist = Math.hypot(state.position.x - v.center.x, state.position.z - v.center.z);
@@ -1419,6 +1440,7 @@ function updateEruption(dt) {
     e.sprayT -= dt; if (e.sprayT <= 0) { e.sprayT = 0.03; spawnSpray(); spawnSpray(); } // the fountain
     e.bombT -= dt;
     if (e.bombT <= 0) { e.bombT = 0.16 + Math.random() * 0.22; spawnLavaBomb(); if (Math.random() < 0.5) sound.explosion(1.8, new THREE.Vector3(v.center.x, v.craterY, v.center.z)); }
+    e.boltT -= dt; if (e.boltT <= 0) { e.boltT = 0.4 + Math.random() * 0.9; spawnBolt(); } // volcanic lightning
     if (e.t >= ERUPT.MAIN) { e.phase = "cooldown"; e.t = 0; flashBanner("THE PYRE SETTLES", "The eruption is subsiding", 3); }
   } else { // cooldown
     const k = Math.min(1, e.t / ERUPT.COOLDOWN);
@@ -1426,6 +1448,50 @@ function updateEruption(dt) {
     setLava(THREE.MathUtils.lerp(7.5, 3.6, k)); setGlow(THREE.MathUtils.lerp(0.95, 0.5, k), THREE.MathUtils.lerp(2600, 1700, k)); setFlows(THREE.MathUtils.lerp(4.5, 0.8, k));
     if (e.t >= ERUPT.COOLDOWN) { e.phase = "dormant"; e.t = 0; setPlume(e.base ? e.base.size : 120, e.base ? e.base.rate : 8); setLava(3.6); setGlow(0.5, 1700); setFlows(0.8); }
   }
+}
+
+// Falling ash near the camera (a recycled point cloud) + the deep rumble + a
+// brown haze that darkens the sky when you're in the eruption's ash zone.
+const ASH_N = 220, ASH_BOX = 1600, _ashFog = new THREE.Color(0x39322c);
+const _veil = { fogFar: 0, fogCol: new THREE.Color(), hemi: 1, sun: 1 }; // clean weather values to veil from
+const ashGeo = new THREE.BufferGeometry();
+{
+  const a = new Float32Array(ASH_N * 3);
+  for (let i = 0; i < ASH_N; i++) { a[i * 3] = (Math.random() - 0.5) * ASH_BOX; a[i * 3 + 1] = (Math.random() - 0.5) * ASH_BOX; a[i * 3 + 2] = (Math.random() - 0.5) * ASH_BOX; }
+  ashGeo.setAttribute("position", new THREE.BufferAttribute(a, 3));
+}
+const ashPoints = new THREE.Points(ashGeo, new THREE.PointsMaterial({ color: 0x4b463f, size: 6, transparent: true, opacity: 0, depthWrite: false }));
+ashPoints.frustumCulled = false; ashPoints.visible = false; scene.add(ashPoints);
+// Eruption intensity 0..1 by phase (for proximity effects).
+function eruptIntensity() {
+  const e = eruption;
+  if (e.phase === "precursor") return 0.45 * (e.t / ERUPT.PRECURSOR);
+  if (e.phase === "erupt") return 1;
+  if (e.phase === "cooldown") return 0.7 * (1 - e.t / ERUPT.COOLDOWN);
+  return 0;
+}
+function applyVolcanoFx(dt) {
+  const v = world.volcano; if (!v) return;
+  const eI = eruptIntensity();
+  const cp = camera.position, dist = Math.hypot(cp.x - v.center.x, cp.z - v.center.z);
+  // Rumble carries far; the ash veil only when you're close.
+  sound.setRumble(eI * THREE.MathUtils.clamp(1 - dist / 24000, 0, 1) * (flying ? 1 : 0.6));
+  const ashI = eI * THREE.MathUtils.clamp(1 - dist / 7000, 0, 1);
+  ashPoints.material.opacity = ashI * 0.85; ashPoints.visible = ashI > 0.01;
+  if (ashI <= 0.01) { // no ash: remember the clean weather fog/lights to veil from
+    if (scene.fog) { _veil.fogFar = scene.fog.far; _veil.fogCol.copy(scene.fog.color); }
+    if (world.hemi) _veil.hemi = world.hemi.intensity;
+    if (world.sun) _veil.sun = world.sun.intensity;
+    return;
+  }
+  // Brown-out the sky (set absolutely from the clean base — no compounding).
+  if (scene.fog) { scene.fog.color.copy(_veil.fogCol).lerp(_ashFog, ashI * 0.85); scene.fog.far = _veil.fogFar * (1 - ashI * 0.6); }
+  if (world.hemi) world.hemi.intensity = _veil.hemi * (1 - ashI * 0.4);
+  if (world.sun) world.sun.intensity = _veil.sun * (1 - ashI * 0.45);
+  ashPoints.position.set(cp.x, cp.y, cp.z);
+  const a = ashGeo.attributes.position.array;
+  for (let i = 0; i < ASH_N; i++) { a[i * 3 + 1] -= 80 * dt; if (a[i * 3 + 1] < -ASH_BOX * 0.5) a[i * 3 + 1] += ASH_BOX; }
+  ashGeo.attributes.position.needsUpdate = true;
 }
 
 window.addEventListener("keydown", (e) => {
@@ -2762,6 +2828,7 @@ function frame(now) {
   }
   smoke.update(simDt, _skyPos);
   updateEruption(simDt); // volcanic eruption event (lava bombs, plume swell, shake)
+  applyVolcanoFx(simDt);  // ash haze + falling ash + deep rumble (proximity-based)
   wrecks.update(simDt, now / 1000); // crash wreckage fire flicker
   updateBurningTrees(simDt);         // burnt-down trees vanish
   // Post FX on flat screen; VR renders direct (composer + WebXR don't mix).

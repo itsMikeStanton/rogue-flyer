@@ -318,6 +318,25 @@ export class SoundEngine {
       this._boost.bp.frequency.setTargetAtTime(1900 + amt * 1500, t, 0.1); // brightens with boost
     }
   }
+  // Deep continuous ground rumble for the volcanic eruption (lowpass noise,
+  // gain + cutoff ramp with intensity 0..1). Node is created once and kept.
+  setRumble(amt) {
+    if (!this.ctx) return;
+    if (amt > 0.01 && !this._rumble) {
+      const ctx = this.ctx;
+      const n = this._noise(); n.loop = true;
+      const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 90; lp.Q.value = 0.8;
+      const g = ctx.createGain(); g.gain.value = 0.0001;
+      n.connect(lp); lp.connect(g); g.connect(this.master);
+      n.start();
+      this._rumble = { n, g, lp };
+    }
+    if (this._rumble) {
+      const t = this.ctx.currentTime;
+      this._rumble.g.gain.setTargetAtTime(amt * 0.55, t, 0.25);          // deep swell
+      this._rumble.lp.frequency.setTargetAtTime(60 + amt * 110, t, 0.25); // opens up as it intensifies
+    }
+  }
   // Radio comms "voice": a squelch click, a run of blippy robotic syllables
   // (old-school video-game speech), and a closing squelch. `n` ~ syllable count.
   radio(n = 4) {
