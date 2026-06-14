@@ -910,6 +910,33 @@ export function resculptTerrain(is, terrainMesh, lx, lz, radius) {
   pos.needsUpdate = true; col.needsUpdate = true;
 }
 
+// A wind turbine: tapered tower, nacelle, and a 3-blade rotor that spins about
+// its (horizontal) shaft. Returns { group, rotor } so the rotor can be handed to
+// the spinner system. Faces +Z; yaw the group to orient into the "wind".
+function buildWindTurbine() {
+  const g = new THREE.Group();
+  const white = new THREE.MeshStandardMaterial({ color: 0xeef1f3, flatShading: true, roughness: 0.6, metalness: 0.1 });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x9aa0a6, flatShading: true, roughness: 0.7 });
+  const tower = new THREE.Mesh(new THREE.CylinderGeometry(1.4, 3.0, 84, 10), white);
+  tower.position.y = 42; tower.castShadow = true; g.add(tower);
+  const nacelle = new THREE.Mesh(new THREE.BoxGeometry(4.5, 4.5, 12), dark);
+  nacelle.position.set(0, 85, 1.5); g.add(nacelle);
+  // Rotor: hub on the +Z shaft, three blades radiating in the local XY plane so
+  // it sweeps a vertical disc; spun about local Z by the spinner system.
+  const rotor = new THREE.Group();
+  rotor.position.set(0, 85, 8);
+  const hub = new THREE.Mesh(new THREE.CylinderGeometry(1.6, 1.6, 2.4, 10), white);
+  hub.rotation.x = Math.PI / 2; rotor.add(hub);
+  for (let i = 0; i < 3; i++) {
+    const blade = new THREE.Mesh(new THREE.BoxGeometry(1.8, 38, 0.6), white);
+    blade.position.y = 19; blade.geometry.translate(0, 0, 0);
+    const arm = new THREE.Group(); arm.add(blade); arm.rotation.z = (i / 3) * Math.PI * 2;
+    rotor.add(arm);
+  }
+  g.add(rotor);
+  return { group: g, rotor };
+}
+
 // A low-poly power plant: turbine hall, annex, a waisted cooling tower and two
 // banded smokestacks. Returns the group plus the local positions/params of its
 // smoke sources (cooling-tower vapour + dark stack exhaust) for the smoke system.
@@ -1386,6 +1413,71 @@ function buildIsland(scene, is, waveMats, colliders, smokeSources, trees, spinne
       const lid = new THREE.Mesh(new THREE.CylinderGeometry(15, 13, 3, 16), tankMat); lid.position.set(fx, gy + 17, fz); grp.add(lid);
       colliders.push({ x: cx0 + fx, z: cz0 + fz, hx: 15, hz: 15, top: gy + 18 });
     }
+  }
+
+  // ---- Wind farm: a line of turbines on a gentle coastal/upland band; the
+  //      rotors turn (handed to the spinner system about their shaft axis). ----
+  {
+    const zc = -5400 + (rnd() - 0.5) * 4200; // seeded band
+    let placed = 0;
+    for (let x = -4200; x <= 4200 && placed < 10; x += 240) {
+      const gy = H(x, zc);
+      if (gy < SEA_LEVEL + 4 || gy > SEA_LEVEL + 170) continue;
+      const s = 90, a = H(x - s, zc), b = H(x + s, zc), c2 = H(x, zc - s), d2 = H(x, zc + s);
+      if (Math.max(gy, a, b, c2, d2) - Math.min(gy, a, b, c2, d2) > 12) continue;
+      const t = buildWindTurbine();
+      t.group.position.set(x, gy, zc);
+      t.group.rotation.y = 0.3 + (rnd() - 0.5) * 0.5;
+      grp.add(t.group);
+      if (spinners) spinners.push({ obj: t.rotor, speed: 1.3 + rnd() * 0.7, axis: "z" });
+      colliders.push({ x: cx0 + x, z: cz0 + zc, hx: 4, hz: 4, top: gy + 84 });
+      placed++;
+    }
+  }
+
+  // ---- Transmission lines: pylons marching alongside the roads with wires
+  //      strung between them, so the island reads as wired-together, not empty. ----
+  if (is.roads && is.roads.length) {
+    const PMAX = 320, WMAX = 1300;
+    const steelMat = new THREE.MeshStandardMaterial({ color: 0x6b7077, flatShading: true, roughness: 0.85 });
+    const masts = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.5, 1.7, 36, 4), steelMat, PMAX);
+    const arms = new THREE.InstancedMesh(new THREE.BoxGeometry(20, 1.2, 1.2), steelMat, PMAX * 2);
+    const wires = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.18, 0.18, 1, 4), new THREE.MeshStandardMaterial({ color: 0x23262b, roughness: 0.9 }), WMAX);
+    masts.castShadow = true;
+    const up = new THREE.Vector3(0, 1, 0), dir = new THREE.Vector3(), mid = new THREE.Vector3(), wq = new THREE.Quaternion(), wsc = new THREE.Vector3(), armQ = new THREE.Quaternion(), xAxis = new THREE.Vector3(1, 0, 0), segDir = new THREE.Vector3();
+    let pm = 0, pa = 0, wm = 0;
+    const GAP = 300, ARM_Y = 30;
+    for (const road of is.roads) {
+      const pts = [];
+      for (let s = 0; s < road.length - 1; s++) {
+        const [ax, az] = road[s], [bx, bz] = road[s + 1];
+        const segLen = Math.hypot(bx - ax, bz - az) || 1, steps = Math.max(1, Math.floor(segLen / GAP));
+        for (let k = (s > 0 ? 1 : 0); k <= steps; k++) { const tt = k / steps; pts.push([ax + (bx - ax) * tt, az + (bz - az) * tt]); }
+      }
+      let prev = null;
+      for (let i = 0; i < pts.length && pm < PMAX; i++) {
+        const a = pts[Math.max(0, i - 1)], b = pts[Math.min(pts.length - 1, i + 1)];
+        let dxr = b[0] - a[0], dzr = b[1] - a[1]; const L = Math.hypot(dxr, dzr) || 1; dxr /= L; dzr /= L;
+        const ox = pts[i][0] - dzr * 26, oz = pts[i][1] + dxr * 26, gy = H(ox, oz);
+        if (gy < SEA_LEVEL + 2) { prev = null; continue; }
+        tp.set(ox, gy + 18, oz); ts.set(1, 1, 1); masts.setMatrixAt(pm++, m4.compose(tp, noRot, ts));
+        armQ.setFromUnitVectors(xAxis, segDir.set(dxr, 0, dzr));
+        if (pa < PMAX * 2) { tp.set(ox, gy + ARM_Y, oz); arms.setMatrixAt(pa++, m4.compose(tp, armQ, ts)); }
+        if (pa < PMAX * 2) { tp.set(ox, gy + ARM_Y - 8, oz); arms.setMatrixAt(pa++, m4.compose(tp, armQ, ts)); }
+        const top = { x: ox, y: gy + ARM_Y, z: oz };
+        if (prev && wm + 3 <= WMAX) for (const off of [-8, 0, 8]) {
+          const ax2 = prev.x - dzr * off, az2 = prev.z + dxr * off, bx2 = top.x - dzr * off, bz2 = top.z + dxr * off;
+          mid.set((ax2 + bx2) / 2, (prev.y + top.y) / 2, (az2 + bz2) / 2);
+          dir.set(bx2 - ax2, top.y - prev.y, bz2 - az2); const len = dir.length() || 1; dir.multiplyScalar(1 / len);
+          wq.setFromUnitVectors(up, dir); wsc.set(1, len, 1);
+          wires.setMatrixAt(wm++, m4.compose(mid, wq, wsc));
+        }
+        prev = top;
+      }
+    }
+    masts.count = pm; arms.count = pa; wires.count = wm;
+    masts.instanceMatrix.needsUpdate = arms.instanceMatrix.needsUpdate = wires.instanceMatrix.needsUpdate = true;
+    if (pm) grp.add(masts); if (pa) grp.add(arms); if (wm) grp.add(wires);
   }
 
   // ---- Landmarks: a lattice radio tower on the cliff, a lighthouse on the

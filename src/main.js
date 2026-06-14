@@ -2653,7 +2653,7 @@ function frame(now) {
   weather.update(simDt, _skyPos); // stars/rain follow the camera; storm lightning
   if (post.enabled) post.setBloomScale(THREE.MathUtils.lerp(1.0, 0.5, weather.daylight || 0)); // tame daytime bloom
   ground.night = weatherMode === "night" || weatherMode === "storm" || (weather.autoCycle && (weather.daylight || 0) < 0.25); // gate searchlights to darkness (incl. the cycle's night)
-  if (world.spinners) for (const s of world.spinners) s.obj.rotation.y += dt * s.speed; // lighthouse beacons sweep
+  if (world.spinners) for (const s of world.spinners) s.obj.rotation[s.axis || "y"] += dt * s.speed; // lighthouse beacons sweep, turbine blades turn
   // Smoke plumes: scenery sources + any still-alive power-plant strike targets.
   const dyn = smoke.dynamic; dyn.length = 0;
   for (const t of ground.targets) if (t.alive && t.smokeStacks) for (const s of t.smokeStacks) dyn.push(s);
