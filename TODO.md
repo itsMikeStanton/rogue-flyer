@@ -4,13 +4,31 @@ Running list of things we've deferred / want to revisit. Newest themes at top of
 each section. Tuning knobs note the file/number so they're quick to change.
 
 ## Multiplayer (FFA)
+- [x] **Rooms / private games** — server scopes the relay by room code (A–Z0–9,
+      max 6). Empty = shared PUBLIC lobby; a code = private game. `?room=CODE`
+      link is the shareable invite; menu Room field; HUD shows the room.
+- [ ] **Pre-flight lobby screen** — see who's in the room (callsigns/jets),
+      ready-up, maybe pick map/mode, launch together. Today you spawn straight
+      in; the room is the only structure. (Stage b of the rooms work.)
+- [ ] **Copy-invite button** — one click to copy the `?room=CODE` URL (and/or a
+      QR) from the menu, instead of grabbing the address bar by hand.
 - [ ] **Kill feed** — on-screen "A splashed B" log.
 - [ ] **Scoreboard** — kills/deaths per pilot (Tab/overlay).
 - [ ] **Team colors / teams** — optional team FFA with colored jets/markers.
-- [ ] **Vendor three.js locally** so LAN play works with no internet (currently
-      the engine loads from the jsdelivr CDN — fine on Wi-Fi with internet, dead
-      on an isolated LAN). ~1–2 MB to the repo.
+- [x] **Vendor three.js locally** — engine + the 5 postprocessing addons live in
+      `vendor/three`; importmap points local. No CDN, runs offline / on an
+      isolated LAN.
 - [ ] Spawn scatter is air-only; consider staggering ground/runway FFA spawns too.
+
+## Deploy / hosting / money
+- [x] **Single-container deploy** — Dockerfile + fly.toml + DEPLOY.md. Node
+      server (static host + WS relay on one port) ships as one image; client
+      auto-upgrades to wss:// behind TLS. (Image build untested in sandbox — no
+      docker daemon; `fly deploy` builds remotely.)
+- [ ] **Accounts / identity** (Discord OAuth) — needed before persistence,
+      cosmetics, or paid private rooms. Hold until itch.io retention says go.
+- [ ] **Monetization** — private-room subscription is the first paid feature
+      (rooms now exist); then cosmetics (callsign/livery/trail colors).
 
 ## Scale & feel
 - [ ] **Terminal velocity / top-speed cap** — there's effectively no drag ceiling
