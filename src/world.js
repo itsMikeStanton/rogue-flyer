@@ -1023,6 +1023,12 @@ function buildIsland(scene, is, waveMats, colliders, smokeSources, trees, spinne
   const cx0 = is.center.x, cz0 = is.center.z;
   const H = (x, z) => islandHeight(is, x, z);
   const onRiver = () => false; // river removed — nothing to avoid
+  // Is the ground around (x,z) flat enough (within `reach`) to seat a footprint
+  // of that size? Used to keep big flat-bottomed structures off slopes/cliffs.
+  const flatEnough = (x, z, reach, maxRelief) => {
+    const a = H(x, z), b = H(x - reach, z), c = H(x + reach, z), d = H(x, z - reach), e = H(x, z + reach);
+    return Math.max(a, b, c, d, e) - Math.min(a, b, c, d, e) <= maxRelief;
+  };
   const rnd = mulberry32(is.seed || 0x1f2e3d);
   const m4 = new THREE.Matrix4();
   const noRot = new THREE.Quaternion();
@@ -1260,6 +1266,7 @@ function buildIsland(scene, is, waveMats, colliders, smokeSources, trees, spinne
           const z = cz + gz * sp + (rnd() - 0.5) * 40;
           const h = H(x, z);
           if (h < 4 || onRiver(x, z)) continue;
+          if (!flatEnough(x, z, 26, 22)) continue; // no buildings jutting out of cliffs/steep slopes
           const edge = Math.max(Math.abs(gx), Math.abs(gz));
           // Height: the style's floor + a slice of the settlement's maxHeight
           // (so the village/town/city scale hierarchy still holds), tapering out
@@ -1577,7 +1584,11 @@ function buildIsland(scene, is, waveMats, colliders, smokeSources, trees, spinne
 
   // ---- Solar field: a grid of tilted dark photovoltaic panels on gentle land. ----
   {
-    const sx0 = (rnd() - 0.5) * 6500, sz0 = (rnd() - 0.5) * 6500, gy0 = H(sx0, sz0);
+    let sx0 = 0, sz0 = 0, gy0 = -1e9;
+    for (let tries = 0; tries < 14; tries++) {
+      const x = (rnd() - 0.5) * 6500, z = (rnd() - 0.5) * 6500, h = H(x, z);
+      if (h > SEA_LEVEL + 6 && h < SEA_LEVEL + 240 && flatEnough(x, z, 90, 16)) { sx0 = x; sz0 = z; gy0 = h; break; }
+    }
     if (gy0 > SEA_LEVEL + 6 && gy0 < SEA_LEVEL + 240) {
       const PMAX = 160;
       const panels = new THREE.InstancedMesh(new THREE.PlaneGeometry(11, 5),
@@ -1595,7 +1606,11 @@ function buildIsland(scene, is, waveMats, colliders, smokeSources, trees, spinne
 
   // ---- Refinery / tank farm: a ring of storage tanks + a flare stack (smoke). ----
   {
-    const rx = (rnd() - 0.5) * 5200, rz = (rnd() - 0.5) * 5200, gy = H(rx, rz);
+    let rx = 0, rz = 0, gy = -1e9;
+    for (let tries = 0; tries < 14; tries++) { // find dry, flat ground for the tank ring
+      const x = (rnd() - 0.5) * 5200, z = (rnd() - 0.5) * 5200, h = H(x, z);
+      if (h > SEA_LEVEL + 4 && h < SEA_LEVEL + 190 && flatEnough(x, z, 70, 16)) { rx = x; rz = z; gy = h; break; }
+    }
     if (gy > SEA_LEVEL + 4 && gy < SEA_LEVEL + 190) {
       const tankMat = new THREE.MeshStandardMaterial({ color: 0xc2c6c9, flatShading: true, roughness: 0.7, metalness: 0.2 });
       for (let i = 0; i < 8; i++) {
@@ -1622,16 +1637,22 @@ function buildIsland(scene, is, waveMats, colliders, smokeSources, trees, spinne
   {
     const kindStyle = { village: "coastal", town: "colonial", city: "modern", port: "industrial", industrial: "industrial" };
     const styleOf = (s) => s.style || is.culture || kindStyle[s.kind] || "modern";
-    const placeNear = (s, off, build, hx, hz, topH) => {
+    // Big flat-footed civic buildings: try several spots around the settlement
+    // and only seat one on dry, flat-enough ground (no stadium on a hillside).
+    const placeNear = (s, off, build, hx, hz, topH, reach) => {
       if (!s) return;
-      const a = rnd() * Math.PI * 2, dd = s.radius * (s.spacing || 110) + off;
-      const x = s.x + Math.cos(a) * dd, z = s.z + Math.sin(a) * dd, gy = H(x, z);
-      if (gy < SEA_LEVEL + 4 || gy > SEA_LEVEL + 240) return;
-      const m = build(); m.position.set(x, gy, z); m.rotation.y = rnd() * Math.PI * 2; grp.add(m);
-      colliders.push({ x: cx0 + x, z: cz0 + z, hx, hz, top: gy + topH });
+      for (let tries = 0; tries < 10; tries++) {
+        const a = rnd() * Math.PI * 2, dd = s.radius * (s.spacing || 110) + off;
+        const x = s.x + Math.cos(a) * dd, z = s.z + Math.sin(a) * dd, gy = H(x, z);
+        if (gy < SEA_LEVEL + 4 || gy > SEA_LEVEL + 240) continue;
+        if (!flatEnough(x, z, reach, 12)) continue;
+        const m = build(); m.position.set(x, gy, z); m.rotation.y = rnd() * Math.PI * 2; grp.add(m);
+        colliders.push({ x: cx0 + x, z: cz0 + z, hx, hz, top: gy + topH });
+        return;
+      }
     };
-    placeNear(is.settlements.find((s) => s.radius >= 2) || is.settlements[0], 360, buildStadium, 95, 80, 30);
-    placeNear(is.settlements.find((s) => styleOf(s) === "colonial"), 220, buildCathedral, 26, 32, 85);
+    placeNear(is.settlements.find((s) => s.radius >= 2) || is.settlements[0], 360, buildStadium, 95, 80, 30, 90);
+    placeNear(is.settlements.find((s) => styleOf(s) === "colonial"), 220, buildCathedral, 26, 32, 85, 40);
   }
 
   // ---- Dam + reservoir: a concrete dam holding a small upland lake. Built only
@@ -1690,7 +1711,13 @@ function buildIsland(scene, is, waveMats, colliders, smokeSources, trees, spinne
 
   // ---- Power plant near the city: big smoke plumes (and a strike target). ----
   {
-    const px = 4900, pz = 5200, gy = H(px, pz);
+    let px = 4900, pz = 5200, gy = H(px, pz);
+    if (!flatEnough(px, pz, 120, 22)) { // its big hall needs flat ground — nudge to a flat spot nearby
+      for (let t = 0; t < 24; t++) {
+        const a = rnd() * Math.PI * 2, r = 600 + rnd() * 3200, x = px + Math.cos(a) * r, z = pz + Math.sin(a) * r, h = H(x, z);
+        if (h > SEA_LEVEL + 2 && h < SEA_LEVEL + 240 && flatEnough(x, z, 120, 20)) { px = x; pz = z; gy = h; break; }
+      }
+    }
     if (gy > SEA_LEVEL + 2) {
       const pp = buildPowerPlant();
       pp.group.position.set(px, gy, pz);
