@@ -482,7 +482,9 @@ function waveMaterial(color, opacity) {
   float wv = sin(dot(wxz, vec2(0.0042, 0.0011)) + uTime * 1.00) * 2.6
            + sin(dot(wxz, vec2(-0.0017, 0.0039)) + uTime * 0.83) * 2.2
            + sin(dot(wxz, vec2(0.0026, -0.0022)) - uTime * 0.60) * 1.7
-           + sin(dot(wxz, vec2(0.0009, 0.0014)) + uTime * 0.40) * 1.2;
+           + sin(dot(wxz, vec2(0.0009, 0.0014)) + uTime * 0.40) * 1.2
+           + sin(dot(wxz, vec2(0.0061, -0.0037)) + uTime * 1.27) * 0.85
+           + sin(dot(wxz, vec2(-0.0049, -0.0051)) - uTime * 1.08) * 0.70;
   transformed.y += wv;
   vWave = clamp((wv + 7.0) / 14.0, 0.0, 1.0);
   vWorld = wxz;`
@@ -510,9 +512,14 @@ float wFbm(vec2 p){ float v = 0.0, a = 0.5; for (int k = 0; k < 4; k++){ v += a 
   // colour variety: drift between teal and deeper-blue zones
   diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.80, 1.08, 1.05), smoothstep(0.45, 0.75, nc));
   diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.72, 0.84, 1.18), smoothstep(0.45, 0.18, nc));
-  // foam: crests plus fine speckle spots
-  float foam = smoothstep(0.58, 0.90, vWave * 0.5 + n2 * 0.6);
-  foam += smoothstep(0.86, 1.0, n3) * 0.7;
+  // foam: domain-warped fbm (organic patches that wander) with only a light
+  // contribution from the wave crests, so it reads as scattered whitecaps rather
+  // than a diamond grid aligned to the sine waves.
+  vec2 fwarp = vec2(wFbm(vWorld * 0.0035 + uTime * 0.03),
+                    wFbm(vWorld * 0.0035 + 7.3 - uTime * 0.025)) - 0.5;
+  float fn = wFbm(vWorld * 0.02 + fwarp * 4.0 - vec2(uTime * 0.05, 0.0));
+  float foam = smoothstep(0.60, 0.93, vWave * 0.26 + fn * 0.92);
+  foam += smoothstep(0.88, 1.0, n3) * 0.45;
   diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.86, 0.93, 0.97), clamp(foam, 0.0, 1.0) * 0.6);`
     );
     shader.fragmentShader = fs;
