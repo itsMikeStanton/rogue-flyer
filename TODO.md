@@ -66,6 +66,20 @@ each section. Tuning knobs note the file/number so they're quick to change.
 - [ ] Pyre visual tuning: plume scale (size 120 base, ×2.2 erupt), glow-halo size
       (~1.7–2.6 km), fountain density/height, day-time glow punch.
 
+## Performance
+- [x] **Island LOD** — far islands (past ~outer+22 km, fully fogged) drop
+      entirely; each island's interiors (buildings/infra/forests/props) hide past
+      ~outer+8 km. (`cullIslands` in main.js; `detail` group in `buildIsland`.)
+- [x] **Pool eruption lava bombs + spray** — reusable mesh pools, no GC churn.
+- [ ] **Instance the per-island structure singletons** (turbines ~6 meshes each,
+      cranes, tanks, cathedral/stadium, hangars, power-plant parts) — *lower
+      value now* that LOD hides far islands and you're only near 1–2 at a time;
+      do it only if a near-island still dips FPS.
+- [ ] **Distance-cull traffic** (ships/zeppelin/trains) when far — modest count,
+      but they update + draw across the whole map today.
+- [ ] **Pool fx explosions / lightning bolts** if eruption GC still spikes.
+- [ ] Consider terrain LOD (360² segments per island) if terrain draw is heavy.
+
 ## Infrastructure (eyeball after flying)
 - [ ] **Ports** are coastline-found from a seeded heading + low-beach gate, so
       some islands get one and some don't. Guarantee one per island if wanted; the
