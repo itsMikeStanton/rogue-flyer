@@ -165,6 +165,8 @@ export const FOREST_TYPES = [
   { name: "Pine", color: 0x46604a },
   { name: "Oak", color: 0x5e7350 },
   { name: "Birch", color: 0x8a9461 },
+  { name: "Palm", color: 0x6fa03e },   // bright tropical green — coast/beach only
+  { name: "Spruce", color: 0x33503c }, // dark hardy conifer — high slopes only
 ];
 function defaultForestTypes(is) {
   const f = is.forest, g = f.gridN, e = f.extent, a = new Array(g * g);
@@ -1141,7 +1143,9 @@ function buildIsland(scene, is, waveMats, colliders, smokeSources, trees, spinne
     const pine = new THREE.InstancedMesh(new THREE.ConeGeometry(4.4, 13, 6), new THREE.MeshStandardMaterial({ color: FOREST_TYPES[0].color, flatShading: true, roughness: 1 }), MAX);
     const oak = new THREE.InstancedMesh(new THREE.SphereGeometry(5.5, 6, 5), new THREE.MeshStandardMaterial({ color: FOREST_TYPES[1].color, flatShading: true, roughness: 1 }), MAX);
     const birch = new THREE.InstancedMesh(new THREE.SphereGeometry(4.4, 6, 5), new THREE.MeshStandardMaterial({ color: FOREST_TYPES[2].color, flatShading: true, roughness: 1 }), MAX);
-    let n = 0, pc = 0, oc = 0, bc = 0;
+    const palm = new THREE.InstancedMesh(new THREE.ConeGeometry(5.0, 3.2, 7), new THREE.MeshStandardMaterial({ color: FOREST_TYPES[3].color, flatShading: true, roughness: 1 }), MAX);   // wide flat frond crown
+    const spruce = new THREE.InstancedMesh(new THREE.ConeGeometry(3.2, 16, 6), new THREE.MeshStandardMaterial({ color: FOREST_TYPES[4].color, flatShading: true, roughness: 1 }), MAX); // tall narrow conifer
+    let n = 0, pc = 0, oc = 0, bc = 0, plc = 0, spc = 0;
     const f = is.forest, g = f.gridN, e = f.extent, dens = forestDensityArr(is), types = forestTypesArr(is);
     const perCell = f.perCell, cellW = (2 * e) / (g - 1);
     outer:
@@ -1162,25 +1166,32 @@ function buildIsland(scene, is, waveMats, colliders, smokeSources, trees, spinne
           // Treeline: forest thins from ~360 m and gives out by ~600 m, leaving
           // the bare-rock/snow zone above the trees (a natural alpine band).
           if (rnd() > THREE.MathUtils.clamp((600 - h) / 240, 0, 1)) continue;
-          // mostly the cell's species; an occasional neighbour for soft edges
-          let sp = cellType;
-          if (rnd() < 0.12) sp = (cellType + 1 + ((rnd() * 2) | 0)) % 3;
+          // Species by ALTITUDE/coast: palms hug the beach, hardy spruce takes
+          // the high slopes, the noise-mixed pine/oak/birch fill the lowlands.
+          let sp;
+          if (h < 30) sp = 3;            // palm — coast/beach
+          else if (h > 430) sp = 4;      // spruce — high slopes toward the treeline
+          else { sp = cellType; if (rnd() < 0.12) sp = (cellType + 1 + ((rnd() * 2) | 0)) % 3; }
           const s = (0.9 + rnd() * 1.4) * (1 + d * 0.9);
-          tp.set(x, h + 3.5 * s, z); ts.set(s, s, s);
+          // Palms get a tall, thin bare trunk; everything else a standard one.
+          const tsy = sp === 3 ? s * 1.7 : s, tsxz = sp === 3 ? s * 0.5 : s;
+          tp.set(x, h + 3.5 * tsy, z); ts.set(tsxz, tsy, tsxz);
           trunks.setMatrixAt(n, m4.compose(tp, noRot, ts));
           let cm, ci, cy; // canopy mesh + instance index + world height (for burning)
           if (sp === 0) { cy = h + 13.5 * s; tp.set(x, cy, z); ts.set(s, s, s); ci = pc; pine.setMatrixAt(pc++, m4.compose(tp, noRot, ts)); cm = pine; }
           else if (sp === 1) { cy = h + 9 * s; tp.set(x, cy, z); ts.set(s * 1.1, s * 0.95, s * 1.1); ci = oc; oak.setMatrixAt(oc++, m4.compose(tp, noRot, ts)); cm = oak; }
-          else { cy = h + 8 * s; tp.set(x, cy, z); ts.set(s * 0.85, s * 1.15, s * 0.85); ci = bc; birch.setMatrixAt(bc++, m4.compose(tp, noRot, ts)); cm = birch; }
+          else if (sp === 2) { cy = h + 8 * s; tp.set(x, cy, z); ts.set(s * 0.85, s * 1.15, s * 0.85); ci = bc; birch.setMatrixAt(bc++, m4.compose(tp, noRot, ts)); cm = birch; }
+          else if (sp === 3) { cy = h + 7 * tsy + 1.5 * s; tp.set(x, cy, z); ts.set(s * 1.3, s * 0.8, s * 1.3); ci = plc; palm.setMatrixAt(plc++, m4.compose(tp, noRot, ts)); cm = palm; }
+          else { cy = h + 9 * s; tp.set(x, cy, z); ts.set(s * 0.9, s, s * 0.9); ci = spc; spruce.setMatrixAt(spc++, m4.compose(tp, noRot, ts)); cm = spruce; }
           // Every tree gets an instance handle, so blasts can ignite + remove it.
           if (trees) trees.push({ x: cx0 + x, y: h, z: cz0 + z, cy, tm: trunks, ti: n, cm, ci });
           n++;
         }
       }
     }
-    trunks.count = n; pine.count = pc; oak.count = oc; birch.count = bc;
-    for (const im of [trunks, pine, oak, birch]) { im.instanceMatrix.needsUpdate = true; im.receiveShadow = true; }
-    grp.add(trunks); grp.add(pine); grp.add(oak); grp.add(birch);
+    trunks.count = n; pine.count = pc; oak.count = oc; birch.count = bc; palm.count = plc; spruce.count = spc;
+    for (const im of [trunks, pine, oak, birch, palm, spruce]) { im.instanceMatrix.needsUpdate = true; im.receiveShadow = true; }
+    grp.add(trunks); grp.add(pine); grp.add(oak); grp.add(birch); grp.add(palm); grp.add(spruce);
   }
 
   // ---- Bushes ----
