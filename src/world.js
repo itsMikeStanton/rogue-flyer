@@ -877,13 +877,13 @@ function sculptHeightAt(is, x, z) {
 }
 // Terrain vertex colour (shared by the full build and the live sculpt update).
 function terrainColorAt(is, x, z, h, cx0, cz0, out) {
+  // One regional palette, zoned by ALTITUDE only — so every island shares the
+  // same climate but its height profile decides its look: lush coast/lowland,
+  // bare rock on the highlands, snow only on genuinely tall peaks.
   if (h < 45) { const s = THREE.MathUtils.clamp((h + 12) / 57, 0, 1); out.copy(SAND).lerp(LOW, s); }
-  else {
-    const t = THREE.MathUtils.clamp((h + 200) / 1400, 0, 1);
-    if (t < 0.45) out.copy(LOW).lerp(MID, t / 0.45);
-    else if (t < 0.8) out.copy(MID).lerp(HIGH, (t - 0.45) / 0.35);
-    else out.copy(HIGH).lerp(SNOW, (t - 0.8) / 0.2);
-  }
+  else if (h < 280) out.copy(LOW).lerp(MID, (h - 45) / 235);          // lush lowland -> upland meadow
+  else if (h < 580) out.copy(MID).lerp(HIGH, (h - 280) / 300);        // meadow -> bare rock
+  else out.copy(HIGH).lerp(SNOW, THREE.MathUtils.clamp((h - 580) / 320, 0, 1)); // rock -> snowcap (tall peaks)
   paintColorForLocal(is, x, z, out, _pcOut); out.copy(_pcOut);
   const j = (hash2((x + cx0) * 0.05, (z + cz0) * 0.05) - 0.5) * 0.06;
   out.setRGB(THREE.MathUtils.clamp(out.r + j, 0, 1), THREE.MathUtils.clamp(out.g + j, 0, 1), THREE.MathUtils.clamp(out.b + j, 0, 1));
@@ -1103,7 +1103,10 @@ function buildIsland(scene, is, waveMats, colliders, smokeSources, trees, spinne
           const x = cxw + (rnd() - 0.5) * cellW;
           const z = czw + (rnd() - 0.5) * cellW;
           const h = H(x, z);
-          if (h < 8 || h > 760 || onRiver(x, z)) continue;
+          if (h < 8 || onRiver(x, z)) continue;
+          // Treeline: forest thins from ~360 m and gives out by ~600 m, leaving
+          // the bare-rock/snow zone above the trees (a natural alpine band).
+          if (rnd() > THREE.MathUtils.clamp((600 - h) / 240, 0, 1)) continue;
           // mostly the cell's species; an occasional neighbour for soft edges
           let sp = cellType;
           if (rnd() < 0.12) sp = (cellType + 1 + ((rnd() * 2) | 0)) % 3;
