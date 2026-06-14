@@ -7,6 +7,7 @@ export class Net {
   constructor() {
     this.ws = null;
     this.id = null;
+    this.room = null;         // the room/lobby the server placed us in (set on welcome)
     this.connected = false;
     this.status = "offline"; // offline | connecting | online | error
     this.players = new Map(); // id -> remote player record
@@ -14,13 +15,13 @@ export class Net {
     this._lastSend = 0;
   }
 
-  connect(name, jet) {
-    this._name = name; this._jet = jet;
+  connect(name, jet, room) {
+    this._name = name; this._jet = jet; this._room = room || "";
     const proto = location.protocol === "https:" ? "wss://" : "ws://";
     this.status = "connecting";
     try { this.ws = new WebSocket(proto + location.host); }
     catch (e) { this.status = "error"; this._emit("error", e); return; }
-    this.ws.onopen = () => { this.connected = true; this.status = "online"; this.send({ t: "join", name, jet }); this._emit("open"); };
+    this.ws.onopen = () => { this.connected = true; this.status = "online"; this.send({ t: "join", name, jet, room: this._room }); this._emit("open"); };
     this.ws.onclose = () => { this.connected = false; if (this.status !== "error") this.status = "offline"; this._emit("close"); };
     this.ws.onerror = (e) => { this.status = "error"; this._emit("error", e); };
     this.ws.onmessage = (ev) => this._recv(ev.data);
@@ -29,7 +30,7 @@ export class Net {
   disconnect() {
     if (this.ws) { try { this.send({ t: "leave" }); this.ws.close(); } catch (_) { /* ignore */ } }
     this.ws = null; this.connected = false; this.status = "offline";
-    this.players.clear(); this.id = null;
+    this.players.clear(); this.id = null; this.room = null;
   }
 
   send(o) { if (this.ws && this.ws.readyState === 1) this.ws.send(JSON.stringify(o)); }
@@ -40,6 +41,7 @@ export class Net {
     switch (m.t) {
       case "welcome":
         this.id = m.id;
+        this.room = m.room || "PUBLIC";
         for (const p of m.players) this._upsert(p);
         this._emit("welcome", m); break;
       case "join": this._upsert(m); this._emit("join", m); break;

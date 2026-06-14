@@ -164,6 +164,8 @@ export class UI {
     if (plan) plan.classList.toggle("hidden", !!m.opens); // PLAN (strategic map) for quick/free modes
     const cso = document.getElementById("callsign-opt");
     if (cso) cso.classList.toggle("hidden", this.mode !== "ffa"); // call sign only matters in multiplayer
+    const rmo = document.getElementById("room-opt");
+    if (rmo) rmo.classList.toggle("hidden", this.mode !== "ffa"); // room/lobby code, multiplayer only
   }
 
   buildJetList() {
@@ -446,6 +448,18 @@ export class UI {
       const apply = () => { if (this.cb.onName) this.cb.onName(cs.value); };
       cs.addEventListener("input", apply);
       cs.addEventListener("change", apply);
+    }
+    const rc = document.getElementById("room-code");
+    if (rc) {
+      if (this.cb.getRoom) rc.value = this.cb.getRoom();
+      // Force the A–Z0–9 room-code shape as they type, so what they see is what joins.
+      const apply = () => {
+        const v = rc.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
+        if (rc.value !== v) rc.value = v;
+        if (this.cb.onRoom) this.cb.onRoom(v);
+      };
+      rc.addEventListener("input", apply);
+      rc.addEventListener("change", apply);
     }
     const planBtn = document.getElementById("btn-plan");
     if (planBtn) planBtn.addEventListener("click", () => {

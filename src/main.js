@@ -931,6 +931,29 @@ function setPlayerName(n) { // takes effect on the next FFA connect
   playerName = (n && n.trim()) ? n.trim().slice(0, 16) : "";
   try { localStorage.setItem("rf.name", playerName); } catch (_) { /* ignore */ }
 }
+
+// Multiplayer room/lobby code. Empty = the shared public game; a custom code is
+// a private game you share by link. Seeded from a ?room= link first (so a shared
+// URL just works), else the last code you used.
+function normRoomCode(s) { return String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6); }
+let playerRoom = "";
+try {
+  const fromUrl = normRoomCode(new URLSearchParams(location.search).get("room"));
+  playerRoom = fromUrl || normRoomCode(localStorage.getItem("rf.room")) || "";
+  if (fromUrl) localStorage.setItem("rf.room", fromUrl);
+} catch (_) { /* ignore */ }
+function setPlayerRoom(c) { // takes effect on the next FFA connect
+  playerRoom = normRoomCode(c);
+  try { localStorage.setItem("rf.room", playerRoom); } catch (_) { /* ignore */ }
+}
+// Mirror the joined room into the address bar so the URL is the shareable invite.
+function syncRoomUrl(room) {
+  try {
+    const u = new URL(location.href);
+    if (room && room !== "PUBLIC") u.searchParams.set("room", room); else u.searchParams.delete("room");
+    history.replaceState(null, "", u);
+  } catch (_) { /* ignore */ }
+}
 const ui = new UI(input, {
   onFly: (type, mode, start) => { pendingSpawn = null; startFlight(type, mode, start); }, // "Launch now" — quick start
   onPlan: (type, mode) => openQuickPlanner(type, mode), // "Plan" — open the strategic map planner
@@ -951,6 +974,8 @@ const ui = new UI(input, {
   livesMode: () => livesMode,
   getName: () => playerName,                    // current multiplayer call sign
   onName: (n) => setPlayerName(n),
+  getRoom: () => playerRoom,                    // current multiplayer room/lobby code
+  onRoom: (c) => setPlayerRoom(c),
   onOpenCampaign: () => openCampaign(),         // menu "Campaign" → briefing room
   onBriefingLaunch: (missionId, type) => {      // briefing "Launch" → fly the mission
     const m = campaign.missionById(missionId);
@@ -1240,7 +1265,8 @@ const netMeshes = new Map(); // remote player id -> jet mesh
 const netTargets = [];       // weapons.js-compatible {position,radius,alive,hit} for remote jets
 function playerColor(id) { return new THREE.Color().setHSL(((id * 47) % 360) / 360, 0.62, 0.55).getHex(); }
 net.onEvent = (t, m) => {
-  if (t === "leave") { const mesh = netMeshes.get(m.id); if (mesh) { scene.remove(mesh); netMeshes.delete(m.id); } }
+  if (t === "welcome") { syncRoomUrl(m.room); }       // make the address bar the shareable invite
+  else if (t === "leave") { const mesh = netMeshes.get(m.id); if (mesh) { scene.remove(mesh); netMeshes.delete(m.id); } }
   else if (t === "hit") { if (flying && gameMode === "ffa") player.applyDamage(m.dmg); } // someone hit us
   else if (t === "fire" && m.p) {
     const px = m.p[0], py = m.p[1], pz = m.p[2];
@@ -1987,7 +2013,7 @@ function startFlight(type, mode, start, vr) {
   setAircraft(type);
   resetFlight();
   // Multiplayer: connect for FFA, drop the connection for any other mode.
-  if (gameMode === "ffa") net.connect(playerName, type);
+  if (gameMode === "ffa") net.connect(playerName, type, playerRoom);
   else if (net.status !== "offline") { net.disconnect(); clearRemotePlayers(); }
   flying = true;
   lastLocked = false;
@@ -2996,7 +3022,7 @@ function frame(now) {
     if (gameMode === "dogfight" || gameMode === "practice") {
       for (const t of enemies.targets) if (t.alive) addContact(t.position, { color: "#ff5b5b", kind: "air" });
     } else if (gameMode === "ffa") {
-      netStatus = net.status === "online" ? `LAN  ·  ${net.count() + 1} pilots` :
+      netStatus = net.status === "online" ? `${net.room && net.room !== "PUBLIC" ? "ROOM " + net.room : "PUBLIC"}  ·  ${net.count() + 1} pilots` :
         net.status === "connecting" ? "Connecting…" :
         net.status === "error" ? "No server (run the LAN server)" : "Offline";
       for (const [id, m] of netMeshes) {

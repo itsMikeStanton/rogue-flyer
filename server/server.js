@@ -38,36 +38,50 @@ const server = http.createServer((req, res) => {
 
 const wss = new WebSocketServer({ server });
 let nextId = 1;
-const clients = new Map(); // ws -> { id, name, jet, last }
+const clients = new Map(); // ws -> { id, name, jet, last, room }
 
-function broadcast(obj, exceptWs) {
+// Players only see / relay to others in the SAME room. An empty code drops you
+// into the shared "PUBLIC" lobby; any custom code is a private game you share by
+// link. Codes normalise to A–Z0–9, max 6, so "abc 12" and "ABC12" collide the
+// way a person typing a code would expect.
+function normRoom(s) {
+  const r = String(s || "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
+  return r || "PUBLIC";
+}
+
+function broadcast(obj, room, exceptWs) {
   const msg = JSON.stringify(obj);
-  for (const ws of wss.clients) if (ws !== exceptWs && ws.readyState === 1) ws.send(msg);
+  for (const ws of wss.clients) {
+    if (ws === exceptWs || ws.readyState !== 1) continue;
+    const c = clients.get(ws);
+    if (c && c.room === room) ws.send(msg);
+  }
 }
 
 wss.on("connection", (ws) => {
-  const me = { id: nextId++, name: "Pilot", jet: "f16", last: null };
+  const me = { id: nextId++, name: "Pilot", jet: "f16", last: null, room: "PUBLIC" };
   clients.set(ws, me);
   ws.on("message", (buf) => {
     let m; try { m = JSON.parse(buf.toString()); } catch (_) { return; }
     if (m.t === "join") {
       me.name = String(m.name || "Pilot").slice(0, 20);
       me.jet = m.jet || me.jet;
+      me.room = normRoom(m.room);
       const players = [];
-      for (const c of clients.values()) if (c.id !== me.id && c.last) players.push({ id: c.id, name: c.name, jet: c.jet, ...c.last });
-      ws.send(JSON.stringify({ t: "welcome", id: me.id, players }));
-      broadcast({ t: "join", id: me.id, name: me.name, jet: me.jet }, ws);
+      for (const c of clients.values()) if (c.id !== me.id && c.room === me.room && c.last) players.push({ id: c.id, name: c.name, jet: c.jet, ...c.last });
+      ws.send(JSON.stringify({ t: "welcome", id: me.id, room: me.room, players }));
+      broadcast({ t: "join", id: me.id, name: me.name, jet: me.jet }, me.room, ws);
     } else if (m.t === "state") {
       me.jet = m.jet || me.jet;
       me.last = { p: m.p, q: m.q, health: m.health, alive: m.alive };
-      broadcast({ t: "state", id: me.id, jet: me.jet, p: m.p, q: m.q, health: m.health, alive: m.alive }, ws);
+      broadcast({ t: "state", id: me.id, jet: me.jet, p: m.p, q: m.q, health: m.health, alive: m.alive }, me.room, ws);
     } else if (m.t === "fire") {
-      broadcast({ t: "fire", id: me.id, kind: m.kind, p: m.p, dir: m.dir }, ws);
+      broadcast({ t: "fire", id: me.id, kind: m.kind, p: m.p, dir: m.dir }, me.room, ws);
     } else if (m.t === "hit") {
-      broadcast({ t: "hit", target: m.target, by: me.id, dmg: m.dmg }); // to everyone (target applies it)
+      broadcast({ t: "hit", target: m.target, by: me.id, dmg: m.dmg }, me.room); // to the room (target applies it)
     }
   });
-  ws.on("close", () => { clients.delete(ws); broadcast({ t: "leave", id: me.id }); });
+  ws.on("close", () => { const room = me.room; clients.delete(ws); broadcast({ t: "leave", id: me.id }, room); });
   ws.on("error", () => {});
 });
 

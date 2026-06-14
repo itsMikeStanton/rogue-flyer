@@ -152,6 +152,7 @@ h3 { margin: 16px 0 8px; font-size: 14px; color: var(--accent); letter-spacing: 
 }
 .start-opt input { width: 130px; font: inherit; }
 .start-opt input::placeholder { color: #5d6f7e; }
+.start-opt .hint { margin-top: 0; font-size: 11px; color: #7d909f; }
 .start-opt.hidden { display: none; }
 
 /* ===== Mode strip (single-screen mode picker) ===== */
