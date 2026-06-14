@@ -220,6 +220,8 @@ fx.onScorch = igniteTreesNear;
 weapons.onGroundImpact = (pos) => {
   const solid = groundHeightAt(pos.x, pos.z);
   if (solid >= SEA_LEVEL) wrecks.spawnFire(new THREE.Vector3(pos.x, solid + 0.3, pos.z), { scale: 1.1, life: 7, color: 0x242424 });
+  const v = world.volcano; // a strike on the caldera wakes the volcano
+  if (v && Math.hypot(pos.x - v.center.x, pos.z - v.center.z) < 1000) startEruption();
 };
 // Landing a hit instantly alerts that target's island — they now know exactly
 // where you are — and, if they weren't already hostile, drags their whole
@@ -1349,7 +1351,7 @@ const LAVABOMB_MAT = new THREE.MeshStandardMaterial({ color: 0x3a1208, emissive:
 const LAVASPRAY_GEO = new THREE.IcosahedronGeometry(2.6, 0);
 const LAVASPRAY_MAT = new THREE.MeshStandardMaterial({ color: 0xff7a2a, emissive: 0xff5a18, emissiveIntensity: 3.6, roughness: 0.5, flatShading: true }); // shared (no per-droplet dispose)
 const ERUPT = { PRECURSOR: 6, MAIN: 22, COOLDOWN: 11 };
-const eruption = { phase: "dormant", t: 0, bombT: 0, sprayT: 0, boltT: 0, bombs: [], spray: [], bolts: [],
+const eruption = { phase: "dormant", t: 0, bombT: 0, sprayT: 0, boltT: 0, ambientT: 180 + Math.random() * 300, bombs: [], spray: [], bolts: [],
   base: (world.volcano && world.volcano.plume) ? { size: world.volcano.plume.size, rate: world.volcano.plume.rate } : null };
 const FLASH_TEX = lightPoolTexture();
 function spawnBolt() {
@@ -1416,7 +1418,7 @@ function updateEruption(dt) {
     if (s.life <= 0 || s.mesh.position.y < v.craterY - 90) { scene.remove(s.mesh); e.spray.splice(i, 1); }
   }
   updateBolts(dt);
-  if (e.phase === "dormant") return;
+  if (e.phase === "dormant") { e.ambientT -= dt; if (e.ambientT <= 0) startEruption(); return; } // rare ambient eruptions
   if (flying) { // proximity screen-shake while active
     const dist = Math.hypot(state.position.x - v.center.x, state.position.z - v.center.z);
     const prox = THREE.MathUtils.clamp(1 - dist / 28000, 0, 1);
@@ -1446,7 +1448,7 @@ function updateEruption(dt) {
     const k = Math.min(1, e.t / ERUPT.COOLDOWN);
     if (e.base) setPlume(THREE.MathUtils.lerp(e.base.size * 2.2, e.base.size, k), THREE.MathUtils.lerp(e.base.rate * 1.8, e.base.rate, k));
     setLava(THREE.MathUtils.lerp(7.5, 3.6, k)); setGlow(THREE.MathUtils.lerp(0.95, 0.5, k), THREE.MathUtils.lerp(2600, 1700, k)); setFlows(THREE.MathUtils.lerp(4.5, 0.8, k));
-    if (e.t >= ERUPT.COOLDOWN) { e.phase = "dormant"; e.t = 0; setPlume(e.base ? e.base.size : 120, e.base ? e.base.rate : 8); setLava(3.6); setGlow(0.5, 1700); setFlows(0.8); }
+    if (e.t >= ERUPT.COOLDOWN) { e.phase = "dormant"; e.t = 0; e.ambientT = 180 + Math.random() * 300; setPlume(e.base ? e.base.size : 120, e.base ? e.base.rate : 8); setLava(3.6); setGlow(0.5, 1700); setFlows(0.8); }
   }
 }
 
