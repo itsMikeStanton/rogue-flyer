@@ -610,7 +610,7 @@ export function buildWorld(scene) {
     const built = buildIsland(scene, is, waveMats, colliders, smokeSources, trees, spinners);
     if (!firstTerrain) firstTerrain = built.terrain;
     islands.push({ group: built.group, center: is.center, name: is.name, faction: is.faction, terrain: built.terrain });
-    if (is.volcano) volcano = { center: is.center, lava: built.lava, plume: built.plume, craterY: built.lava ? built.lava.position.y - 4 : 0 };
+    if (is.volcano) volcano = { center: is.center, lava: built.lava, plume: built.plume, flows: built.flows, glow: built.glow, craterY: built.lava ? built.lava.position.y - 4 : 0 };
   }
 
   // Clouds (global): a large tiled field of big, billowy cumulus that follows
@@ -1106,7 +1106,7 @@ function buildIsland(scene, is, waveMats, colliders, smokeSources, trees, spinne
   if (is.volcano) {
     const craterY = H(0, 0); // flat caldera floor
     const lava = new THREE.Mesh(new THREE.CircleGeometry(450, 44),
-      new THREE.MeshStandardMaterial({ color: 0xff5a1e, emissive: 0xff3a0a, emissiveIntensity: 2.4, roughness: 0.55 }));
+      new THREE.MeshStandardMaterial({ color: 0xff6a24, emissive: 0xff4a10, emissiveIntensity: 3.6, roughness: 0.5 }));
     lava.rotation.x = -Math.PI / 2; lava.position.set(0, craterY + 4, 0); grp.add(lava);
     const crust = new THREE.Mesh(new THREE.RingGeometry(450, 540, 44),
       new THREE.MeshStandardMaterial({ color: 0x3a1c12, emissive: 0x7a2810, emissiveIntensity: 0.8, roughness: 0.8, side: THREE.DoubleSide }));
@@ -1151,7 +1151,30 @@ function buildIsland(scene, is, waveMats, colliders, smokeSources, trees, spinne
     }
     ptr.count = npa; pcr.count = npa; ptr.instanceMatrix.needsUpdate = pcr.instanceMatrix.needsUpdate = true;
     if (npa) { grp.add(ptr); grp.add(pcr); }
-    return { group: grp, terrain, lava, plume };
+    // Lava flows: glowing channels radiating down the flanks from near the rim
+    // (dark/dim when dormant, cranked up during an eruption).
+    const flows = [];
+    for (let fi = 0; fi < 6; fi++) {
+      const a = (fi / 6) * Math.PI * 2 + rnd() * 0.5, dxf = Math.cos(a), dzf = Math.sin(a), pxf = -dzf, pzf = dxf;
+      const r0 = 700, r1 = 5400, steps = 28, w = 20 + rnd() * 16, pos = [];
+      for (let k = 0; k <= steps; k++) {
+        const r = r0 + (r1 - r0) * (k / steps), mx = dxf * r, mz = dzf * r, gy = H(mx, mz);
+        if (gy < SEA_LEVEL) break;
+        const ww = w * (1 - 0.4 * k / steps); // taper toward the toe
+        pos.push(mx + pxf * ww, gy + 1.6, mz + pzf * ww, mx - pxf * ww, gy + 1.6, mz - pzf * ww);
+      }
+      const np2 = pos.length / 6; if (np2 < 3) continue;
+      const idx = [];
+      for (let k = 0; k < np2 - 1; k++) { const aI = k * 2, bI = k * 2 + 1, cI = (k + 1) * 2, dI = (k + 1) * 2 + 1; idx.push(aI, cI, bI, bI, cI, dI); }
+      const g = new THREE.BufferGeometry();
+      g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); g.computeVertexNormals();
+      const fmat = new THREE.MeshStandardMaterial({ color: 0x2a0e06, emissive: 0xff4a14, emissiveIntensity: 0.8, roughness: 0.6 });
+      grp.add(new THREE.Mesh(g, fmat)); flows.push(fmat);
+    }
+    // Big additive glow halo over the crater — dramatic, especially at night.
+    const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: lightPoolTexture(), color: 0xff6a22, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.5 }));
+    glow.position.set(0, craterY + 160, 0); glow.scale.set(1700, 1700, 1); grp.add(glow);
+    return { group: grp, terrain, lava, plume, flows, glow };
   }
 
   // (Ocean is a single global, camera-following system — see buildWorld.)

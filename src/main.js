@@ -1346,9 +1346,19 @@ function toggleFullscreen() {
 // cooldown. Lava bombs are ballistic hazards: a near miss/ground burst hurts.
 const LAVABOMB_GEO = new THREE.IcosahedronGeometry(6, 0);
 const LAVABOMB_MAT = new THREE.MeshStandardMaterial({ color: 0x3a1208, emissive: 0xff5a1e, emissiveIntensity: 3.2, roughness: 0.6, flatShading: true });
+const LAVASPRAY_GEO = new THREE.IcosahedronGeometry(2.6, 0);
+const LAVASPRAY_MAT = new THREE.MeshStandardMaterial({ color: 0xff7a2a, emissive: 0xff5a18, emissiveIntensity: 3.6, roughness: 0.5, flatShading: true }); // shared (no per-droplet dispose)
 const ERUPT = { PRECURSOR: 6, MAIN: 22, COOLDOWN: 11 };
-const eruption = { phase: "dormant", t: 0, bombT: 0, bombs: [],
+const eruption = { phase: "dormant", t: 0, bombT: 0, sprayT: 0, bombs: [], spray: [],
   base: (world.volcano && world.volcano.plume) ? { size: world.volcano.plume.size, rate: world.volcano.plume.rate } : null };
+function spawnSpray() {
+  const v = world.volcano; if (!v || eruption.spray.length > 240) return;
+  const m = new THREE.Mesh(LAVASPRAY_GEO, LAVASPRAY_MAT);
+  m.position.set(v.center.x + (Math.random() - 0.5) * 120, v.craterY + 8, v.center.z + (Math.random() - 0.5) * 120);
+  m.scale.setScalar(0.7 + Math.random() * 2.2); scene.add(m);
+  const a = Math.random() * Math.PI * 2, out = Math.random() * 150, up = 240 + Math.random() * 280;
+  eruption.spray.push({ mesh: m, vel: new THREE.Vector3(Math.cos(a) * out, up, Math.sin(a) * out), life: 1.8 + Math.random() * 1.6 });
+}
 function startEruption() {
   if (!world.volcano || eruption.phase !== "dormant") return;
   eruption.phase = "precursor"; eruption.t = 0;
@@ -1380,6 +1390,11 @@ function updateEruption(dt) {
       scene.remove(b.mesh); b.mesh.material.dispose(); e.bombs.splice(i, 1);
     }
   }
+  // Lava-fountain droplets (spurt from the crater, arc back).
+  for (let i = e.spray.length - 1; i >= 0; i--) {
+    const s = e.spray[i]; s.vel.y -= 300 * dt; s.mesh.position.addScaledVector(s.vel, dt); s.life -= dt;
+    if (s.life <= 0 || s.mesh.position.y < v.craterY - 90) { scene.remove(s.mesh); e.spray.splice(i, 1); }
+  }
   if (e.phase === "dormant") return;
   if (flying) { // proximity screen-shake while active
     const dist = Math.hypot(state.position.x - v.center.x, state.position.z - v.center.z);
@@ -1387,24 +1402,29 @@ function updateEruption(dt) {
     if (prox > 0) addShake(dt * (e.phase === "erupt" ? 16 : 5) * prox);
   }
   const setPlume = (size, rate) => { if (e.base) { v.plume.size = size; v.plume.rate = rate; } };
-  const glow = (g) => { if (v.lava) v.lava.material.emissiveIntensity = g; };
+  const setLava = (g) => { if (v.lava) v.lava.material.emissiveIntensity = g; };
+  const setGlow = (op, scl) => { if (v.glow) { v.glow.material.opacity = op; v.glow.scale.set(scl, scl, 1); } };
+  const setFlows = (ei) => { if (v.flows) for (const f of v.flows) f.emissiveIntensity = ei; };
+  const pulse = Math.sin(performance.now() * 0.013);
   e.t += dt;
   if (e.phase === "precursor") {
     const k = Math.min(1, e.t / ERUPT.PRECURSOR);
-    if (e.base) setPlume(THREE.MathUtils.lerp(e.base.size, e.base.size * 2.2, k), THREE.MathUtils.lerp(e.base.rate, e.base.rate * 1.5, k));
-    glow(2.4 + 3 * k);
+    if (e.base) setPlume(THREE.MathUtils.lerp(e.base.size, e.base.size * 1.7, k), THREE.MathUtils.lerp(e.base.rate, e.base.rate * 1.4, k));
+    setLava(3.6 + 3.5 * k); setGlow(0.5 + 0.45 * k, THREE.MathUtils.lerp(1700, 2300, k)); setFlows(0.8 + 1.8 * k);
+    if (Math.random() < 18 * dt) spawnSpray(); // a building trickle
     if (e.t >= ERUPT.PRECURSOR) { e.phase = "erupt"; e.t = 0; e.bombT = 0; flashBanner("ERUPTION", "The Pyre erupts!", 3.2); sound.explosion(3.4, new THREE.Vector3(v.center.x, v.craterY, v.center.z)); }
   } else if (e.phase === "erupt") {
-    if (e.base) setPlume(e.base.size * 3.0, e.base.rate * 2.0);
-    glow(5.5 + Math.sin(performance.now() * 0.012) * 1.6);
+    if (e.base) setPlume(e.base.size * 2.2, e.base.rate * 1.8);
+    setLava(7.5 + pulse * 1.8); setGlow(0.95 + pulse * 0.15, 2600 + pulse * 220); setFlows(4.5 + pulse * 1.2);
+    e.sprayT -= dt; if (e.sprayT <= 0) { e.sprayT = 0.03; spawnSpray(); spawnSpray(); } // the fountain
     e.bombT -= dt;
     if (e.bombT <= 0) { e.bombT = 0.16 + Math.random() * 0.22; spawnLavaBomb(); if (Math.random() < 0.5) sound.explosion(1.8, new THREE.Vector3(v.center.x, v.craterY, v.center.z)); }
     if (e.t >= ERUPT.MAIN) { e.phase = "cooldown"; e.t = 0; flashBanner("THE PYRE SETTLES", "The eruption is subsiding", 3); }
   } else { // cooldown
     const k = Math.min(1, e.t / ERUPT.COOLDOWN);
-    if (e.base) setPlume(THREE.MathUtils.lerp(e.base.size * 3.0, e.base.size, k), THREE.MathUtils.lerp(e.base.rate * 2.0, e.base.rate, k));
-    glow(THREE.MathUtils.lerp(5.5, 2.4, k));
-    if (e.t >= ERUPT.COOLDOWN) { e.phase = "dormant"; e.t = 0; setPlume(e.base ? e.base.size : 120, e.base ? e.base.rate : 8); glow(2.4); }
+    if (e.base) setPlume(THREE.MathUtils.lerp(e.base.size * 2.2, e.base.size, k), THREE.MathUtils.lerp(e.base.rate * 1.8, e.base.rate, k));
+    setLava(THREE.MathUtils.lerp(7.5, 3.6, k)); setGlow(THREE.MathUtils.lerp(0.95, 0.5, k), THREE.MathUtils.lerp(2600, 1700, k)); setFlows(THREE.MathUtils.lerp(4.5, 0.8, k));
+    if (e.t >= ERUPT.COOLDOWN) { e.phase = "dormant"; e.t = 0; setPlume(e.base ? e.base.size : 120, e.base ? e.base.rate : 8); setLava(3.6); setGlow(0.5, 1700); setFlows(0.8); }
   }
 }
 
