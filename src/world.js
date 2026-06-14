@@ -910,6 +910,53 @@ export function resculptTerrain(is, terrainMesh, lx, lz, radius) {
   pos.needsUpdate = true; col.needsUpdate = true;
 }
 
+// A portal/gantry crane: four legs, a top frame, and a long boom cantilevering
+// toward +X (orient the group so +X points out over the water).
+function buildCrane() {
+  const g = new THREE.Group();
+  const mat = new THREE.MeshStandardMaterial({ color: 0xcf5a3a, flatShading: true, roughness: 0.7, metalness: 0.3 });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x3a3f45, flatShading: true, roughness: 0.8 });
+  const legH = 54;
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+    const leg = new THREE.Mesh(new THREE.BoxGeometry(2.4, legH, 2.4), mat);
+    leg.position.set(sx * 13, legH / 2, sz * 9); leg.castShadow = true; g.add(leg);
+  }
+  for (const sz of [-1, 1]) { const beam = new THREE.Mesh(new THREE.BoxGeometry(28, 3, 3), mat); beam.position.set(0, legH, sz * 9); g.add(beam); }
+  const boom = new THREE.Mesh(new THREE.BoxGeometry(68, 3, 4.5), mat); boom.position.set(20, legH + 6, 0); boom.castShadow = true; g.add(boom);
+  const cj = new THREE.Mesh(new THREE.BoxGeometry(22, 3, 4.5), mat); cj.position.set(-18, legH + 6, 0); g.add(cj);
+  const apex = new THREE.Mesh(new THREE.BoxGeometry(2.5, 16, 2.5), mat); apex.position.set(0, legH + 13, 0); g.add(apex);
+  const spreader = new THREE.Mesh(new THREE.BoxGeometry(5, 2, 9), dark); spreader.position.set(38, legH - 4, 0); g.add(spreader);
+  return g;
+}
+
+// A sports stadium: an open elliptical bowl of stands around a green pitch.
+function buildStadium() {
+  const g = new THREE.Group();
+  const stands = new THREE.Mesh(new THREE.CylinderGeometry(64, 80, 30, 28, 1, true),
+    new THREE.MeshStandardMaterial({ color: 0xc2c6c9, flatShading: true, roughness: 0.85, side: THREE.DoubleSide }));
+  stands.position.y = 15; stands.castShadow = true; g.add(stands);
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(80, 3, 6, 28), new THREE.MeshStandardMaterial({ color: 0x9aa0a6, flatShading: true, roughness: 0.8 }));
+  rim.rotation.x = Math.PI / 2; rim.position.y = 30; g.add(rim);
+  const pitch = new THREE.Mesh(new THREE.CircleGeometry(58, 32), new THREE.MeshStandardMaterial({ color: 0x3f7d3a, roughness: 0.95 }));
+  pitch.rotation.x = -Math.PI / 2; pitch.position.y = 1; g.add(pitch);
+  g.scale.set(1.18, 1, 0.86); // oval
+  return g;
+}
+
+// A stone cathedral: a barrel-vaulted nave, a transept, and a bell tower + spire.
+function buildCathedral() {
+  const g = new THREE.Group();
+  const stone = new THREE.MeshStandardMaterial({ color: 0xcabfa0, flatShading: true, roughness: 0.9 });
+  const roof = new THREE.MeshStandardMaterial({ color: 0x6a5a48, flatShading: true, roughness: 0.85 });
+  const nave = new THREE.Mesh(new THREE.BoxGeometry(22, 26, 62), stone); nave.position.y = 13; nave.castShadow = true; g.add(nave);
+  const vault = new THREE.Mesh(new THREE.CylinderGeometry(11, 11, 62, 12, 1, false, 0, Math.PI), roof);
+  vault.rotation.z = Math.PI / 2; vault.rotation.y = Math.PI / 2; vault.position.y = 26; g.add(vault);
+  const transept = new THREE.Mesh(new THREE.BoxGeometry(48, 24, 18), stone); transept.position.set(0, 12, -12); transept.castShadow = true; g.add(transept);
+  const tower = new THREE.Mesh(new THREE.BoxGeometry(14, 56, 14), stone); tower.position.set(0, 28, 30); tower.castShadow = true; g.add(tower);
+  const spire = new THREE.Mesh(new THREE.ConeGeometry(10, 30, 4), roof); spire.position.set(0, 71, 30); g.add(spire);
+  return g;
+}
+
 // A wind turbine: tapered tower, nacelle, and a 3-blade rotor that spins about
 // its (horizontal) shaft. Returns { group, rotor } so the rotor can be handed to
 // the spinner system. Faces +Z; yaw the group to orient into the "wind".
@@ -1478,6 +1525,113 @@ function buildIsland(scene, is, waveMats, colliders, smokeSources, trees, spinne
     masts.count = pm; arms.count = pa; wires.count = wm;
     masts.instanceMatrix.needsUpdate = arms.instanceMatrix.needsUpdate = wires.instanceMatrix.needsUpdate = true;
     if (pm) grp.add(masts); if (pa) grp.add(arms); if (wm) grp.add(wires);
+  }
+
+  // ---- Port / harbour: a quay with gantry cranes, piers and a container yard
+  //      at the shore — a coastal trade anchor (and where the cargo ships head). ----
+  {
+    const ang = rnd() * Math.PI * 2, dx = Math.cos(ang), dz = Math.sin(ang);
+    let shoreR = null;
+    for (let r = 1500; r < 11000; r += 60) { if (H(dx * r, dz * r) < SEA_LEVEL + 1) { shoreR = r; break; } }
+    if (shoreR != null && shoreR > 2500) {
+      const tx = -dz, tz = dx;                                   // tangent (along shore)
+      const qx = dx * (shoreR - 70), qz = dz * (shoreR - 70), gy = H(qx, qz);
+      if (gy > SEA_LEVEL + 1 && gy < SEA_LEVEL + 12) { // low beach only, so the quay sits at the water
+        const deckY = gy + 1.5;
+        const seaYaw = Math.atan2(-dz, dx), shoreYaw = Math.atan2(-tz, tx);
+        const concrete = new THREE.MeshStandardMaterial({ color: 0x8b8f93, roughness: 0.9, flatShading: true });
+        const quay = new THREE.Mesh(new THREE.BoxGeometry(220, 4, 46), concrete);
+        quay.position.set(qx, deckY, qz); quay.rotation.y = shoreYaw; quay.receiveShadow = true; grp.add(quay);
+        for (let p = -1; p <= 1; p += 2) {                        // two piers reaching seaward
+          const pcx = qx + tx * p * 78 + dx * 58, pcz = qz + tz * p * 78 + dz * 58;
+          const pier = new THREE.Mesh(new THREE.BoxGeometry(110, 3, 20), concrete);
+          pier.position.set(pcx, deckY, pcz); pier.rotation.y = seaYaw; pier.receiveShadow = true; grp.add(pier);
+        }
+        for (let cI = -1; cI <= 1; cI++) {                        // gantry cranes, booms to sea
+          const cxp = qx + tx * cI * 72, czp = qz + tz * cI * 72;
+          const cr = buildCrane(); cr.position.set(cxp, deckY, czp); cr.rotation.y = seaYaw; grp.add(cr);
+          colliders.push({ x: cx0 + cxp, z: cz0 + czp, hx: 16, hz: 12, top: deckY + 70 });
+        }
+        // Container yard (instanced, stacked) behind the quay.
+        const contCols = [0xc0492f, 0x2f6ec0, 0x2fae6e, 0xd2a82f, 0x8a8f93, 0xb03a8a];
+        const yard = new THREE.InstancedMesh(new THREE.BoxGeometry(12, 5, 13),
+          new THREE.MeshStandardMaterial({ roughness: 0.8, flatShading: true }), 260);
+        const cc = new THREE.Color(); const yYaw = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, shoreYaw, 0));
+        let ny = 0;
+        const yx = qx - dx * 110, yz = qz - dz * 110;
+        for (let rr = 0; rr < 7 && ny < 260; rr++) for (let cc2 = 0; cc2 < 9 && ny < 260; cc2++) {
+          const bx = yx + tx * (cc2 - 4) * 14 - dx * rr * 15, bz = yz + tz * (cc2 - 4) * 14 - dz * rr * 15;
+          const bgy = H(bx, bz); if (bgy < SEA_LEVEL + 1) continue;
+          const stack = 1 + ((rnd() * 3) | 0);
+          for (let s2 = 0; s2 < stack && ny < 260; s2++) {
+            tp.set(bx, bgy + 2.5 + s2 * 5, bz); ts.set(1, 1, 1);
+            yard.setMatrixAt(ny, m4.compose(tp, yYaw, ts));
+            yard.setColorAt(ny, cc.setHex(contCols[(rnd() * contCols.length) | 0])); ny++;
+          }
+        }
+        yard.count = ny; yard.instanceMatrix.needsUpdate = true; if (yard.instanceColor) yard.instanceColor.needsUpdate = true;
+        yard.castShadow = true; if (ny) grp.add(yard);
+      }
+    }
+  }
+
+  // ---- Solar field: a grid of tilted dark photovoltaic panels on gentle land. ----
+  {
+    const sx0 = (rnd() - 0.5) * 6500, sz0 = (rnd() - 0.5) * 6500, gy0 = H(sx0, sz0);
+    if (gy0 > SEA_LEVEL + 6 && gy0 < SEA_LEVEL + 240) {
+      const PMAX = 160;
+      const panels = new THREE.InstancedMesh(new THREE.PlaneGeometry(11, 5),
+        new THREE.MeshStandardMaterial({ color: 0x18283f, emissive: 0x0a1628, emissiveIntensity: 0.18, roughness: 0.3, metalness: 0.5, side: THREE.DoubleSide }), PMAX);
+      const tilt = new THREE.Quaternion().setFromEuler(new THREE.Euler(-Math.PI / 2 + 0.5, 0, 0));
+      let np = 0;
+      for (let r = 0; r < 11 && np < PMAX; r++) for (let c = 0; c < 14 && np < PMAX; c++) {
+        const x = sx0 + (c - 7) * 14, z = sz0 + (r - 5) * 9, gy = H(x, z);
+        if (gy < SEA_LEVEL + 4 || gy > SEA_LEVEL + 260) continue;
+        tp.set(x, gy + 2.6, z); ts.set(1, 1, 1); panels.setMatrixAt(np++, m4.compose(tp, tilt, ts));
+      }
+      panels.count = np; panels.instanceMatrix.needsUpdate = true; if (np) grp.add(panels);
+    }
+  }
+
+  // ---- Refinery / tank farm: a ring of storage tanks + a flare stack (smoke). ----
+  {
+    const rx = (rnd() - 0.5) * 5200, rz = (rnd() - 0.5) * 5200, gy = H(rx, rz);
+    if (gy > SEA_LEVEL + 4 && gy < SEA_LEVEL + 190) {
+      const tankMat = new THREE.MeshStandardMaterial({ color: 0xc2c6c9, flatShading: true, roughness: 0.7, metalness: 0.2 });
+      for (let i = 0; i < 8; i++) {
+        const a = (i / 8) * Math.PI * 2, tr = 42 + (i % 2) * 24;
+        const txp = rx + Math.cos(a) * tr, tzp = rz + Math.sin(a) * tr, tgy = H(txp, tzp);
+        if (tgy < SEA_LEVEL + 2) continue;
+        const R = 14 + rnd() * 8, Hh = 14 + rnd() * 8;
+        const tank = new THREE.Mesh(new THREE.CylinderGeometry(R, R, Hh, 18), tankMat);
+        tank.position.set(txp, tgy + Hh / 2, tzp); tank.castShadow = true; grp.add(tank);
+        const lid = new THREE.Mesh(new THREE.CylinderGeometry(R, R * 0.85, 3, 18), tankMat); lid.position.set(txp, tgy + Hh + 1.5, tzp); grp.add(lid);
+        colliders.push({ x: cx0 + txp, z: cz0 + tzp, hx: R, hz: R, top: tgy + Hh });
+      }
+      const stack = new THREE.Mesh(new THREE.CylinderGeometry(2.5, 3.6, 72, 8), new THREE.MeshStandardMaterial({ color: 0x8a6a58, flatShading: true, roughness: 0.8 }));
+      stack.position.set(rx, gy + 36, rz); stack.castShadow = true; grp.add(stack);
+      const flame = new THREE.Mesh(new THREE.ConeGeometry(4, 12, 8), new THREE.MeshBasicMaterial({ color: 0xff8a3a, transparent: true, opacity: 0.85, blending: THREE.AdditiveBlending, depthWrite: false }));
+      flame.position.set(rx, gy + 78, rz); grp.add(flame);
+      if (smokeSources) smokeSources.push({ x: cx0 + rx, y: gy + 82, z: cz0 + rz, size: 6, rate: 0.45, color: 0x35353c, rise: 26, drift: 9, life: 7, grow: 2.2, wind: 1 });
+      colliders.push({ x: cx0 + rx, z: cz0 + rz, hx: 4, hz: 4, top: gy + 72 });
+    }
+  }
+
+  // ---- Civic landmarks: a stadium near a big settlement, and a cathedral near
+  //      an old-world (colonial) one, for skyline variety per culture. ----
+  {
+    const kindStyle = { village: "coastal", town: "colonial", city: "modern", port: "industrial", industrial: "industrial" };
+    const styleOf = (s) => s.style || is.culture || kindStyle[s.kind] || "modern";
+    const placeNear = (s, off, build, hx, hz, topH) => {
+      if (!s) return;
+      const a = rnd() * Math.PI * 2, dd = s.radius * (s.spacing || 110) + off;
+      const x = s.x + Math.cos(a) * dd, z = s.z + Math.sin(a) * dd, gy = H(x, z);
+      if (gy < SEA_LEVEL + 4 || gy > SEA_LEVEL + 240) return;
+      const m = build(); m.position.set(x, gy, z); m.rotation.y = rnd() * Math.PI * 2; grp.add(m);
+      colliders.push({ x: cx0 + x, z: cz0 + z, hx, hz, top: gy + topH });
+    };
+    placeNear(is.settlements.find((s) => s.radius >= 2) || is.settlements[0], 360, buildStadium, 95, 80, 30);
+    placeNear(is.settlements.find((s) => styleOf(s) === "colonial"), 220, buildCathedral, 26, 32, 85);
   }
 
   // ---- Landmarks: a lattice radio tower on the cliff, a lighthouse on the
