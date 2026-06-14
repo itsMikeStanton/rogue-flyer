@@ -461,6 +461,28 @@ export class UI {
       rc.addEventListener("input", apply);
       rc.addEventListener("change", apply);
     }
+    const invite = document.getElementById("btn-invite");
+    if (invite) invite.addEventListener("click", async () => {
+      // "Invite" means a PRIVATE game with your friends, not the public brawl —
+      // so if the room is blank, mint a code so the link is actually yours.
+      let code = (rc && rc.value || "").toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 6);
+      if (!code) {
+        const A = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no easily-confused 0/O/1/I
+        code = Array.from({ length: 4 }, () => A[Math.floor(Math.random() * A.length)]).join("");
+        if (rc) rc.value = code;
+        if (this.cb.onRoom) this.cb.onRoom(code);
+      }
+      const url = new URL(location.href);
+      url.searchParams.set("room", code);
+      const link = url.toString();
+      let ok = false;
+      try { await navigator.clipboard.writeText(link); ok = true; }
+      catch (_) { try { prompt("Share this link to invite friends:", link); ok = true; } catch (__) { /* ignore */ } }
+      const label = invite.innerHTML;
+      invite.innerHTML = ok ? "✓&nbsp;Copied " + code : "Copy&nbsp;failed";
+      invite.classList.add("ok");
+      setTimeout(() => { invite.innerHTML = label; invite.classList.remove("ok"); }, 1800);
+    });
     const planBtn = document.getElementById("btn-plan");
     if (planBtn) planBtn.addEventListener("click", () => {
       if (this.mode === "campaign" || this.mode === "conquest") return; // those have their own flow

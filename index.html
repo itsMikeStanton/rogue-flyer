@@ -103,6 +103,7 @@
           </label>
           <label class="start-opt hidden" id="room-opt">Room <span class="hint">— blank = public; a code = private game</span>
             <input id="room-code" type="text" maxlength="6" autocomplete="off" spellcheck="false" placeholder="public" />
+            <button type="button" id="btn-invite" class="ghost invite">⧉&nbsp;Invite</button>
           </label>
         </div>
         <div class="cta">
@@ -255,6 +256,8 @@
     <div id="hangar-markings" class="hb-markings"></div>
     <div id="hangar-livery" class="hb-livery"></div>
     <div id="hangar-list" class="hb-list"></div>
+    <!-- Multiplayer roster: who's in your room right now (FFA only). -->
+    <div id="hangar-room" class="hb-room hidden"></div>
   </div>
 
   <!-- In-flight vehicle bay reopens via the H key (no on-screen button). -->

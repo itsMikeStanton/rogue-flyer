@@ -1265,8 +1265,9 @@ const netMeshes = new Map(); // remote player id -> jet mesh
 const netTargets = [];       // weapons.js-compatible {position,radius,alive,hit} for remote jets
 function playerColor(id) { return new THREE.Color().setHSL(((id * 47) % 360) / 360, 0.62, 0.55).getHex(); }
 net.onEvent = (t, m) => {
-  if (t === "welcome") { syncRoomUrl(m.room); }       // make the address bar the shareable invite
-  else if (t === "leave") { const mesh = netMeshes.get(m.id); if (mesh) { scene.remove(mesh); netMeshes.delete(m.id); } }
+  if (t === "welcome") { syncRoomUrl(m.room); if (hangarMode) updateBayRoster(); } // address bar = the shareable invite
+  else if (t === "join") { if (hangarMode) updateBayRoster(); } // someone joined while you wait in the bay
+  else if (t === "leave") { const mesh = netMeshes.get(m.id); if (mesh) { scene.remove(mesh); netMeshes.delete(m.id); } if (hangarMode) updateBayRoster(); }
   else if (t === "hit") { if (flying && gameMode === "ffa") player.applyDamage(m.dmg); } // someone hit us
   else if (t === "fire" && m.p) {
     const px = m.p[0], py = m.p[1], pz = m.p[2];
@@ -1284,6 +1285,7 @@ net.onEvent = (t, m) => {
       if (m.kind === "missile" || m.kind === "rocket") sound.missile();
     }
   }
+  else if ((t === "error" || t === "close") && hangarMode) updateBayRoster(); // reflect "no server" in the bay
 };
 // Broadcast a weapon discharge so other pilots SEE it (visual only — damage is
 // resolved by our own sim hitting their netTarget proxies).
@@ -2043,6 +2045,51 @@ function enterHangar(canStay) {
   if (fab) fab.classList.add("hidden");
   touch.setVisible(false);
   ui.showHangar(jetType, !!canStay);
+  updateBayRoster();             // FFA: show who's in the room before takeoff
+}
+
+// --- Vehicle-bay multiplayer roster (FFA only) ---------------------------
+// The bay is already the post-connect, pre-takeoff staging area, so it's the
+// natural lobby: show the room, who's here (live as they join/leave), and a
+// copy-link to pull in more friends. Pure read of net.players — no flow change.
+function escHtml(s) { return String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+function copyInviteLink(room, btn) {
+  let link;
+  try {
+    const u = new URL(location.href);
+    if (room && room !== "PUBLIC") u.searchParams.set("room", room); else u.searchParams.delete("room");
+    link = u.toString();
+  } catch (_) { link = location.href; }
+  const done = (ok) => {
+    if (!btn) return;
+    const label = btn.innerHTML;
+    btn.innerHTML = ok ? "✓&nbsp;Link copied" : "Copy failed";
+    btn.classList.add("ok");
+    setTimeout(() => { btn.innerHTML = label; btn.classList.remove("ok"); }, 1600);
+  };
+  if (navigator.clipboard) navigator.clipboard.writeText(link).then(() => done(true), () => { try { prompt("Share to invite:", link); done(true); } catch (_) { done(false); } });
+  else { try { prompt("Share to invite:", link); done(true); } catch (_) { done(false); } }
+}
+function updateBayRoster() {
+  const el = document.getElementById("hangar-room");
+  if (!el) return;
+  const show = hangarMode && gameMode === "ffa";
+  el.classList.toggle("hidden", !show);
+  if (!show) return;
+  const room = net.room || normRoomCode(playerRoom) || "PUBLIC";
+  const isPrivate = room && room !== "PUBLIC";
+  const others = [];
+  for (const p of net.players.values()) if (p.id !== net.id) others.push(p.name || "Pilot");
+  const head = (isPrivate ? "ROOM&nbsp;" + escHtml(room) : "PUBLIC GAME") +
+    ` <span class="hbr-count">${others.length + 1} ${others.length ? "pilots" : "pilot — waiting…"}</span>`;
+  const body = net.status === "error" ? `<div class="hbr-warn">No server reachable — start the host.</div>`
+    : net.status === "connecting" ? `<div class="hbr-warn">Connecting…</div>`
+    : `<div class="hbr-list"><div class="hbr-me">${escHtml(playerName || "You")} <span class="hbr-tag">you</span></div>` +
+      others.map((n) => `<div>${escHtml(n)}</div>`).join("") + `</div>`;
+  el.innerHTML = `<div class="hbr-head">${head}</div>${body}` +
+    `<button type="button" id="hbr-invite" class="ghost invite">⧉&nbsp;Copy invite link</button>`;
+  const inv = document.getElementById("hbr-invite");
+  if (inv) inv.onclick = () => copyInviteLink(room, inv);
 }
 // Swap the previewed (rotating) vehicle without leaving the bay.
 function previewVehicle(type) {
