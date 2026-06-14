@@ -1,0 +1,22 @@
+# Fly.io deploy config for the public Rogue Flyer server.
+#   fly launch --no-deploy   (first time, to create the app / pick a name+region)
+#   fly deploy               (every release)
+app = "rogue-flyer"
+primary_region = "iad"   # us-east; pick the region nearest your first players
+
+[build]
+  dockerfile = "Dockerfile"
+
+[http_service]
+  internal_port = 8080
+  force_https = true       # client auto-upgrades to wss:// over HTTPS (src/net.js)
+  auto_stop_machines = "suspend"
+  auto_start_machines = true
+  # Keep one machine warm so a shared link is instant — an empty/cold lobby
+  # kills the "click and you're flying in 5s" pitch. It's pennies; set to 0 to
+  # scale fully to zero if you'd rather trade a cold-start for cost.
+  min_machines_running = 1
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"         # dumb relay + static files; tiny footprint
