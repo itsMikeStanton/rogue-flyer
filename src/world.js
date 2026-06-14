@@ -1634,6 +1634,31 @@ function buildIsland(scene, is, waveMats, colliders, smokeSources, trees, spinne
     placeNear(is.settlements.find((s) => styleOf(s) === "colonial"), 220, buildCathedral, 26, 32, 85);
   }
 
+  // ---- Dam + reservoir: a concrete dam holding a small upland lake. Built only
+  //      on the flattest elevated spot found, so the water sits believably. ----
+  {
+    let best = null, bestRelief = 1e9;
+    for (let t = 0; t < 64; t++) {
+      const x = (rnd() - 0.5) * 13000, z = (rnd() - 0.5) * 13000, h = H(x, z);
+      if (h < SEA_LEVEL + 70 || h > SEA_LEVEL + 300) continue;
+      const s = 170, hs = [H(x - s, z), H(x + s, z), H(x, z - s), H(x, z + s)];
+      const relief = Math.max(...hs) - Math.min(...hs);
+      if (relief < bestRelief) { bestRelief = relief; best = { x, z, h, hs }; }
+    }
+    if (best && bestRelief < 26) {
+      const { x, z, h, hs } = best;
+      const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+      let lo = 0; for (let i = 1; i < 4; i++) if (hs[i] < hs[lo]) lo = i;
+      const ddx = dirs[lo][0], ddz = dirs[lo][1], waterY = h + 1;
+      const lake = new THREE.Mesh(new THREE.CircleGeometry(210, 36), new THREE.MeshStandardMaterial({ color: 0x2a5a6e, roughness: 0.25, metalness: 0.2 }));
+      lake.rotation.x = -Math.PI / 2; lake.position.set(x, waterY, z); grp.add(lake);
+      const wallX = x + ddx * 205, wallZ = z + ddz * 205, wgy = H(wallX, wallZ);
+      const wall = new THREE.Mesh(new THREE.BoxGeometry(340, 46, 18), new THREE.MeshStandardMaterial({ color: 0x9a9ea2, flatShading: true, roughness: 0.9 }));
+      wall.position.set(wallX, wgy + 23, wallZ); wall.rotation.y = Math.atan2(-ddx, -ddz); wall.castShadow = true; grp.add(wall);
+      colliders.push({ x: cx0 + wallX, z: cz0 + wallZ, hx: 170, hz: 9, top: wgy + 46 });
+    }
+  }
+
   // ---- Landmarks: a lattice radio tower on the cliff, a lighthouse on the
   //      far shore (opposite the cliff). Both big, low-poly. Home's signature;
   //      islands can opt out (landmarks:false). ----
