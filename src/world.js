@@ -112,6 +112,7 @@ export function getMissionBases() {
 export function getIslandSpawns() {
   const out = [];
   for (const is of CFG.islands) {
+    if (is.volcano) continue; // the volcano is uninhabited — not a launch point / conquest node
     const sp = is.spawn || { x: 0, z: 520 };
     const spawns = [{ kind: "runway", name: is.name + " airfield", x: (sp.x || 0) + is.center.x, z: (sp.z || 0) + is.center.z }];
     for (const c of (is.carriers || [])) {
@@ -322,9 +323,27 @@ function shapeField(is, x, z, d) {
   return { mask: ss(d, t.islandInner, t.islandOuter), add: 0 };
 }
 
+// A volcanic cone: a steep basalt mountain rising from the sea to a rim, with a
+// flat-floored caldera (lava lake) sunk into the summit. Overrides the normal
+// island pipeline for the volcano island.
+function volcanoHeight(is, x, z) {
+  const d = Math.sqrt(x * x + z * z), R = is.terrain.islandOuter, peak = 1500;
+  const n = smoothNoise((x + is.center.x) * 0.0011, (z + is.center.z) * 0.0011) - 0.5;
+  if (d >= R) return THREE.MathUtils.lerp(-30, is.terrain.deep, Math.min(1, (d - R) / 1800)); // underwater apron
+  const nd = d / R, cr = 0.16, inner = cr * 0.55;
+  const rimH = peak * Math.pow(1 - cr, 1.5);
+  let h;
+  if (nd < cr) {                                       // caldera: flat floor, rising to the rim
+    const floorH = rimH - 360;
+    h = nd < inner ? floorH : THREE.MathUtils.lerp(floorH, rimH, (nd - inner) / (cr - inner));
+  } else h = peak * Math.pow(1 - nd, 1.5);             // the cone flanks
+  return h + n * 90 * (0.25 + nd * 0.9);               // rugged flanks, smoother near the summit
+}
+
 // Local height field for one island. x,z are island-LOCAL; the base fractal
 // noise samples world coords (center-offset) so islands don't look identical.
 function islandHeight(is, x, z) {
+  if (is.volcano) return volcanoHeight(is, x, z);
   const wx = x + is.center.x, wz = z + is.center.z;
   const f = 0.00035;
   let h = 0;
@@ -855,6 +874,7 @@ function buildSpire() {
 // ---- Editable height-sculpt grid (added on top of the base terrain) ----
 const SAND = new THREE.Color(0xcdbd87), LOW = new THREE.Color(0x3f6b3a), MID = new THREE.Color(0x6f7d4a);
 const HIGH = new THREE.Color(0x9a9a8e), SNOW = new THREE.Color(0xeef2f5);
+const V_ASH = new THREE.Color(0x4d473e), V_BASALT = new THREE.Color(0x2a2723), V_EMBER = new THREE.Color(0x5a2414);
 function sculptCfg(is) {
   if (!is.heightmap) is.heightmap = { gridN: 128, extent: 12000, cells: null };
   return is.heightmap;
@@ -877,6 +897,14 @@ function sculptHeightAt(is, x, z) {
 }
 // Terrain vertex colour (shared by the full build and the live sculpt update).
 function terrainColorAt(is, x, z, h, cx0, cz0, out) {
+  if (is.volcano) {
+    // Basalt + ash, darkening upward, with an ember tint near the hot crater.
+    out.copy(V_ASH).lerp(V_BASALT, THREE.MathUtils.clamp((h - 150) / 850, 0, 1));
+    if (h > 720) out.lerp(V_EMBER, THREE.MathUtils.clamp((h - 720) / 360, 0, 1) * 0.55);
+    const jv = (hash2((x + cx0) * 0.05, (z + cz0) * 0.05) - 0.5) * 0.07;
+    out.setRGB(THREE.MathUtils.clamp(out.r + jv, 0, 1), THREE.MathUtils.clamp(out.g + jv, 0, 1), THREE.MathUtils.clamp(out.b + jv, 0, 1));
+    return out;
+  }
   // One regional palette, zoned by ALTITUDE only — so every island shares the
   // same climate but its height profile decides its look: lush coast/lowland,
   // bare rock on the highlands, snow only on genuinely tall peaks.
@@ -1053,6 +1081,33 @@ function buildIsland(scene, is, waveMats, colliders, smokeSources, trees, spinne
   const terrain = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 1 }));
   terrain.receiveShadow = true;
   grp.add(terrain);
+
+  // ---- The volcano: a lava-filled caldera + permanent ash plume, scattered
+  //      basalt boulders. Uninhabited, so we skip ALL the human infrastructure
+  //      below by returning here. ----
+  if (is.volcano) {
+    const craterY = H(0, 0); // flat caldera floor
+    const lava = new THREE.Mesh(new THREE.CircleGeometry(540, 44),
+      new THREE.MeshStandardMaterial({ color: 0xff5a1e, emissive: 0xff3a0a, emissiveIntensity: 2.4, roughness: 0.55 }));
+    lava.rotation.x = -Math.PI / 2; lava.position.set(0, craterY + 4, 0); grp.add(lava);
+    const crust = new THREE.Mesh(new THREE.RingGeometry(540, 600, 44),
+      new THREE.MeshStandardMaterial({ color: 0x3a1c12, emissive: 0x7a2810, emissiveIntensity: 0.8, roughness: 0.8, side: THREE.DoubleSide }));
+    crust.rotation.x = -Math.PI / 2; crust.position.set(0, craterY + 3, 0); grp.add(crust);
+    if (smokeSources) smokeSources.push({ x: cx0, y: craterY + 50, z: cz0, size: 22, rate: 11, color: 0x2a2724, rise: 60, drift: 16, life: 9, grow: 5, wind: 14 });
+    // Basalt boulders strewn down the flanks (instanced).
+    const boulders = new THREE.InstancedMesh(new THREE.DodecahedronGeometry(1, 0),
+      new THREE.MeshStandardMaterial({ color: 0x33302b, flatShading: true, roughness: 1 }), 160);
+    boulders.castShadow = true; let nb = 0;
+    const bq = new THREE.Quaternion(), be = new THREE.Euler();
+    for (let i = 0; i < 220 && nb < 160; i++) {
+      const a = rnd() * Math.PI * 2, r = 1300 + rnd() * 5000, x = Math.cos(a) * r, z = Math.sin(a) * r, gy = H(x, z);
+      if (gy < SEA_LEVEL + 4 || gy > 1150) continue;
+      const s = 6 + rnd() * 20; be.set(rnd() * 3, rnd() * 3, rnd() * 3); bq.setFromEuler(be);
+      tp.set(x, gy + s * 0.4, z); ts.set(s, s, s); boulders.setMatrixAt(nb++, m4.compose(tp, bq, ts));
+    }
+    boulders.count = nb; boulders.instanceMatrix.needsUpdate = true; if (nb) grp.add(boulders);
+    return { group: grp, terrain };
+  }
 
   // (Ocean is a single global, camera-following system — see buildWorld.)
 

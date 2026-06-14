@@ -61,6 +61,7 @@ function island(o) {
     // can opt out (landmarks:false) and/or grow a glowing spire monument.
     landmarks: o.landmarks !== false,
     spire: !!o.spire,
+    volcano: !!o.volcano,          // a central active volcano: cone + caldera, basalt/ash, lava + smoke
   };
 }
 
@@ -296,6 +297,15 @@ export function defaultWorldConfig() {
           { kind: "village", x: 5200, z: 600, radius: 1, spacing: 90, maxHeight: 70 },
         ],
         missionBases: [[3400, -2200], [800, 800]],
+      }),
+
+      // A central active VOLCANO: a basalt cone with a lava-filled caldera and a
+      // permanent ash plume. Uninhabited — a landmark and hazard, not a target.
+      island({
+        name: "The Pyre", faction: "coral", seed: 0xf17e22, center: { x: 3000, z: -19000 }, volcano: true,
+        terrain: { islandInner: 3000, islandOuter: 6800, deep: -1100 },
+        forest: { extent: 6800, gridN: 48, maxTrees: 0, perCell: 0, density: null },
+        landmarks: false, spire: false, roads: [], bridges: [], settlements: [], missionBases: [],
       }),
     ],
   };
