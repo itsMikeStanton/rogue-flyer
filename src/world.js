@@ -329,17 +329,22 @@ function shapeField(is, x, z, d) {
 // flat-floored caldera (lava lake) sunk into the summit. Overrides the normal
 // island pipeline for the volcano island.
 function volcanoHeight(is, x, z) {
-  const d = Math.sqrt(x * x + z * z), R = is.terrain.islandOuter, peak = 1500;
-  const n = smoothNoise((x + is.center.x) * 0.0011, (z + is.center.z) * 0.0011) - 0.5;
-  if (d >= R) return THREE.MathUtils.lerp(-30, is.terrain.deep, Math.min(1, (d - R) / 1800)); // underwater apron
-  const nd = d / R, cr = 0.16, inner = cr * 0.55;
-  const rimH = peak * Math.pow(1 - cr, 1.5);
+  const d = Math.sqrt(x * x + z * z), R = is.terrain.islandOuter, peak = 2400; // 1.6x taller
+  const wx = x + is.center.x, wz = z + is.center.z, ang = Math.atan2(z, x);
+  const angN = smoothNoise(Math.cos(ang) * 2 + 40, Math.sin(ang) * 2 + 40); // seamless angular noise
+  const Reff = R * (0.85 + angN * 0.26);                                     // irregular outline: coves + headlands
+  if (d >= Reff) return THREE.MathUtils.lerp(-30, is.terrain.deep, Math.min(1, (d - Reff) / 1800));
+  const nd = d / Reff, cr = 0.15, inner = cr * 0.55;
+  const rimH = peak * Math.pow(1 - cr, 1.7);
   let h;
-  if (nd < cr) {                                       // caldera: flat floor, rising to the rim
-    const floorH = rimH - 360;
-    h = nd < inner ? floorH : THREE.MathUtils.lerp(floorH, rimH, (nd - inner) / (cr - inner));
-  } else h = peak * Math.pow(1 - nd, 1.5);             // the cone flanks
-  return h + n * 90 * (0.25 + nd * 0.9);               // rugged flanks, smoother near the summit
+  if (nd < cr) { const floorH = rimH - 460; h = nd < inner ? floorH : THREE.MathUtils.lerp(floorH, rimH, (nd - inner) / (cr - inner)); }
+  else h = peak * Math.pow(1 - nd, 1.7);                                      // gentle island skirt, steep upper cone
+  // Break up the pure funnel: lumpy multi-octave noise + radial ridges/gullies
+  // that vanish at the centre and shore (so the coast and crater stay clean).
+  const n1 = smoothNoise(wx * 0.0012, wz * 0.0012) - 0.5;
+  const n2 = smoothNoise(wx * 0.0042, wz * 0.0042) - 0.5;
+  const ridges = Math.sin(ang * 7 + angN * 6) * 80 * Math.sin(Math.min(1, nd) * Math.PI);
+  return h + n1 * 170 * (0.3 + nd * 0.8) + n2 * 70 + ridges;
 }
 
 // Local height field for one island. x,z are island-LOCAL; the base fractal
@@ -877,6 +882,7 @@ function buildSpire() {
 const SAND = new THREE.Color(0xcdbd87), LOW = new THREE.Color(0x3f6b3a), MID = new THREE.Color(0x6f7d4a);
 const HIGH = new THREE.Color(0x9a9a8e), SNOW = new THREE.Color(0xeef2f5);
 const V_ASH = new THREE.Color(0x4d473e), V_BASALT = new THREE.Color(0x2a2723), V_EMBER = new THREE.Color(0x5a2414);
+const V_DIRT = new THREE.Color(0x5a4a34), V_GREEN = new THREE.Color(0x4d6b3a), V_SAND = new THREE.Color(0xc2b07e);
 function sculptCfg(is) {
   if (!is.heightmap) is.heightmap = { gridN: 128, extent: 12000, cells: null };
   return is.heightmap;
@@ -900,10 +906,19 @@ function sculptHeightAt(is, x, z) {
 // Terrain vertex colour (shared by the full build and the live sculpt update).
 function terrainColorAt(is, x, z, h, cx0, cz0, out) {
   if (is.volcano) {
-    // Basalt + ash, darkening upward, with an ember tint near the hot crater.
-    out.copy(V_ASH).lerp(V_BASALT, THREE.MathUtils.clamp((h - 150) / 850, 0, 1));
-    if (h > 720) out.lerp(V_EMBER, THREE.MathUtils.clamp((h - 720) / 360, 0, 1) * 0.55);
-    const jv = (hash2((x + cx0) * 0.05, (z + cz0) * 0.05) - 0.5) * 0.07;
+    const wx = x + cx0, wz = z + cz0;
+    // Base basalt/ash darkening upward, then PATCHES of dirt (noise) so it isn't
+    // a solid uniform mass; an ember tint near the hot crater.
+    out.copy(V_ASH).lerp(V_BASALT, THREE.MathUtils.clamp((h - 150) / 1100, 0, 1));
+    out.lerp(V_DIRT, THREE.MathUtils.clamp((smoothNoise(wx * 0.0045, wz * 0.0045) - 0.45) / 0.28, 0, 1) * 0.55);
+    if (h > 1000) out.lerp(V_EMBER, THREE.MathUtils.clamp((h - 1000) / 460, 0, 1) * 0.5);
+    // Vegetated + sandy skirt near the shore so it reads as an island, not a cone.
+    if (h < 170) {
+      const veg = THREE.MathUtils.clamp((170 - h) / 150, 0, 1);
+      out.lerp(V_GREEN, veg * THREE.MathUtils.clamp((smoothNoise(wx * 0.012, wz * 0.012) - 0.4) / 0.3, 0, 1) * 0.7);
+      if (h < 30) out.lerp(V_SAND, THREE.MathUtils.clamp((30 - h) / 38, 0, 1) * 0.75);
+    }
+    const jv = (hash2((x + cx0) * 0.05, (z + cz0) * 0.05) - 0.5) * 0.08;
     out.setRGB(THREE.MathUtils.clamp(out.r + jv, 0, 1), THREE.MathUtils.clamp(out.g + jv, 0, 1), THREE.MathUtils.clamp(out.b + jv, 0, 1));
     return out;
   }
@@ -1089,25 +1104,50 @@ function buildIsland(scene, is, waveMats, colliders, smokeSources, trees, spinne
   //      below by returning here. ----
   if (is.volcano) {
     const craterY = H(0, 0); // flat caldera floor
-    const lava = new THREE.Mesh(new THREE.CircleGeometry(540, 44),
+    const lava = new THREE.Mesh(new THREE.CircleGeometry(450, 44),
       new THREE.MeshStandardMaterial({ color: 0xff5a1e, emissive: 0xff3a0a, emissiveIntensity: 2.4, roughness: 0.55 }));
     lava.rotation.x = -Math.PI / 2; lava.position.set(0, craterY + 4, 0); grp.add(lava);
-    const crust = new THREE.Mesh(new THREE.RingGeometry(540, 600, 44),
+    const crust = new THREE.Mesh(new THREE.RingGeometry(450, 540, 44),
       new THREE.MeshStandardMaterial({ color: 0x3a1c12, emissive: 0x7a2810, emissiveIntensity: 0.8, roughness: 0.8, side: THREE.DoubleSide }));
     crust.rotation.x = -Math.PI / 2; crust.position.set(0, craterY + 3, 0); grp.add(crust);
-    if (smokeSources) smokeSources.push({ x: cx0, y: craterY + 50, z: cz0, size: 22, rate: 11, color: 0x2a2724, rise: 60, drift: 16, life: 9, grow: 5, wind: 14 });
+    // Towering ash plume — ~8x the volume of the power-plant stacks.
+    if (smokeSources) smokeSources.push({ x: cx0, y: craterY + 60, z: cz0, size: 120, rate: 8, color: 0x2a2724, rise: 100, drift: 20, life: 11, grow: 6, wind: 18 });
     // Basalt boulders strewn down the flanks (instanced).
     const boulders = new THREE.InstancedMesh(new THREE.DodecahedronGeometry(1, 0),
-      new THREE.MeshStandardMaterial({ color: 0x33302b, flatShading: true, roughness: 1 }), 160);
+      new THREE.MeshStandardMaterial({ color: 0x33302b, flatShading: true, roughness: 1 }), 200);
     boulders.castShadow = true; let nb = 0;
     const bq = new THREE.Quaternion(), be = new THREE.Euler();
-    for (let i = 0; i < 220 && nb < 160; i++) {
-      const a = rnd() * Math.PI * 2, r = 1300 + rnd() * 5000, x = Math.cos(a) * r, z = Math.sin(a) * r, gy = H(x, z);
-      if (gy < SEA_LEVEL + 4 || gy > 1150) continue;
+    for (let i = 0; i < 280 && nb < 200; i++) {
+      const a = rnd() * Math.PI * 2, r = 1300 + rnd() * 5200, x = Math.cos(a) * r, z = Math.sin(a) * r, gy = H(x, z);
+      if (gy < SEA_LEVEL + 4 || gy > 1700) continue;
       const s = 6 + rnd() * 20; be.set(rnd() * 3, rnd() * 3, rnd() * 3); bq.setFromEuler(be);
       tp.set(x, gy + s * 0.4, z); ts.set(s, s, s); boulders.setMatrixAt(nb++, m4.compose(tp, bq, ts));
     }
     boulders.count = nb; boulders.instanceMatrix.needsUpdate = true; if (nb) grp.add(boulders);
+    // Coastal greenery so the lower flanks read as an island skirt: scrub + palms.
+    const scrub = new THREE.InstancedMesh(new THREE.SphereGeometry(1, 5, 4),
+      new THREE.MeshStandardMaterial({ color: 0x4d6b3a, flatShading: true, roughness: 1 }), 420);
+    let ns = 0;
+    for (let i = 0; i < 900 && ns < 420; i++) {
+      const a = rnd() * Math.PI * 2, r = 4000 + rnd() * 3000, x = Math.cos(a) * r, z = Math.sin(a) * r, gy = H(x, z);
+      if (gy < SEA_LEVEL + 3 || gy > 160) continue;
+      const s = 3 + rnd() * 7; tp.set(x, gy + s * 0.7, z); ts.set(s * 1.2, s * 0.8, s * 1.2);
+      scrub.setMatrixAt(ns++, m4.compose(tp, noRot, ts));
+    }
+    scrub.count = ns; scrub.instanceMatrix.needsUpdate = true; if (ns) grp.add(scrub);
+    const ptr = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.4, 0.7, 7, 5), new THREE.MeshStandardMaterial({ color: 0x6a5436, flatShading: true, roughness: 1 }), 90);
+    const pcr = new THREE.InstancedMesh(new THREE.ConeGeometry(5, 3.2, 7), new THREE.MeshStandardMaterial({ color: 0x6fa03e, flatShading: true, roughness: 1 }), 90);
+    let npa = 0;
+    for (let i = 0; i < 400 && npa < 90; i++) {
+      const a = rnd() * Math.PI * 2, r = 4200 + rnd() * 2700, x = Math.cos(a) * r, z = Math.sin(a) * r, gy = H(x, z);
+      if (gy < SEA_LEVEL + 3 || gy > 90) continue;
+      const s = 1 + rnd() * 0.8, tsy = s * 1.8;
+      tp.set(x, gy + 3.5 * tsy, z); ts.set(s * 0.5, tsy, s * 0.5); ptr.setMatrixAt(npa, m4.compose(tp, noRot, ts));
+      tp.set(x, gy + 7 * tsy + 1.5 * s, z); ts.set(s * 1.3, s * 0.8, s * 1.3); pcr.setMatrixAt(npa, m4.compose(tp, noRot, ts));
+      npa++;
+    }
+    ptr.count = npa; pcr.count = npa; ptr.instanceMatrix.needsUpdate = pcr.instanceMatrix.needsUpdate = true;
+    if (npa) { grp.add(ptr); grp.add(pcr); }
     return { group: grp, terrain };
   }
 
