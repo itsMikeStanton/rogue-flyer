@@ -963,6 +963,29 @@ function syncRoomUrl(room) {
     history.replaceState(null, "", u);
   } catch (_) { /* ignore */ }
 }
+
+// --- Identity & persistence (#4, testable slice) -------------------------
+// A stable per-device guest token, sent on join. Today it just rides along; it's
+// the seam the future Discord/account + server-side stats layer plugs into (the
+// server will key persisted stats off this, or off an account session token).
+let guestId = "";
+try {
+  guestId = localStorage.getItem("rf.uid") || "";
+  if (!guestId) {
+    guestId = (crypto.randomUUID ? crypto.randomUUID() : "g-" + Date.now().toString(36) + Math.random().toString(36).slice(2, 10));
+    localStorage.setItem("rf.uid", guestId);
+  }
+} catch (_) { /* ignore */ }
+
+// Lifetime stats persisted locally (kills / deaths / sorties). When the server
+// account layer lands it can overwrite these from authoritative storage.
+let lifeStats = { kills: 0, deaths: 0, sorties: 0 };
+try { const s = JSON.parse(localStorage.getItem("rf.stats") || "{}"); lifeStats = { kills: s.kills | 0, deaths: s.deaths | 0, sorties: s.sorties | 0 }; } catch (_) { /* ignore */ }
+function saveStats() { try { localStorage.setItem("rf.stats", JSON.stringify(lifeStats)); } catch (_) { /* ignore */ } }
+function lifetimeText() {
+  const kd = lifeStats.deaths ? (lifeStats.kills / lifeStats.deaths).toFixed(2) : (lifeStats.kills ? "—" : "0.00");
+  return `${lifeStats.kills} kills · ${lifeStats.deaths} deaths · K/D ${kd}`;
+}
 const ui = new UI(input, {
   onFly: (type, mode, start) => { pendingSpawn = null; startFlight(type, mode, start); }, // "Launch now" — quick start
   onPlan: (type, mode) => openQuickPlanner(type, mode), // "Plan" — open the strategic map planner
@@ -985,6 +1008,7 @@ const ui = new UI(input, {
   onName: (n) => setPlayerName(n),
   getRoom: () => playerRoom,                    // current multiplayer room/lobby code
   onRoom: (c) => setPlayerRoom(c),
+  getLifetime: () => lifetimeText(),            // persisted lifetime K/D (shown in FFA)
   onOpenCampaign: () => openCampaign(),         // menu "Campaign" → briefing room
   onBriefingLaunch: (missionId, type) => {      // briefing "Launch" → fly the mission
     const m = campaign.missionById(missionId);
@@ -1279,7 +1303,12 @@ net.onEvent = (t, m) => {
   else if (t === "lobby") { if (hangarMode) updateBayRoster(); } // ready states changed in the room
   else if (t === "launch") { if (hangarMode && bayInitial) startBayCountdown(m.n > 1 ? 3 : 1); } // everyone's ready — go together
   else if (t === "leave") { const mesh = netMeshes.get(m.id); if (mesh) { scene.remove(mesh); netMeshes.delete(m.id); } if (hangarMode) updateBayRoster(); }
-  else if (t === "kill") { pushKillFeed(m); if (scoreboardOn) renderScoreboard(); } // someone splashed someone
+  else if (t === "kill") { // someone splashed someone
+    pushKillFeed(m);
+    if (m.killer === net.id && m.victim !== net.id) { lifeStats.kills++; saveStats(); } // our kill
+    if (m.victim === net.id) { lifeStats.deaths++; saveStats(); }                        // our death
+    if (scoreboardOn) renderScoreboard();
+  }
   else if (t === "score") { if (scoreboardOn) renderScoreboard(); } // live scoreboard refresh
   else if (t === "hp") { // server-authoritative health (#3): own death is server-decided
     if (m.id === net.id && flying) {
@@ -1338,7 +1367,8 @@ function renderScoreboard() {
   const rows = (net.scores || []).slice().sort((a, b) => (b.kills - a.kills) || (a.deaths - b.deaths));
   el.innerHTML = `<div class="sb-title">${escHtml(net.room && net.room !== "PUBLIC" ? "ROOM " + net.room : "PUBLIC")} — SCORES</div>` +
     `<div class="sb-head"><span>Pilot</span><span>K</span><span>D</span></div>` +
-    rows.map((s) => `<div class="sb-row${s.id === net.id ? " sb-me" : ""}"><span style="color:${colorFor(s.id)}">${escHtml(s.name || "Pilot")}</span><span>${s.kills | 0}</span><span>${s.deaths | 0}</span></div>`).join("");
+    rows.map((s) => `<div class="sb-row${s.id === net.id ? " sb-me" : ""}"><span style="color:${colorFor(s.id)}">${escHtml(s.name || "Pilot")}</span><span>${s.kills | 0}</span><span>${s.deaths | 0}</span></div>`).join("") +
+    `<div class="sb-life">Lifetime &nbsp;·&nbsp; ${lifetimeText()}</div>`;
 }
 function setScoreboard(on) {
   scoreboardOn = on && gameMode === "ffa" && net.status === "online";
@@ -2070,7 +2100,7 @@ function startFlight(type, mode, start, vr) {
   setAircraft(type);
   resetFlight();
   // Multiplayer: connect for FFA, drop the connection for any other mode.
-  if (gameMode === "ffa") net.connect(playerName, type, playerRoom);
+  if (gameMode === "ffa") { net.connect(playerName, type, playerRoom, guestId); lifeStats.sorties++; saveStats(); }
   else if (net.status !== "offline") { net.disconnect(); clearRemotePlayers(); }
   flying = true;
   lastLocked = false;

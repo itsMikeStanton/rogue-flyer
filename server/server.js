@@ -121,6 +121,7 @@ wss.on("connection", (ws) => {
     if (m.t === "join") {
       me.name = String(m.name || "Pilot").slice(0, 20);
       me.jet = m.jet || me.jet;
+      me.uid = String(m.uid || "").slice(0, 64); // stable guest token — seam for future account/stat persistence (#4)
       me.room = normRoom(m.room);
       me.ready = false; me.inGame = false; // a fresh join starts in the bay/lobby
       me.hp = 100; me.alive = true; me.last = null;

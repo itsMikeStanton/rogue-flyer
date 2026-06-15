@@ -118,6 +118,26 @@ rooms, stats, and friends. **Keep guest play frictionless** — accounts are opt
 - Menu "Sign in with Discord" + signed-in name/avatar; guest mode default.
 - Send session token on connect; read `entitlements` to unlock cosmetics later.
 
+### Testable slice — SHIPPED
+The no-backend foundation is in (verified):
+- **Persistent guest identity** — a stable `rf.uid` token in localStorage, sent on
+  `join` and stored server-side as `me.uid`. This is the seam: the server-side
+  account/stat layer will key persisted stats off this token (or an account
+  session token that supersedes it).
+- **Local lifetime stats** — `rf.stats` (kills / deaths / sorties) accrue across
+  sessions from the authoritative `kill` events; shown as a "Career" line on the
+  FFA menu and a footer on the Tab scoreboard. The server account layer can later
+  overwrite these from authoritative storage.
+
+### To activate the backend, I need from you:
+1. A **Discord application** (Developer Portal) → `DISCORD_CLIENT_ID` +
+   `DISCORD_CLIENT_SECRET`, with the OAuth redirect set to
+   `https://<app>.fly.dev/auth/discord/callback`.
+2. A **Postgres database** (Fly Postgres / Supabase / Neon) → `DATABASE_URL`.
+3. A `SESSION_SECRET` (any long random string) for signing sessions.
+Set them as Fly secrets; then I wire `/auth/*`, the schema, the WS token
+handshake, and the stat-flush against the real services and test end-to-end.
+
 ### Infra
 - Managed Postgres (Fly Postgres / Supabase / Neon).
 - Secrets via Fly secrets: Discord client id/secret, DB url, session signing key.

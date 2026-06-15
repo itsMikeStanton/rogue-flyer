@@ -32,8 +32,14 @@ each section. Tuning knobs note the file/number so they're quick to change.
       server (static host + WS relay on one port) ships as one image; client
       auto-upgrades to wss:// behind TLS. (Image build untested in sandbox — no
       docker daemon; `fly deploy` builds remotely.)
-- [ ] **Accounts / identity** (Discord OAuth) — needed before persistence,
-      cosmetics, or paid private rooms. Hold until itch.io retention says go.
+- [x] **Server-authoritative combat (#3 Tier 1)** — server owns HP/death +
+      validates damage (clamp/range/rate), anti-teleport, msg-rate cap. No more
+      godmode/one-shot/kill-spoof. (`server/server.js`; `docs/NETCODE_…`.)
+- [x] **Persistence — testable slice (#4)** — stable guest token (`rf.uid`) sent
+      on join + local lifetime K/D (`rf.stats`) on the FFA menu + scoreboard.
+- [ ] **Accounts backend (#4)** — Discord OAuth + Postgres + WS token handshake +
+      stat-flush. BLOCKED on credentials: Discord app, `DATABASE_URL`,
+      `SESSION_SECRET` (see `docs/NETCODE_AND_ACCOUNTS_PLAN.md`).
 - [ ] **Monetization** — private-room subscription is the first paid feature
       (rooms now exist); then cosmetics (callsign/livery/trail colors).
 

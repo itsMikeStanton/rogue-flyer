@@ -17,13 +17,13 @@ export class Net {
     this._lastSend = 0;
   }
 
-  connect(name, jet, room) {
-    this._name = name; this._jet = jet; this._room = room || "";
+  connect(name, jet, room, uid) {
+    this._name = name; this._jet = jet; this._room = room || ""; this._uid = uid || "";
     const proto = location.protocol === "https:" ? "wss://" : "ws://";
     this.status = "connecting";
     try { this.ws = new WebSocket(proto + location.host); }
     catch (e) { this.status = "error"; this._emit("error", e); return; }
-    this.ws.onopen = () => { this.connected = true; this.status = "online"; this.send({ t: "join", name, jet, room: this._room }); this._emit("open"); };
+    this.ws.onopen = () => { this.connected = true; this.status = "online"; this.send({ t: "join", name, jet, room: this._room, uid: this._uid }); this._emit("open"); };
     this.ws.onclose = () => { this.connected = false; if (this.status !== "error") this.status = "offline"; this._emit("close"); };
     this.ws.onerror = (e) => { this.status = "error"; this._emit("error", e); };
     this.ws.onmessage = (ev) => this._recv(ev.data);

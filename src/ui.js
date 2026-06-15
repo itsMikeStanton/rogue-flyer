@@ -166,6 +166,12 @@ export class UI {
     if (cso) cso.classList.toggle("hidden", this.mode !== "ffa"); // call sign only matters in multiplayer
     const rmo = document.getElementById("room-opt");
     if (rmo) rmo.classList.toggle("hidden", this.mode !== "ffa"); // room/lobby code, multiplayer only
+    const lto = document.getElementById("lifetime-opt");
+    if (lto) {
+      lto.classList.toggle("hidden", this.mode !== "ffa"); // persisted career line, multiplayer only
+      const lt = document.getElementById("lifetime-text");
+      if (lt && this.mode === "ffa" && this.cb.getLifetime) lt.textContent = this.cb.getLifetime();
+    }
   }
 
   buildJetList() {
