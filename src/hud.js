@@ -270,14 +270,18 @@ export class Hud {
     // Scanline fuzz.
     ctx.globalAlpha = 0.05 + 0.08 * g; ctx.fillStyle = "#39ff9a";
     for (let y = (Math.random() * 3) | 0; y < h; y += 3) if (Math.random() < 0.5) ctx.fillRect(0, y, w, 1);
-    // Corrupt glyphs scattered across the panel (character-swap feel).
-    ctx.font = "13px 'Consolas', monospace"; ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
-    const glyphs = "▓▒░█#@%&!?<>/\\|=+*01010xФД";
-    const count = Math.floor(g * 26);
-    for (let i = 0; i < count; i++) {
-      ctx.globalAlpha = 0.35 + Math.random() * 0.6;
-      ctx.fillStyle = Math.random() < 0.28 ? "#ff3b30" : "#39ff9a";
-      ctx.fillText(glyphs[(Math.random() * glyphs.length) | 0], Math.random() * w, Math.random() * h);
+    // Corrupt glyphs scattered across the panel (character-swap feel). Kept
+    // sparse and only at stronger glitch levels — a faint glitch shouldn't litter
+    // the screen with characters.
+    if (g > 0.3) {
+      ctx.font = "13px 'Consolas', monospace"; ctx.textAlign = "left"; ctx.textBaseline = "alphabetic";
+      const glyphs = "▓▒░█#@%&!?<>/\\|=+*01010xФД";
+      const count = Math.floor((g - 0.3) * 12); // ~0 near the threshold → ~8 at full intensity
+      for (let i = 0; i < count; i++) {
+        ctx.globalAlpha = (0.18 + Math.random() * 0.3) * g;
+        ctx.fillStyle = Math.random() < 0.28 ? "#ff3b30" : "#39ff9a";
+        ctx.fillText(glyphs[(Math.random() * glyphs.length) | 0], Math.random() * w, Math.random() * h);
+      }
     }
     ctx.globalAlpha = 1;
     ctx.restore();
