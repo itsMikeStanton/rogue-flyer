@@ -1549,7 +1549,7 @@ function spawnSpray(power = 1) {
   const v = world.volcano; if (!v) return;
   const m = poolGet(_sprayPool, LAVASPRAY_GEO, LAVASPRAY_MAT, 360); if (!m) return;
   m.position.set(v.center.x + (Math.random() - 0.5) * 130, v.craterY + 8, v.center.z + (Math.random() - 0.5) * 130);
-  m.scale.setScalar(0.7 + Math.random() * 2.4); m.visible = true;
+  m.scale.setScalar((0.7 + Math.random() * 2.4) * (3 + Math.random() * 12)); m.visible = true; // 3x–15x bigger: way more visible
   const a = Math.random() * Math.PI * 2, out = Math.random() * 170 * power, up = (240 + Math.random() * 300) * power;
   eruption.spray.push({ mesh: m, vel: new THREE.Vector3(Math.cos(a) * out, up, Math.sin(a) * out), life: 1.9 + Math.random() * 1.8 });
 }
@@ -1558,13 +1558,21 @@ function lavaBurst() { for (let i = 0; i < 60; i++) spawnSpray(1.6); for (let i 
 function startEruption() {
   if (!world.volcano || eruption.phase !== "dormant") return;
   eruption.phase = "precursor"; eruption.t = 0;
+  // Pick a fresh random subset of lava channels to run this time, each with its
+  // own start delay + descent speed so they light up top-down out of sync.
+  const fl = world.volcano.flows;
+  if (fl) {
+    for (const f of fl) { f.active = Math.random() < 0.5; f.delay = Math.random() * 2.4; f.speed = 0.3 + Math.random() * 0.26; f.uFront.value = -1; f.uInt.value = 0; }
+    let n = fl.reduce((c, f) => c + (f.active ? 1 : 0), 0);
+    for (let i = 0; n < 4 && i < fl.length; i++) if (!fl[i].active) { fl[i].active = true; n++; } // always run a few
+  }
   flashBanner("THE PYRE STIRS", "Tremors from the volcano…", 3.2);
 }
 function spawnLavaBomb() {
   const v = world.volcano; if (!v) return;
   const m = poolGet(_bombPool, LAVABOMB_GEO, LAVABOMB_MAT, 90); if (!m) return;
   m.position.set(v.center.x + (Math.random() - 0.5) * 220, v.craterY + 30, v.center.z + (Math.random() - 0.5) * 220);
-  const sc = 0.8 + Math.random() * 1.4; m.scale.setScalar(sc); m.visible = true;
+  const sc = 0.8 + Math.random() * 1.4; m.scale.setScalar(sc * (3 + Math.random() * 12)); m.visible = true; // visual 3x–15x bigger; damage still keyed off sc
   const a = Math.random() * Math.PI * 2, out = 260 + Math.random() * 540, up = 290 + Math.random() * 240;
   eruption.bombs.push({ mesh: m, vel: new THREE.Vector3(Math.cos(a) * out, up, Math.sin(a) * out), life: 10, sc });
 }
@@ -1575,7 +1583,7 @@ function updateEruption(dt) {
     const b = e.bombs[i], p = b.mesh.position;
     b.vel.y -= 260 * dt; p.addScaledVector(b.vel, dt); b.life -= dt;
     b.mesh.rotation.x += dt * 3; b.mesh.rotation.z += dt * 2.4;
-    if (Math.random() < 0.55) fx.ember(p, 0.7 * b.sc);
+    if (Math.random() < 0.55) fx.ember(p, 0.7 * b.sc * (3 + Math.random() * 12)); // big, bright trailing embers
     let boom = false;
     if (flying && !state.crashed && state.position.distanceTo(p) < 40 + b.sc * 6) { boom = true; player.applyDamage(36); }
     const gh = groundHeightAt(p.x, p.z);
@@ -1601,7 +1609,15 @@ function updateEruption(dt) {
   const setPlume = (size, rate) => { if (e.base) { v.plume.size = size; v.plume.rate = rate; } };
   const setLava = (g) => { if (v.lava) v.lava.material.emissiveIntensity = g; };
   const setGlow = (op, scl) => { if (v.glow) { v.glow.material.opacity = op; v.glow.scale.set(scl, scl, 1); } };
-  const setFlows = (ei) => { if (v.flows) for (const f of v.flows) f.emissiveIntensity = ei; };
+  // Flows light up TOP-DOWN: only the active subset glows, and each one's molten
+  // front (uFront 0→1) runs from the crater down to the toe over a second or two.
+  const flowsDark = () => { if (v.flows) for (const f of v.flows) { f.uInt.value = 0; f.uFront.value = -1; } };
+  const flowsRun = (t, intensity) => { if (!v.flows) return; for (const f of v.flows) {
+    if (!f.active || t < f.delay) { f.uInt.value = 0; continue; } // dark until this channel's turn
+    f.uFront.value = (t - f.delay) * f.speed; // glow front descends the channel, crater→toe
+    f.uInt.value = intensity;
+  } };
+  const flowsCool = (k) => { if (!v.flows) return; for (const f of v.flows) { if (!f.active) { f.uInt.value = 0; continue; } f.uFront.value = 1.3; f.uInt.value = (1 - k) * 4.6; } };
   // Sporadic flicker (incommensurate sines + the odd random flare) — irregular,
   // not a clean pulse.
   const now = performance.now();
@@ -1610,13 +1626,13 @@ function updateEruption(dt) {
   if (e.phase === "precursor") {
     const k = Math.min(1, e.t / ERUPT.PRECURSOR);
     if (e.base) setPlume(THREE.MathUtils.lerp(e.base.size, e.base.size * 1.7, k), THREE.MathUtils.lerp(e.base.rate, e.base.rate * 1.4, k));
-    setLava(3.6 + 3.5 * k); setGlow(0.5 + 0.45 * k, THREE.MathUtils.lerp(1700, 2300, k)); setFlows(0); // flows stay DARK — lava doesn't run until the boom
+    setLava(3.6 + 3.5 * k); setGlow(0.5 + 0.45 * k, THREE.MathUtils.lerp(1700, 2300, k)); flowsDark(); // flows stay DARK — lava doesn't run until the boom
     if (Math.random() < 14 * dt) spawnSpray(); // a building trickle bubbling at the vent
     if (e.t >= ERUPT.PRECURSOR) { e.phase = "erupt"; e.t = 0; e.bombT = 0; lavaBurst(); flashBanner("ERUPTION", "The Pyre erupts!", 3.2); sound.explosion(4.0, new THREE.Vector3(v.center.x, v.craterY, v.center.z)); }
   } else if (e.phase === "erupt") {
     if (e.base) setPlume(e.base.size * 2.2, e.base.rate * 1.8);
     setLava(7.5 + flick * 2.4); setGlow(0.95 + flick * 0.22, 2600 + flick * 340);
-    setFlows(THREE.MathUtils.clamp(e.t / 2.5, 0, 1) * (4.6 + flick * 1.6)); // flows surge to life over the first couple seconds
+    flowsRun(e.t, 4.6 + flick * 1.6); // active channels run molten from the top down
     e.sprayT -= dt; if (e.sprayT <= 0) { e.sprayT = 0.03; const burst = e.t < 2 ? 4 : 3; for (let i = 0; i < burst; i++) spawnSpray(e.t < 2 ? 1.35 : 1); } // heaviest fountain at the start
     e.bombT -= dt;
     if (e.bombT <= 0) { e.bombT = (e.t < 3 ? 0.1 : 0.16) + Math.random() * 0.2; spawnLavaBomb(); if (Math.random() < 0.5) sound.explosion(1.8, new THREE.Vector3(v.center.x, v.craterY, v.center.z)); }
@@ -1625,8 +1641,8 @@ function updateEruption(dt) {
   } else { // cooldown
     const k = Math.min(1, e.t / ERUPT.COOLDOWN);
     if (e.base) setPlume(THREE.MathUtils.lerp(e.base.size * 2.2, e.base.size, k), THREE.MathUtils.lerp(e.base.rate * 1.8, e.base.rate, k));
-    setLava(THREE.MathUtils.lerp(7.5, 3.6, k)); setGlow(THREE.MathUtils.lerp(0.95, 0.5, k), THREE.MathUtils.lerp(2600, 1700, k)); setFlows((1 - k) * 4.6);
-    if (e.t >= ERUPT.COOLDOWN) { e.phase = "dormant"; e.t = 0; e.ambientT = 180 + Math.random() * 300; setPlume(e.base ? e.base.size : 120, e.base ? e.base.rate : 8); setLava(3.6); setGlow(0.5, 1700); setFlows(0); }
+    setLava(THREE.MathUtils.lerp(7.5, 3.6, k)); setGlow(THREE.MathUtils.lerp(0.95, 0.5, k), THREE.MathUtils.lerp(2600, 1700, k)); flowsCool(k);
+    if (e.t >= ERUPT.COOLDOWN) { e.phase = "dormant"; e.t = 0; e.ambientT = 180 + Math.random() * 300; setPlume(e.base ? e.base.size : 120, e.base ? e.base.rate : 8); setLava(3.6); setGlow(0.5, 1700); flowsDark(); }
   }
 }
 

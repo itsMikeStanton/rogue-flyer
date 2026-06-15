@@ -1163,8 +1163,9 @@ function buildIsland(scene, is, waveMats, colliders, smokeSources, trees, spinne
       new THREE.MeshStandardMaterial({ color: 0x3a1c12, emissive: 0x7a2810, emissiveIntensity: 0.8, roughness: 0.8, side: THREE.DoubleSide }));
     crust.rotation.x = -Math.PI / 2; crust.position.set(0, craterY + 3, 0); grp.add(crust);
     // Towering ash plume — ~8x the volume of the power-plant stacks. Tagged so
-    // the eruption event can ramp it (size/rate) on demand.
-    const plume = { x: cx0, y: craterY + 60, z: cz0, size: 120, rate: 8, color: 0x2a2724, rise: 190, drift: 16, life: 12, grow: 6, wind: 14, volcano: true };
+    // the eruption event can ramp it (size/rate) on demand. `rise` is ~6x a normal
+    // stack so the ash column climbs fast and dramatic.
+    const plume = { x: cx0, y: craterY + 60, z: cz0, size: 120, rate: 8, color: 0x2a2724, rise: 1140, drift: 16, life: 12, grow: 6, wind: 14, volcano: true };
     if (smokeSources) smokeSources.push(plume);
     // Basalt boulders strewn down the flanks (instanced).
     const boulders = new THREE.InstancedMesh(new THREE.DodecahedronGeometry(1, 0),
@@ -1202,13 +1203,18 @@ function buildIsland(scene, is, waveMats, colliders, smokeSources, trees, spinne
     }
     ptr.count = npa; pcr.count = npa; ptr.instanceMatrix.needsUpdate = pcr.instanceMatrix.needsUpdate = true;
     if (npa) { grp.add(ptr); grp.add(pcr); }
-    // Lava flows: cooled basalt channels radiating down the flanks. They sit
-    // DARK (no glow) until an eruption runs them — thick and meandering, not
-    // straight, with a per-flow wobble so each is different.
+    // Lava flows: cooled basalt channels radiating down the flanks. We carve MANY
+    // (so eruptions can light a different random subset each time); they sit DARK
+    // until an eruption runs them — thick and meandering, not straight, with a
+    // per-flow wobble so each is different. Each carries a per-vertex `aT` (0 at
+    // the crater, 1 at the toe) so the eruption can light it up TOP-DOWN: a glow
+    // front (`uFront`) runs down the channel rather than the whole thing snapping
+    // on at once. `uInt` scales the molten brightness.
     const flows = [];
-    for (let fi = 0; fi < 6; fi++) {
-      const a = (fi / 6) * Math.PI * 2 + rnd() * 0.7, dxf = Math.cos(a), dzf = Math.sin(a), pxf = -dzf, pzf = dxf;
-      const r0 = 650, r1 = 5400, steps = 34, w = 38 + rnd() * 28, ph = rnd() * 6.28, freq = 0.18 + rnd() * 0.18, amp = 120 + rnd() * 180, pos = [];
+    const FLOW_N = 13;
+    for (let fi = 0; fi < FLOW_N; fi++) {
+      const a = (fi / FLOW_N) * Math.PI * 2 + rnd() * 0.5, dxf = Math.cos(a), dzf = Math.sin(a), pxf = -dzf, pzf = dxf;
+      const r0 = 650, r1 = 4600 + rnd() * 1600, steps = 34, w = 30 + rnd() * 30, ph = rnd() * 6.28, freq = 0.18 + rnd() * 0.18, amp = 120 + rnd() * 180, pos = [];
       let mead = 0, meadV = 0;
       for (let k = 0; k <= steps; k++) {
         const tt = k / steps, r = r0 + (r1 - r0) * tt;
@@ -1219,12 +1225,24 @@ function buildIsland(scene, is, waveMats, colliders, smokeSources, trees, spinne
         pos.push(mx + pxf * ww, gy + 1.8, mz + pzf * ww, mx - pxf * ww, gy + 1.8, mz - pzf * ww);
       }
       const np2 = pos.length / 6; if (np2 < 3) continue;
-      const idx = [];
+      const idx = [], tar = [];
+      for (let k = 0; k < np2; k++) { const tN = k / (np2 - 1); tar.push(tN, tN); } // normalized distance crater→toe
       for (let k = 0; k < np2 - 1; k++) { const aI = k * 2, bI = k * 2 + 1, cI = (k + 1) * 2, dI = (k + 1) * 2 + 1; idx.push(aI, cI, bI, bI, cI, dI); }
       const g = new THREE.BufferGeometry();
-      g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx); g.computeVertexNormals();
-      const fmat = new THREE.MeshStandardMaterial({ color: 0x231008, emissive: 0xff4a14, emissiveIntensity: 0, roughness: 0.7 });
-      grp.add(new THREE.Mesh(g, fmat)); flows.push(fmat);
+      g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+      g.setAttribute("aT", new THREE.Float32BufferAttribute(tar, 1));
+      g.setIndex(idx); g.computeVertexNormals();
+      const uFront = { value: -1 }, uInt = { value: 0 }; // dark until an eruption drives them
+      const fmat = new THREE.MeshStandardMaterial({ color: 0x231008, emissive: 0xff4a14, emissiveIntensity: 1, roughness: 0.7 });
+      fmat.onBeforeCompile = (sh) => {
+        sh.uniforms.uFront = uFront; sh.uniforms.uInt = uInt;
+        sh.vertexShader = "attribute float aT;\nvarying float vT;\n" + sh.vertexShader.replace("#include <begin_vertex>", "#include <begin_vertex>\n  vT = aT;");
+        sh.fragmentShader = "uniform float uFront;\nuniform float uInt;\nvarying float vT;\n" + sh.fragmentShader.replace(
+          "#include <emissivemap_fragment>",
+          "#include <emissivemap_fragment>\n  float lit = smoothstep(uFront, uFront - 0.22, vT);\n  float edge = smoothstep(0.18, 0.0, abs(vT - uFront)) * 1.7;\n  totalEmissiveRadiance = emissive * uInt * (lit + edge);");
+      };
+      grp.add(new THREE.Mesh(g, fmat));
+      flows.push({ uFront, uInt, active: false, delay: 0, speed: 0.4 });
     }
     // Big additive glow halo over the crater — dramatic, especially at night.
     const glow = new THREE.Sprite(new THREE.SpriteMaterial({ map: lightPoolTexture(), color: 0xff6a22, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, opacity: 0.5 }));
