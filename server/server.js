@@ -83,18 +83,49 @@ function checkLaunch(room) {
   broadcastLobby(room); // tell the room the launchers are now flying
 }
 
+// --- Authority (#3): the server owns HP + death and validates damage. ----
+// A `hit` is a REQUEST; clients no longer self-apply damage or author kills.
+const DMG_CAP = { gun: 16, missile: 130, rocket: 55, bomb: 255 }; // clamp ceilings (real: 12/120/45/240)
+const ENV_CAP = 260;            // max single self-inflicted (eruption/ram/terrain) hit
+const MAX_RANGE = 9000;         // beyond the fog → a bogus long-range hit claim
+const RATE_WIN = 1000, RATE_DMG = 1700; // per-shooter sliding-window damage ceiling
+const MAX_SPEED = 1400;         // u/s; anti-teleport gate on `state` (jets do a few hundred)
+const MSG_WIN = 1000, MSG_MAX = 320;    // per-connection message-rate cap (anti-flood)
+
+function findInRoom(room, id) { for (const c of clients.values()) if (c.id === id && c.room === room) return c; return null; }
+function killOnServer(victim, byId) {
+  if (!victim.alive) return;
+  victim.alive = false; victim.deaths++;
+  const killer = byId ? findInRoom(victim.room, byId) : null;
+  if (killer && killer.id !== victim.id) killer.kills++;
+  broadcast({ t: "kill", killer: killer ? killer.id : 0, killerName: killer ? killer.name : "", victim: victim.id, victimName: victim.name }, victim.room);
+  broadcastScores(victim.room);
+}
+function applyDamageServer(victim, dmg, byId) {
+  if (!victim.alive || dmg <= 0) return;
+  victim.hp = Math.max(0, victim.hp - dmg);
+  broadcast({ t: "hp", id: victim.id, hp: victim.hp, by: byId || 0, alive: victim.hp > 0 }, victim.room);
+  if (victim.hp <= 0) killOnServer(victim, byId);
+}
+
 wss.on("connection", (ws) => {
-  const me = { id: nextId++, name: "Pilot", jet: "f16", last: null, room: "PUBLIC", ready: false, inGame: false, kills: 0, deaths: 0 };
+  const me = { id: nextId++, name: "Pilot", jet: "f16", last: null, room: "PUBLIC", ready: false, inGame: false, kills: 0, deaths: 0, hp: 100, alive: true, lastT: 0, dmgWin: [], msgWin: [] };
   clients.set(ws, me);
   ws.on("message", (buf) => {
+    // Anti-flood: drop messages past a generous per-connection rate.
+    const tnow = Date.now();
+    me.msgWin.push(tnow); if (me.msgWin.length > MSG_MAX + 8) me.msgWin.shift();
+    while (me.msgWin.length && tnow - me.msgWin[0] > MSG_WIN) me.msgWin.shift();
+    if (me.msgWin.length > MSG_MAX) return;
     let m; try { m = JSON.parse(buf.toString()); } catch (_) { return; }
     if (m.t === "join") {
       me.name = String(m.name || "Pilot").slice(0, 20);
       me.jet = m.jet || me.jet;
       me.room = normRoom(m.room);
       me.ready = false; me.inGame = false; // a fresh join starts in the bay/lobby
+      me.hp = 100; me.alive = true; me.last = null;
       const players = [];
-      for (const c of clients.values()) if (c.id !== me.id && c.room === me.room && c.last) players.push({ id: c.id, name: c.name, jet: c.jet, ...c.last });
+      for (const c of clients.values()) if (c.id !== me.id && c.room === me.room && c.last) players.push({ id: c.id, name: c.name, jet: c.jet, p: c.last.p, q: c.last.q, hp: c.hp, alive: c.alive });
       ws.send(JSON.stringify({ t: "welcome", id: me.id, room: me.room, players }));
       broadcast({ t: "join", id: me.id, name: me.name, jet: me.jet }, me.room, ws);
       broadcastLobby(me.room);
@@ -106,23 +137,42 @@ wss.on("connection", (ws) => {
     } else if (m.t === "spawned") { // took off (ready-launch or solo "launch now")
       me.inGame = true; me.ready = false;
       broadcastLobby(me.room);
+    } else if (m.t === "respawn") { // (re)entering live flight at full health
+      me.hp = 100; me.alive = true; me.last = null; // re-baseline position (legit teleport to spawn)
+      broadcast({ t: "hp", id: me.id, hp: 100, by: 0, alive: true }, me.room);
     } else if (m.t === "state") {
+      if (!Array.isArray(m.p) || !Array.isArray(m.q)) return;
       me.jet = m.jet || me.jet;
-      me.last = { p: m.p, q: m.q, health: m.health, alive: m.alive };
-      broadcast({ t: "state", id: me.id, jet: me.jet, p: m.p, q: m.q, health: m.health, alive: m.alive }, me.room, ws);
+      // Anti-teleport: relay only physically-plausible movement (self-healing —
+      // last is always updated so a lag spike can't freeze you permanently).
+      let ok = true;
+      if (me.last && me.lastT) {
+        const dt = Math.max(0.05, (tnow - me.lastT) / 1000);
+        const dx = m.p[0] - me.last.p[0], dy = m.p[1] - me.last.p[1], dz = m.p[2] - me.last.p[2];
+        if (Math.sqrt(dx * dx + dy * dy + dz * dz) > MAX_SPEED * dt + 400) ok = false;
+      }
+      me.last = { p: m.p, q: m.q }; me.lastT = tnow;
+      if (ok) broadcast({ t: "state", id: me.id, jet: me.jet, p: m.p, q: m.q }, me.room, ws);
     } else if (m.t === "fire") {
       broadcast({ t: "fire", id: me.id, kind: m.kind, p: m.p, dir: m.dir }, me.room, ws);
     } else if (m.t === "hit") {
-      broadcast({ t: "hit", target: m.target, by: me.id, dmg: m.dmg }, me.room); // to the room (target applies it)
-    } else if (m.t === "death") {
-      // The victim reports its own death and who last hit it (kills are authored
-      // by the victim — it's the only side that knows the damage it took).
-      me.deaths++;
-      let killer = null;
-      for (const c of clients.values()) if (c.id === m.by && c.room === me.room) killer = c;
-      if (killer && killer.id !== me.id) killer.kills++;
-      broadcast({ t: "kill", killer: killer ? killer.id : 0, killerName: killer ? killer.name : "", victim: me.id, victimName: me.name }, me.room);
-      broadcastScores(me.room);
+      // Damage REQUEST → validate, then the server applies it authoritatively.
+      const cap = DMG_CAP[m.kind]; if (cap == null) return;        // unknown weapon
+      const target = findInRoom(me.room, m.target | 0);
+      if (!target || !target.alive || !me.alive || target.id === me.id) return;
+      const dmg = Math.min(Math.max(0, +m.dmg || 0), cap);         // clamp to the weapon's ceiling
+      if (me.last && target.last) {                                // range gate
+        const dx = me.last.p[0] - target.last.p[0], dy = me.last.p[1] - target.last.p[1], dz = me.last.p[2] - target.last.p[2];
+        if (Math.sqrt(dx * dx + dy * dy + dz * dz) > MAX_RANGE) return;
+      }
+      me.dmgWin = me.dmgWin.filter((e) => tnow - e.t < RATE_WIN);   // sliding-window rate cap
+      if (me.dmgWin.reduce((a, e) => a + e.d, 0) >= RATE_DMG) return;
+      me.dmgWin.push({ t: tnow, d: dmg });
+      applyDamageServer(target, dmg, me.id);
+    } else if (m.t === "env") {
+      // Self-inflicted environment damage (eruption / ram / terrain) — trusted
+      // but capped, then run through the same authoritative HP path.
+      applyDamageServer(me, Math.min(Math.max(0, +m.dmg || 0), ENV_CAP), 0);
     }
   });
   ws.on("close", () => { const room = me.room; clients.delete(ws); broadcast({ t: "leave", id: me.id }, room); broadcastLobby(room); broadcastScores(room); });

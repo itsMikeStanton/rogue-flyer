@@ -1,8 +1,18 @@
 # Plan: authoritative-enough netcode (#3) + accounts & persistence (#4)
 
-Status: **plan only — not built.** This is the bridge from "friends demo" to
-"public product." Do #3 before persisting competitive stats in #4, so the numbers
-you save are trustworthy.
+Status: **#3 Tier 1 BUILT & tested. #4 still planned** (needs a Discord app + a
+Postgres DB to wire — see "what I need from you" at the bottom). Do #3 before
+persisting competitive stats in #4, so the numbers you save are trustworthy.
+
+## #3 Tier 1 — shipped
+Server now owns HP + death and validates damage (`server/server.js`):
+- Per-client `hp`/`alive`; a `hit` is a REQUEST — clamped per weapon
+  (`DMG_CAP`), range-gated (`MAX_RANGE`), and rate-capped (`RATE_DMG`).
+- Environment damage goes through `env` (capped) → same authoritative HP path.
+- Death + kill credit are server-authored; clients render `hp`/`kill`, can no
+  longer godmode, one-shot, refuse death, or spoof kills. Anti-teleport + a
+  message-rate cap included. Respawn re-baselines via `respawn`.
+- Validated end-to-end: one-shot clamp, range reject, env death, respawn.
 
 ---
 

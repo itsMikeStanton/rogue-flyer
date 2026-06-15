@@ -321,7 +321,6 @@ function measureHangarVehicle() {
 }
 let paused = false;                 // Esc pause menu (sim frozen)
 let crashHandled = false, respawnTimer = 0; // crash → wreckage → soft respawn
-let lastAttackerId = 0, lastAttackerAt = 0; // FFA kill attribution: who last hit us
 let scoreboardOn = false;                   // Tab-held scoreboard overlay (FFA)
 const killFeed = [];                        // {html, until} recent kill-feed entries
 // Camera shake: a decaying jolt that nearby blasts / missile hits add to
@@ -856,9 +855,12 @@ const player = {
   get alive() { return flying && !state.crashed; },
   applyDamage(d) {
     if (!this.alive) return;
-    this.health = Math.max(0, this.health - d);
     hudShock = Math.min(1, hudShock + 0.55 + d * 0.012); // bigger hits glitch the HUD harder
     sound.hit();
+    // Online FFA: the server owns HP (#3). Report self-inflicted environment
+    // damage and let the authoritative `hp` message drive our health + death.
+    if (gameMode === "ffa" && net.connected) { net.sendEnv(d); return; }
+    this.health = Math.max(0, this.health - d);
     if (this.health <= 0) { state.crashed = true; handleCrash("SHOT DOWN"); }
     else comms(this.health < 35 ? "We're hit, going down" : "We're hit", "hit", 3);
   },
@@ -872,13 +874,8 @@ const CRASH_CAM_TIME = 5.0; // death-cam length before the respawn switch
 function handleCrash(title) {
   if (crashHandled) return;
   crashHandled = true;
-  // FFA: report our death + the last pilot who hit us (within a few seconds) so
-  // the server can credit the kill. Stale/no attacker → an environment death.
-  if (gameMode === "ffa" && net.connected) {
-    const recent = lastAttackerId && (performance.now() - lastAttackerAt) < 6000;
-    net.sendDeath(recent ? lastAttackerId : 0);
-  }
-  lastAttackerId = 0;
+  // Online FFA: the death + kill credit are authored by the server (#3) via the
+  // `hp`/`kill` messages — the client just plays out the wreck visuals here.
   fx.add(state.position, 3.4, 0xffa233, true); // silent: the dedicated crash sound plays instead
   sound.crash(state.position);
   fx.shards(state.position, mesh, state.quaternion, 16); // fling actual pieces of the jet
@@ -1284,7 +1281,12 @@ net.onEvent = (t, m) => {
   else if (t === "leave") { const mesh = netMeshes.get(m.id); if (mesh) { scene.remove(mesh); netMeshes.delete(m.id); } if (hangarMode) updateBayRoster(); }
   else if (t === "kill") { pushKillFeed(m); if (scoreboardOn) renderScoreboard(); } // someone splashed someone
   else if (t === "score") { if (scoreboardOn) renderScoreboard(); } // live scoreboard refresh
-  else if (t === "hit") { if (flying && gameMode === "ffa") { lastAttackerId = m.by | 0; lastAttackerAt = performance.now(); player.applyDamage(m.dmg); } } // someone hit us — remember who
+  else if (t === "hp") { // server-authoritative health (#3): own death is server-decided
+    if (m.id === net.id && flying) {
+      player.health = m.hp;
+      if (!m.alive && !state.crashed) { state.crashed = true; handleCrash(m.by ? "SHOT DOWN" : "AIRCRAFT DOWN"); }
+    }
+  }
   else if (t === "fire" && m.p) {
     const px = m.p[0], py = m.p[1], pz = m.p[2];
     const dx = m.dir ? m.dir[0] : 0, dy = m.dir ? m.dir[1] : 0, dz = m.dir ? m.dir[2] : -1;
@@ -1418,7 +1420,7 @@ function updateRemotePlayers(dt) {
       p._target = {
         position: p.cur.p, radius: 11,
         get alive() { return p.alive !== false && p.health > 0; },
-        hit(dmg) { net.sendHit(p.id, dmg); },
+        hit(dmg, kind) { net.sendHit(p.id, dmg, kind || "gun"); }, // damage request; server validates/applies
       };
     }
     p._target.position = p.cur.p;
@@ -1953,6 +1955,7 @@ function placePlayer() {
   camShake = 0;
   player.health = 100;
   crashHandled = false; respawnTimer = 0;
+  if (gameMode === "ffa" && net.connected) net.sendRespawn(); // tell the server we're alive at full HP (#3)
   // Gear down for ground/carrier starts, up for air starts; flaps up. Snap the
   // animation so it doesn't visibly deploy on spawn. Conquest always launches
   // from a runway or carrier, so it's a ground start.
@@ -3019,7 +3022,7 @@ function frame(now) {
 
   // Multiplayer: broadcast our state + sync remote jets (runs even while dead).
   if (flying && gameMode === "ffa" && net.connected) {
-    net.sendState(state, jetType, player.health, !state.crashed);
+    net.sendState(state, jetType);
     updateRemotePlayers(dt);
   }
 

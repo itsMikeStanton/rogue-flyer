@@ -524,7 +524,7 @@ export class Weapons {
       if (!hit && !b.ghost) for (const t of targets) {
         if (!t.alive) continue;
         if (bp.distanceTo(t.position) < t.radius) {
-          t.hit(GUN_DAMAGE);
+          t.hit(GUN_DAMAGE, "gun");
           if (this.onHit) this.onHit(t);
           hit = true;
           break;
@@ -602,7 +602,7 @@ export class Weapons {
       if (!detonate && !m.ghost) for (const t of targets) {
         if (!t.alive) continue;
         if (mp.distanceTo(t.position) < MSL_PROX) {
-          t.hit(m.dmg);
+          t.hit(m.dmg, m.rocket ? "rocket" : "missile");
           if (this.onHit) this.onHit(t);
           this.fx.add(mp, m.rocket ? 2.0 : 3.0, 0xffd23f);
           detonate = true;
@@ -629,7 +629,7 @@ export class Weapons {
       if (boom || b.life <= 0) {
         this.fx.add(bp, 4.2);                                  // big blast
         if (this.onGroundImpact) this.onGroundImpact(bp);      // scorch + fire on land
-        if (!b.ghost) for (const t of targets) if (t.alive && bp.distanceTo(t.position) < BOMB_RADIUS) { t.hit(BOMB_DAMAGE); if (this.onHit) this.onHit(t); }
+        if (!b.ghost) for (const t of targets) if (t.alive && bp.distanceTo(t.position) < BOMB_RADIUS) { t.hit(BOMB_DAMAGE, "bomb"); if (this.onHit) this.onHit(t); }
         this.scene.remove(b.mesh);
         this.bombs.splice(i, 1);
       }

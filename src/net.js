@@ -50,7 +50,11 @@ export class Net {
       case "leave": this.players.delete(m.id); this._emit("leave", m); break;
       case "state": if (m.id !== this.id) this._upsert(m); break;
       case "fire": if (m.id !== this.id) this._emit("fire", m); break;
-      case "hit": if (m.target === this.id) this._emit("hit", m); break;
+      case "hp": { // server-authoritative health/death (#3)
+        const p = this.players.get(m.id);
+        if (p) { p.health = m.hp; p.alive = m.alive; }
+        this._emit("hp", m); break;
+      }
       case "lobby": this.lobby = m.players || []; this._emit("lobby", m); break;
       case "launch": this._emit("launch", m); break;
       case "score": this.scores = m.scores || []; this._emit("score", m); break;
@@ -70,27 +74,29 @@ export class Net {
     }
     if (m.name) p.name = m.name;
     if (m.jet) p.jet = m.jet;
-    if (m.health != null) p.health = m.health;
+    if (m.hp != null) p.health = m.hp;     // server-authoritative health (welcome snapshot)
     if (m.alive != null) p.alive = m.alive;
     if (m.p) { p.tgt.p.set(m.p[0], m.p[1], m.p[2]); if (!p.init) p.cur.p.copy(p.tgt.p); }
     if (m.q) { p.tgt.q.set(m.q[0], m.q[1], m.q[2], m.q[3]); if (!p.init) p.cur.q.copy(p.tgt.q); }
     p.init = true;
   }
 
-  // Throttled (~15 Hz) local-state broadcast.
-  sendState(state, jet, health, alive) {
+  // Throttled (~15 Hz) local-state broadcast. Position/orientation only — health
+  // is server-authoritative now (#3), so clients no longer self-report it.
+  sendState(state, jet) {
     const now = performance.now();
     if (now - this._lastSend < 66) return;
     this._lastSend = now;
     const p = state.position, q = state.quaternion;
-    this.send({ t: "state", jet, health, alive, p: [p.x, p.y, p.z], q: [q.x, q.y, q.z, q.w] });
+    this.send({ t: "state", jet, p: [p.x, p.y, p.z], q: [q.x, q.y, q.z, q.w] });
   }
 
   sendFire(kind, pos, dir) { this.send({ t: "fire", kind, p: [pos.x, pos.y, pos.z], dir: [dir.x, dir.y, dir.z] }); }
-  sendHit(targetId, dmg) { this.send({ t: "hit", target: targetId, dmg }); }
+  sendHit(targetId, dmg, kind) { this.send({ t: "hit", target: targetId, dmg, kind }); } // damage REQUEST (server validates)
+  sendEnv(dmg) { this.send({ t: "env", dmg }); }                   // self-inflicted environment damage
+  sendRespawn() { this.send({ t: "respawn" }); }                   // (re)entering flight at full health
   sendReady(ready) { this.send({ t: "ready", ready: !!ready }); }   // lobby ready toggle
   sendSpawned() { this.send({ t: "spawned" }); }                    // left the bay into flight
-  sendDeath(byId) { this.send({ t: "death", by: byId | 0 }); }      // I went down; byId = last attacker (0 = none)
 
   // Ease remote players toward their latest received transform each frame.
   interpolate(dt) {
