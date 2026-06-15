@@ -3315,14 +3315,15 @@ function frame(now) {
     _v2.set(1, 0, 0).applyQuaternion(state.quaternion);
     _v3.set(0, 1, 0).applyQuaternion(state.quaternion);
     const rollAng = Math.atan2(_v2.y, _v3.y);
-    // HUD electronic glitch: stall, recent shock (hits/blasts), eruption ash, or
-    // a storm. Eased so it flickers but doesn't snap.
+    // HUD electronic glitch: stall buffet, recent shock (damage + nearby blasts),
+    // eruption ash, or thin air at extreme altitude. Weather no longer glitches.
+    // Eased so it flickers but doesn't snap.
     hudShock = Math.max(0, hudShock - simDt * 2.0);
     let gTarget = 0;
-    if (state.telemetry.stall) gTarget = Math.max(gTarget, 0.45);
-    gTarget = Math.max(gTarget, hudShock);
-    gTarget = Math.max(gTarget, volcanoAshI * 0.8);
-    if (weatherMode === "storm") gTarget = Math.max(gTarget, 0.26); // electrical storm only — rain doesn't glitch the HUD
+    if (state.telemetry.stall) gTarget = Math.max(gTarget, 0.45);   // stall / departure buffet
+    gTarget = Math.max(gTarget, hudShock);                          // taking damage + nearby explosions
+    gTarget = Math.max(gTarget, volcanoAshI * 0.8);                 // flying through eruption ash
+    gTarget = Math.max(gTarget, THREE.MathUtils.clamp((state.telemetry.altitude - 14000) / 6000, 0, 1) * 0.5); // thin-air flutter up high (~46k→66k ft)
     hudGlitch += (gTarget - hudGlitch) * Math.min(1, simDt * 10);
     hud.draw(state.telemetry, {
       glitch: hudGlitch,
