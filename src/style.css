@@ -685,6 +685,9 @@ button.plan.hidden { display: none; }
 .hbr-tag { font-size: 10px; color: var(--accent); border: 1px solid var(--accent-dim); border-radius: 4px; padding: 0 4px; margin-left: 4px; letter-spacing: 0; }
 .hbr-rdy { color: var(--accent); font-weight: 800; }
 .hbr-wait { color: #6c7f8e; }
+.hbr-afk { font-size: 10px; color: #c79a5a; border: 1px solid #6a5230; border-radius: 4px; padding: 0 4px; text-transform: uppercase; letter-spacing: 0.5px; }
+.hbr-idle { opacity: 0.55; }
+button.force { width: 100%; margin-top: 8px; color: #ffd27d; border-color: #7a5d2a; }
 .hbr-warn { margin: 10px 0; font-size: 12px; color: #ffc46e; }
 .ready-btn { width: 100%; font-weight: 700; letter-spacing: 1px; }
 .hbr-row { display: flex; gap: 8px; margin-top: 8px; }

@@ -2205,7 +2205,9 @@ function updateBayRoster() {
     rows = lobby.map((p) => {
       const mine = p.id === net.id;
       if (p.ready) readyN++;
-      return `<div class="${mine ? "hbr-me" : ""}">${p.ready ? '<span class="hbr-rdy">✓</span>' : '<span class="hbr-wait">○</span>'} ${escHtml(p.name || "Pilot")}${mine ? ' <span class="hbr-tag">you</span>' : ""}</div>`;
+      const isHost = net.host && p.id === net.host;
+      const mark = p.afk ? '<span class="hbr-afk">idle</span>' : p.ready ? '<span class="hbr-rdy">✓</span>' : '<span class="hbr-wait">○</span>';
+      return `<div class="${mine ? "hbr-me" : ""}${p.afk ? " hbr-idle" : ""}">${mark} ${escHtml(p.name || "Pilot")}${isHost ? ' <span class="hbr-tag">host</span>' : ""}${mine ? ' <span class="hbr-tag">you</span>' : ""}</div>`;
     }).join("");
   } else {
     waitN = 1; if (bayReady) readyN = 1;
@@ -2222,10 +2224,12 @@ function updateBayRoster() {
   } else if (net.status === "connecting") {
     controls = `<div class="hbr-warn">Connecting…</div>`;
   } else {
+    const isHost = net.host && net.host === net.id;
     controls =
       `<button type="button" id="hbr-ready" class="${bayReady ? "primary" : ""} ready-btn">${bayReady ? "✓&nbsp;READY — waiting…" : "READY UP"}</button>` +
       `<div class="hbr-row"><button type="button" id="hbr-launch" class="ghost">Launch now ▸</button>` +
-      `<button type="button" id="hbr-invite" class="ghost invite">⧉&nbsp;Invite</button></div>`;
+      `<button type="button" id="hbr-invite" class="ghost invite">⧉&nbsp;Invite</button></div>` +
+      (isHost && waitN > 1 ? `<button type="button" id="hbr-force" class="ghost force">★&nbsp;Force-start the room (host)</button>` : "");
   }
   el.innerHTML = `<div class="hbr-head">${head}</div><div class="hbr-list">${rows}</div>${controls}`;
   const rdy = document.getElementById("hbr-ready");
@@ -2234,6 +2238,8 @@ function updateBayRoster() {
   if (lnow) lnow.onclick = () => spawnFromBay(true);
   const inv = document.getElementById("hbr-invite");
   if (inv) inv.onclick = () => copyInviteLink(room, inv);
+  const force = document.getElementById("hbr-force");
+  if (force) force.onclick = () => { net.sendForceStart(); force.disabled = true; force.innerHTML = "Launching…"; };
 }
 // Leave the bay into flight. notify=true tells the server we took off (solo
 // "Launch now"); the synchronized-launch path already marked us in-game.

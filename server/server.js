@@ -59,28 +59,51 @@ function broadcast(obj, room, exceptWs) {
 }
 
 // Lobby = pilots in a room who are still in the vehicle bay (inGame === false).
-// "Launch together": when every waiting pilot in a room is ready (and there's at
-// least one), the whole lobby is launched at once. Solo readies up and goes too.
+// "Launch together": when every ACTIVE waiting pilot in a room is ready (and
+// there's at least one), the whole lobby launches at once. Solo readies up and
+// goes too. An idle pilot who never readies is marked `afk` and excluded from
+// the all-ready gate so they can't hold the room hostage (and is eventually
+// kicked). The HOST — the longest-waiting pilot still in the bay — can override
+// and force-start the room regardless of who's ready.
+const AFK_IDLE = 45000;  // un-ready + idle this long → afk (excluded from the launch gate)
+const AFK_KICK = 150000; // ...and this long → disconnected, if the room has others waiting
 function lobbyRoster(room) {
   const out = [];
-  for (const c of clients.values()) if (c.room === room) out.push({ id: c.id, name: c.name, jet: c.jet, ready: !!c.ready, inGame: !!c.inGame });
+  for (const c of clients.values()) if (c.room === room) out.push({ id: c.id, name: c.name, jet: c.jet, ready: !!c.ready, inGame: !!c.inGame, afk: !!c.afk });
   return out;
 }
-function broadcastLobby(room) { broadcast({ t: "lobby", room, players: lobbyRoster(room) }, room); }
+// Host = the lowest-id pilot still waiting in the bay (stable; passes to the next
+// when the host launches or leaves). Returns 0 if nobody is in the bay.
+function hostOf(room) {
+  let host = 0;
+  for (const c of clients.values()) if (c.room === room && !c.inGame) { if (host === 0 || c.id < host) host = c.id; }
+  return host;
+}
+function broadcastLobby(room) { broadcast({ t: "lobby", room, players: lobbyRoster(room), host: hostOf(room) }, room); }
 function scoreRoster(room) {
   const out = [];
   for (const c of clients.values()) if (c.room === room) out.push({ id: c.id, name: c.name, kills: c.kills | 0, deaths: c.deaths | 0 });
   return out;
 }
 function broadcastScores(room) { broadcast({ t: "score", scores: scoreRoster(room) }, room); }
-function checkLaunch(room) {
-  const waiting = [];
-  for (const [ws, c] of clients) if (c.room === room && !c.inGame) waiting.push([ws, c]);
-  if (!waiting.length || !waiting.every(([, c]) => c.ready)) return;
-  const n = waiting.length;
-  const msg = JSON.stringify({ t: "launch", n });
-  for (const [ws, c] of waiting) { c.inGame = true; c.ready = false; if (ws.readyState === 1) ws.send(msg); }
+// Launch a set of [ws, client] pairs together.
+function launchPilots(room, pairs) {
+  if (!pairs.length) return;
+  const msg = JSON.stringify({ t: "launch", n: pairs.length });
+  for (const [ws, c] of pairs) { c.inGame = true; c.ready = false; c.afk = false; if (ws.readyState === 1) ws.send(msg); }
   broadcastLobby(room); // tell the room the launchers are now flying
+}
+function waitingIn(room) { const out = []; for (const [ws, c] of clients) if (c.room === room && !c.inGame) out.push([ws, c]); return out; }
+function checkLaunch(room) {
+  const waiting = waitingIn(room);
+  const active = waiting.filter(([, c]) => !c.afk); // idle pilots don't gate the launch
+  if (!active.length || !active.every(([, c]) => c.ready)) return;
+  launchPilots(room, active); // afk pilots stay behind in the bay
+}
+// Host override: launch everyone still in the bay, ready or not.
+function forceStart(room, byId) {
+  if (hostOf(room) !== byId) return; // only the current host may force-start
+  launchPilots(room, waitingIn(room));
 }
 
 // --- Authority (#3): the server owns HP + death and validates damage. ----
@@ -109,7 +132,7 @@ function applyDamageServer(victim, dmg, byId) {
 }
 
 wss.on("connection", (ws) => {
-  const me = { id: nextId++, name: "Pilot", jet: "f16", last: null, room: "PUBLIC", ready: false, inGame: false, kills: 0, deaths: 0, hp: 100, alive: true, lastT: 0, dmgWin: [], msgWin: [] };
+  const me = { id: nextId++, name: "Pilot", jet: "f16", last: null, room: "PUBLIC", ready: false, inGame: false, afk: false, lobbySince: Date.now(), kills: 0, deaths: 0, hp: 100, alive: true, lastT: 0, dmgWin: [], msgWin: [] };
   clients.set(ws, me);
   ws.on("message", (buf) => {
     // Anti-flood: drop messages past a generous per-connection rate.
@@ -123,7 +146,7 @@ wss.on("connection", (ws) => {
       me.jet = m.jet || me.jet;
       me.uid = String(m.uid || "").slice(0, 64); // stable guest token — seam for future account/stat persistence (#4)
       me.room = normRoom(m.room);
-      me.ready = false; me.inGame = false; // a fresh join starts in the bay/lobby
+      me.ready = false; me.inGame = false; me.afk = false; me.lobbySince = Date.now(); // a fresh join starts in the bay/lobby
       me.hp = 100; me.alive = true; me.last = null;
       const players = [];
       for (const c of clients.values()) if (c.id !== me.id && c.room === me.room && c.last) players.push({ id: c.id, name: c.name, jet: c.jet, p: c.last.p, q: c.last.q, hp: c.hp, alive: c.alive });
@@ -133,8 +156,11 @@ wss.on("connection", (ws) => {
       broadcastScores(me.room);
     } else if (m.t === "ready") {
       me.ready = !!m.ready;
+      me.afk = false; me.lobbySince = Date.now(); // toggling ready counts as activity
       broadcastLobby(me.room);
       checkLaunch(me.room);
+    } else if (m.t === "forcestart") { // host override — launch the whole bay now
+      forceStart(me.room, me.id);
     } else if (m.t === "spawned") { // took off (ready-launch or solo "launch now")
       me.inGame = true; me.ready = false;
       broadcastLobby(me.room);
@@ -179,6 +205,28 @@ wss.on("connection", (ws) => {
   ws.on("close", () => { const room = me.room; clients.delete(ws); broadcast({ t: "leave", id: me.id }, room); broadcastLobby(room); broadcastScores(room); });
   ws.on("error", () => {});
 });
+
+// Idle sweep: pilots who linger un-ready in the bay get flagged afk (so they stop
+// gating the room's synced launch), then kicked if a shared room is waiting on them.
+setInterval(() => {
+  const now = Date.now();
+  const rooms = new Map(); // room -> [[ws, client], …] of pilots still in the bay
+  for (const [ws, c] of clients) {
+    if (c.inGame) continue;
+    let arr = rooms.get(c.room); if (!arr) { arr = []; rooms.set(c.room, arr); }
+    arr.push([ws, c]);
+  }
+  for (const [room, waiting] of rooms) {
+    let changed = false;
+    for (const [ws, c] of waiting) {
+      if (c.ready) continue;
+      const idle = now - c.lobbySince;
+      if (idle > AFK_KICK && waiting.length > 1) { try { ws.close(); } catch (_) { /* ignore */ } continue; } // boot the loiterer (shared rooms only)
+      if (idle > AFK_IDLE && !c.afk) { c.afk = true; changed = true; }
+    }
+    if (changed) { broadcastLobby(room); checkLaunch(room); }
+  }
+}, 3000);
 
 server.on("error", (err) => {
   if (err.code === "EADDRINUSE") {

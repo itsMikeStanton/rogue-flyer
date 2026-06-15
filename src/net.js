@@ -8,7 +8,8 @@ export class Net {
     this.ws = null;
     this.id = null;
     this.room = null;         // the room/lobby the server placed us in (set on welcome)
-    this.lobby = [];          // [{id,name,ready,inGame}] roster of everyone in the room
+    this.lobby = [];          // [{id,name,ready,inGame,afk}] roster of everyone in the room
+    this.host = 0;            // id of the current lobby host (may force-start the room)
     this.scores = [];         // [{id,name,kills,deaths}] room scoreboard
     this.connected = false;
     this.status = "offline"; // offline | connecting | online | error
@@ -32,7 +33,7 @@ export class Net {
   disconnect() {
     if (this.ws) { try { this.send({ t: "leave" }); this.ws.close(); } catch (_) { /* ignore */ } }
     this.ws = null; this.connected = false; this.status = "offline";
-    this.players.clear(); this.id = null; this.room = null; this.lobby = []; this.scores = [];
+    this.players.clear(); this.id = null; this.room = null; this.lobby = []; this.host = 0; this.scores = [];
   }
 
   send(o) { if (this.ws && this.ws.readyState === 1) this.ws.send(JSON.stringify(o)); }
@@ -55,7 +56,7 @@ export class Net {
         if (p) { p.health = m.hp; p.alive = m.alive; }
         this._emit("hp", m); break;
       }
-      case "lobby": this.lobby = m.players || []; this._emit("lobby", m); break;
+      case "lobby": this.lobby = m.players || []; this.host = m.host || 0; this._emit("lobby", m); break;
       case "launch": this._emit("launch", m); break;
       case "score": this.scores = m.scores || []; this._emit("score", m); break;
       case "kill": this._emit("kill", m); break;
@@ -96,6 +97,7 @@ export class Net {
   sendEnv(dmg) { this.send({ t: "env", dmg }); }                   // self-inflicted environment damage
   sendRespawn() { this.send({ t: "respawn" }); }                   // (re)entering flight at full health
   sendReady(ready) { this.send({ t: "ready", ready: !!ready }); }   // lobby ready toggle
+  sendForceStart() { this.send({ t: "forcestart" }); }              // host: launch the bay now
   sendSpawned() { this.send({ t: "spawned" }); }                    // left the bay into flight
 
   // Ease remote players toward their latest received transform each frame.

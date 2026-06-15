@@ -14,9 +14,11 @@ each section. Tuning knobs note the file/number so they're quick to change.
       waiting pilot in a room is ready they launch together (synced countdown);
       solo readies up and goes. Bay shows READY UP + ✓/○ ticks + X/Y ready, with
       a "Launch now" bypass. (`checkLaunch` in server.js; bay roster in main.js.)
-- [ ] **Ready-up polish** — host-only force-start, a kick/idle timeout for an
-      AFK pilot who never readies (today one un-ready pilot blocks the group's
-      synced launch — others can still "Launch now").
+- [x] **Ready-up polish** — host (longest-waiting pilot) can force-start the room
+      regardless of who's ready; an un-ready idle pilot is flagged `afk` after 45s
+      (excluded from the launch gate, so they no longer block the group) and
+      kicked after 150s if a shared room is waiting on them. (`server.js`
+      checkLaunch/forceStart/idle-sweep; bay roster + Force-start button.)
 - [x] **Copy-invite button** — menu "Invite" mints a private code if blank and
       copies the `?room=CODE` link; bay has a copy-link too. (QR still optional.)
 - [ ] **Kill feed** — on-screen "A splashed B" log.
