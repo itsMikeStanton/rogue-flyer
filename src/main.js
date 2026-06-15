@@ -3322,8 +3322,7 @@ function frame(now) {
     if (state.telemetry.stall) gTarget = Math.max(gTarget, 0.45);
     gTarget = Math.max(gTarget, hudShock);
     gTarget = Math.max(gTarget, volcanoAshI * 0.8);
-    if (weatherMode === "storm") gTarget = Math.max(gTarget, 0.26);
-    else if (weatherMode === "rain") gTarget = Math.max(gTarget, 0.12);
+    if (weatherMode === "storm") gTarget = Math.max(gTarget, 0.26); // electrical storm only — rain doesn't glitch the HUD
     hudGlitch += (gTarget - hudGlitch) * Math.min(1, simDt * 10);
     hud.draw(state.telemetry, {
       glitch: hudGlitch,
