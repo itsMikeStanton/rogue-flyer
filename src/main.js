@@ -1522,7 +1522,7 @@ function poolGet(pool, geo, mat, cap) {
   if (pool.length < cap) { const m = new THREE.Mesh(geo, mat); m.visible = false; scene.add(m); pool.push(m); return m; }
   return null;
 }
-const ERUPT = { PRECURSOR: 6, MAIN: 22, COOLDOWN: 11 };
+const ERUPT = { PRECURSOR: 6, MAIN: 30.8, COOLDOWN: 11 }; // MAIN extended 1.4x
 const eruption = { phase: "dormant", t: 0, bombT: 0, sprayT: 0, boltT: 0, ambientT: 180 + Math.random() * 300, bombs: [], spray: [], bolts: [],
   base: (world.volcano && world.volcano.plume) ? { size: world.volcano.plume.size, rate: world.volcano.plume.rate } : null };
 const FLASH_TEX = lightPoolTexture();
@@ -1562,7 +1562,7 @@ function startEruption() {
   // own start delay + descent speed so they light up top-down out of sync.
   const fl = world.volcano.flows;
   if (fl) {
-    for (const f of fl) { f.active = Math.random() < 0.5; f.delay = Math.random() * 2.4; f.speed = 0.18 + Math.random() * 0.16; f.uFront.value = -1; f.uInt.value = 0; }
+    for (const f of fl) { f.active = Math.random() < 0.5; f.delay = Math.random() * 2.6; f.speed = 0.08 + Math.random() * 0.18; f.uFront.value = -1; f.uInt.value = 0; }
     let n = fl.reduce((c, f) => c + (f.active ? 1 : 0), 0);
     for (let i = 0; n < 4 && i < fl.length; i++) if (!fl[i].active) { fl[i].active = true; n++; } // always run a few
   }
@@ -1575,9 +1575,11 @@ function spawnLavaBomb() {
   const sc = 0.8 + Math.random() * 1.4; m.scale.setScalar(sc * (3 + Math.random() * 12)); m.visible = true; // visual 3x–15x bigger; damage still keyed off sc
   const a = Math.random() * Math.PI * 2;
   let out = 260 + Math.random() * 540, up = 290 + Math.random() * 240, life = 10;
-  // Fling some chunks considerably higher — especially in the opening seconds.
-  const early = eruption.phase === "erupt" ? Math.max(0, 1 - eruption.t / 6) : 0;
-  if (Math.random() < 0.22 + 0.5 * early) { up *= 1.8 + Math.random() * 1.4; out *= 0.72; life = 17; } // tall arc — give it time to land
+  // Most chunks arc at a normal height; a moderate few go a bit higher, and a
+  // rare outlier gets flung WAY up (both biased toward the opening seconds).
+  const early = eruption.phase === "erupt" ? Math.max(0, 1 - eruption.t / 6) : 0, r = Math.random();
+  if (r < 0.05 + 0.1 * early) { up *= 2.3 + Math.random() * 1.2; out *= 0.7; life = 18; } // rare towering outlier
+  else if (r < 0.3 + 0.2 * early) { up *= 1.25 + Math.random() * 0.4; out *= 0.9; life = 13; } // a bit higher
   eruption.bombs.push({ mesh: m, vel: new THREE.Vector3(Math.cos(a) * out, up, Math.sin(a) * out), life, sc });
 }
 function updateEruption(dt) {

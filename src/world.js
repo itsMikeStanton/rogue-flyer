@@ -1225,7 +1225,8 @@ function buildIsland(scene, is, waveMats, colliders, smokeSources, trees, spinne
         h += curve * Math.sin(k * freq + ph); // heading wanders
         const dx = Math.cos(h), dz = Math.sin(h), px = -dz, pz = dx, gy = H(x, z);
         if (gy < SEA_LEVEL) break; // stop at the coast
-        const tt = k / steps, ww = seg.w * (0.6 + 0.5 * Math.sin(k * 0.7 + ph)) * (1 - 0.28 * tt); // width wobbles + tapers
+        const tt = k / steps, bulge = Math.max(0, Math.sin(k * 0.17 + seg.bph)); // broad, low-frequency pooled sections
+        const ww = seg.w * ((0.6 + 0.45 * Math.sin(k * 0.7 + ph)) + 0.85 * bulge) * (1 - 0.22 * tt); // width pools + necks + tapers
         pos.push(x + px * ww, gy + 1.8, z + pz * ww, x - px * ww, gy + 1.8, z - pz * ww);
         const tN = THREE.MathUtils.clamp((Math.hypot(x, z) - AT_R0) / AT_SPAN, 0, 1); // radial distance → glow-front param
         tar.push(tN, tN); count++;
@@ -1240,7 +1241,7 @@ function buildIsland(scene, is, waveMats, colliders, smokeSources, trees, spinne
       const thick = rnd() < 0.33, branchy = rnd() < 0.5; // some thicker, some fork into trees
       const baseW = thick ? 58 + rnd() * 40 : 26 + rnd() * 22;
       const pos = [], tar = [], idx = [];
-      const queue = [{ x: Math.cos(a) * 650, z: Math.sin(a) * 650, h: a, w: baseW, steps: 30 + (rnd() * 10 | 0), depth: 0, ph: rnd() * 6.28, canSplit: branchy }];
+      const queue = [{ x: Math.cos(a) * 650, z: Math.sin(a) * 650, h: a, w: baseW, steps: 30 + (rnd() * 10 | 0), depth: 0, ph: rnd() * 6.28, bph: rnd() * 6.28, canSplit: branchy }];
       while (queue.length) {
         const seg = queue.shift();
         const splits = lavaRibbon(pos, tar, idx, seg);
@@ -1249,7 +1250,7 @@ function buildIsland(scene, is, waveMats, colliders, smokeSources, trees, spinne
           const n = (seg.depth === 0 && rnd() < 0.5) ? 2 : 1; // trunk sometimes forks two ways
           for (let bi = 0; bi < n; bi++) {
             const sign = bi === 0 ? 1 : -1;
-            queue.push({ x: sp.x, z: sp.z, h: sp.h + sign * (0.3 + rnd() * 0.45), w: seg.w * (0.5 + rnd() * 0.22), steps: 12 + (rnd() * 9 | 0), depth: seg.depth + 1, ph: rnd() * 6.28, canSplit: rnd() < 0.45 });
+            queue.push({ x: sp.x, z: sp.z, h: sp.h + sign * (0.3 + rnd() * 0.45), w: seg.w * (0.5 + rnd() * 0.22), steps: 12 + (rnd() * 9 | 0), depth: seg.depth + 1, ph: rnd() * 6.28, bph: rnd() * 6.28, canSplit: rnd() < 0.45 });
           }
         }
       }
