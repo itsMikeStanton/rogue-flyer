@@ -1562,7 +1562,7 @@ function startEruption() {
   // own start delay + descent speed so they light up top-down out of sync.
   const fl = world.volcano.flows;
   if (fl) {
-    for (const f of fl) { f.active = Math.random() < 0.5; f.delay = Math.random() * 2.4; f.speed = 0.3 + Math.random() * 0.26; f.uFront.value = -1; f.uInt.value = 0; }
+    for (const f of fl) { f.active = Math.random() < 0.5; f.delay = Math.random() * 2.4; f.speed = 0.18 + Math.random() * 0.16; f.uFront.value = -1; f.uInt.value = 0; }
     let n = fl.reduce((c, f) => c + (f.active ? 1 : 0), 0);
     for (let i = 0; n < 4 && i < fl.length; i++) if (!fl[i].active) { fl[i].active = true; n++; } // always run a few
   }
@@ -1573,8 +1573,12 @@ function spawnLavaBomb() {
   const m = poolGet(_bombPool, LAVABOMB_GEO, LAVABOMB_MAT, 90); if (!m) return;
   m.position.set(v.center.x + (Math.random() - 0.5) * 220, v.craterY + 30, v.center.z + (Math.random() - 0.5) * 220);
   const sc = 0.8 + Math.random() * 1.4; m.scale.setScalar(sc * (3 + Math.random() * 12)); m.visible = true; // visual 3x–15x bigger; damage still keyed off sc
-  const a = Math.random() * Math.PI * 2, out = 260 + Math.random() * 540, up = 290 + Math.random() * 240;
-  eruption.bombs.push({ mesh: m, vel: new THREE.Vector3(Math.cos(a) * out, up, Math.sin(a) * out), life: 10, sc });
+  const a = Math.random() * Math.PI * 2;
+  let out = 260 + Math.random() * 540, up = 290 + Math.random() * 240, life = 10;
+  // Fling some chunks considerably higher — especially in the opening seconds.
+  const early = eruption.phase === "erupt" ? Math.max(0, 1 - eruption.t / 6) : 0;
+  if (Math.random() < 0.22 + 0.5 * early) { up *= 1.8 + Math.random() * 1.4; out *= 0.72; life = 17; } // tall arc — give it time to land
+  eruption.bombs.push({ mesh: m, vel: new THREE.Vector3(Math.cos(a) * out, up, Math.sin(a) * out), life, sc });
 }
 function updateEruption(dt) {
   const v = world.volcano, e = eruption; if (!v) return;

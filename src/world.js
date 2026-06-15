@@ -1205,29 +1205,55 @@ function buildIsland(scene, is, waveMats, colliders, smokeSources, trees, spinne
     if (npa) { grp.add(ptr); grp.add(pcr); }
     // Lava flows: cooled basalt channels radiating down the flanks. We carve MANY
     // (so eruptions can light a different random subset each time); they sit DARK
-    // until an eruption runs them — thick and meandering, not straight, with a
-    // per-flow wobble so each is different. Each carries a per-vertex `aT` (0 at
-    // the crater, 1 at the toe) so the eruption can light it up TOP-DOWN: a glow
-    // front (`uFront`) runs down the channel rather than the whole thing snapping
-    // on at once. `uInt` scales the molten brightness.
+    // until an eruption runs them. Each flow is a directed walk that wanders,
+    // wobbles in width and tapers; SOME flows fork into branches (a distributary
+    // "tree"), and some channels are notably thicker. Every vertex carries a
+    // per-vertex `aT` = radial distance from the crater (0 at the vent → ~1 at the
+    // toe) so the eruption can light the whole tree TOP-DOWN: a glow front
+    // (`uFront`) runs outward and naturally reaches branches after the trunk.
     const flows = [];
-    const FLOW_N = 13;
-    for (let fi = 0; fi < FLOW_N; fi++) {
-      const a = (fi / FLOW_N) * Math.PI * 2 + rnd() * 0.5, dxf = Math.cos(a), dzf = Math.sin(a), pxf = -dzf, pzf = dxf;
-      const r0 = 650, r1 = 4600 + rnd() * 1600, steps = 34, w = 30 + rnd() * 30, ph = rnd() * 6.28, freq = 0.18 + rnd() * 0.18, amp = 120 + rnd() * 180, pos = [];
-      let mead = 0, meadV = 0;
+    const FLOW_N = 13, AT_R0 = 600, AT_SPAN = 5800;
+    // Build one molten ribbon (a wandering, tapering channel). Appends triangles
+    // into the shared arrays and returns any mid-ribbon split point so the caller
+    // can fork a branch off it.
+    const lavaRibbon = (pos, tar, idx, seg) => {
+      let x = seg.x, z = seg.z, h = seg.h;
+      const stepLen = 150, steps = seg.steps, ph = seg.ph, freq = 0.16 + rnd() * 0.16, curve = 0.10 + rnd() * 0.12;
+      const baseV = pos.length / 3; let count = 0; const splits = [];
+      const splitK = seg.canSplit ? (6 + (rnd() * Math.max(1, steps - 12) | 0)) : -1; // one fork, mid-ribbon
       for (let k = 0; k <= steps; k++) {
-        const tt = k / steps, r = r0 + (r1 - r0) * tt;
-        meadV += (Math.sin(k * freq + ph) * 0.5 - mead) * 0.25; mead += meadV; // wandering centreline
-        const off = mead * amp * (0.3 + tt), mx = dxf * r + pxf * off, mz = dzf * r + pzf * off, gy = H(mx, mz);
-        if (gy < SEA_LEVEL) break;
-        const ww = w * (0.6 + 0.5 * Math.sin(k * 0.7 + ph)) * (1 - 0.3 * tt); // width wobbles + tapers
-        pos.push(mx + pxf * ww, gy + 1.8, mz + pzf * ww, mx - pxf * ww, gy + 1.8, mz - pzf * ww);
+        h += curve * Math.sin(k * freq + ph); // heading wanders
+        const dx = Math.cos(h), dz = Math.sin(h), px = -dz, pz = dx, gy = H(x, z);
+        if (gy < SEA_LEVEL) break; // stop at the coast
+        const tt = k / steps, ww = seg.w * (0.6 + 0.5 * Math.sin(k * 0.7 + ph)) * (1 - 0.28 * tt); // width wobbles + tapers
+        pos.push(x + px * ww, gy + 1.8, z + pz * ww, x - px * ww, gy + 1.8, z - pz * ww);
+        const tN = THREE.MathUtils.clamp((Math.hypot(x, z) - AT_R0) / AT_SPAN, 0, 1); // radial distance → glow-front param
+        tar.push(tN, tN); count++;
+        if (k === splitK) splits.push({ x, z, h });
+        x += dx * stepLen; z += dz * stepLen;
       }
-      const np2 = pos.length / 6; if (np2 < 3) continue;
-      const idx = [], tar = [];
-      for (let k = 0; k < np2; k++) { const tN = k / (np2 - 1); tar.push(tN, tN); } // normalized distance crater→toe
-      for (let k = 0; k < np2 - 1; k++) { const aI = k * 2, bI = k * 2 + 1, cI = (k + 1) * 2, dI = (k + 1) * 2 + 1; idx.push(aI, cI, bI, bI, cI, dI); }
+      for (let j = 0; j < count - 1; j++) { const aI = baseV + j * 2, bI = baseV + j * 2 + 1, cI = baseV + (j + 1) * 2, dI = baseV + (j + 1) * 2 + 1; idx.push(aI, cI, bI, bI, cI, dI); }
+      return count >= 2 ? splits : [];
+    };
+    for (let fi = 0; fi < FLOW_N; fi++) {
+      const a = (fi / FLOW_N) * Math.PI * 2 + rnd() * 0.5;
+      const thick = rnd() < 0.33, branchy = rnd() < 0.5; // some thicker, some fork into trees
+      const baseW = thick ? 58 + rnd() * 40 : 26 + rnd() * 22;
+      const pos = [], tar = [], idx = [];
+      const queue = [{ x: Math.cos(a) * 650, z: Math.sin(a) * 650, h: a, w: baseW, steps: 30 + (rnd() * 10 | 0), depth: 0, ph: rnd() * 6.28, canSplit: branchy }];
+      while (queue.length) {
+        const seg = queue.shift();
+        const splits = lavaRibbon(pos, tar, idx, seg);
+        if (seg.depth >= 2) continue;
+        for (const sp of splits) {
+          const n = (seg.depth === 0 && rnd() < 0.5) ? 2 : 1; // trunk sometimes forks two ways
+          for (let bi = 0; bi < n; bi++) {
+            const sign = bi === 0 ? 1 : -1;
+            queue.push({ x: sp.x, z: sp.z, h: sp.h + sign * (0.3 + rnd() * 0.45), w: seg.w * (0.5 + rnd() * 0.22), steps: 12 + (rnd() * 9 | 0), depth: seg.depth + 1, ph: rnd() * 6.28, canSplit: rnd() < 0.45 });
+          }
+        }
+      }
+      if (pos.length / 3 < 6) continue;
       const g = new THREE.BufferGeometry();
       g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
       g.setAttribute("aT", new THREE.Float32BufferAttribute(tar, 1));
