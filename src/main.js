@@ -23,6 +23,7 @@ import { Editor } from "./editor.js";
 import { PostFX } from "./postfx.js";
 import { Weather } from "./weather.js";
 import { Smokestacks } from "./smoke.js";
+import { FireField } from "./fire.js";
 import { Wrecks } from "./wreckage.js";
 import { Net } from "./net.js";
 import { Approach } from "./approach.js";
@@ -156,8 +157,11 @@ if (fxSel) {
 // Chimney / power-plant smoke plumes (world scenery + live strike targets).
 const smoke = new Smokestacks(scene);
 smoke.addSources(world.smokeSources);
+// Shared GPU fire engine — one instanced shader mesh drives every flame in the
+// world via lightweight emitters (crash wrecks, ground hits, burning trees…).
+const fire = new FireField(scene);
 // Persistent crash wreckage (debris + fire + smoke) left in the world.
-const wrecks = new Wrecks(scene, smoke);
+const wrecks = new Wrecks(scene, smoke, fire);
 
 // Spatial hash of (sub-sampled) trees so explosions can set nearby trees alight
 // without scanning the whole forest. Each entry carries instance handles so a
@@ -3143,6 +3147,7 @@ function frame(now) {
   applyVolcanoFx(simDt);  // ash haze + falling ash + deep rumble (proximity-based)
   updateCoastSplashes(simDt); // breaking spray where swell meets steep shore
   if (killFeed.length) renderKillFeed(); // fade out expired kill-feed rows
+  fire.update(simDt);                // advance the shared fire engine clock
   wrecks.update(simDt, now / 1000); // crash wreckage fire flicker
   updateBurningTrees(simDt);         // burnt-down trees vanish
   // Post FX on flat screen; VR renders direct (composer + WebXR don't mix).
