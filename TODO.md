@@ -21,13 +21,19 @@ each section. Tuning knobs note the file/number so they're quick to change.
       checkLaunch/forceStart/idle-sweep; bay roster + Force-start button.)
 - [x] **Copy-invite button** — menu "Invite" mints a private code if blank and
       copies the `?room=CODE` link; bay has a copy-link too. (QR still optional.)
-- [ ] **Kill feed** — on-screen "A splashed B" log.
-- [ ] **Scoreboard** — kills/deaths per pilot (Tab/overlay).
-- [ ] **Team colors / teams** — optional team FFA with colored jets/markers.
+- [x] **Kill feed** — on-screen "A splashed B" log (fades after 6s, last 5).
+- [x] **Scoreboard** — kills/deaths per pilot, Tab-held overlay (FFA), live via
+      the server `score` broadcast.
+- [x] **Team colors / teams** — optional team battle: menu "Team battle" toggle
+      (the room's first joiner sets the mode; later joiners inherit + balance onto
+      RED/BLUE). Colored jets + radar markers, team-grouped scoreboard with team
+      totals, team-tinted kill feed, no friendly fire (enforced server-side), team
+      tag in the bay roster. (`server.js` placeOnTeam/friendly-fire; client net/main.)
 - [x] **Vendor three.js locally** — engine + the 5 postprocessing addons live in
       `vendor/three`; importmap points local. No CDN, runs offline / on an
       isolated LAN.
-- [ ] Spawn scatter is air-only; consider staggering ground/runway FFA spawns too.
+- [x] **Ground-spawn scatter** — FFA runway/carrier starts now stagger pilots into
+      lanes/rows (by net id) so they don't spawn stacked on the same spot.
 
 ## Deploy / hosting / money
 - [x] **Single-container deploy** — Dockerfile + fly.toml + DEPLOY.md. Node

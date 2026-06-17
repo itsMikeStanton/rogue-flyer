@@ -166,6 +166,12 @@ export class UI {
     if (cso) cso.classList.toggle("hidden", this.mode !== "ffa"); // call sign only matters in multiplayer
     const rmo = document.getElementById("room-opt");
     if (rmo) rmo.classList.toggle("hidden", this.mode !== "ffa"); // room/lobby code, multiplayer only
+    const tmo = document.getElementById("team-opt");
+    if (tmo) {
+      tmo.classList.toggle("hidden", this.mode !== "ffa"); // team-battle toggle, multiplayer only
+      const tt = document.getElementById("team-toggle");
+      if (tt && this.cb.getTeam) { tt.checked = this.cb.getTeam(); tt.onchange = () => { if (this.cb.onTeam) this.cb.onTeam(tt.checked); }; }
+    }
     const lto = document.getElementById("lifetime-opt");
     if (lto) {
       lto.classList.toggle("hidden", this.mode !== "ffa"); // persisted career line, multiplayer only

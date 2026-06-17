@@ -990,6 +990,10 @@ function lifetimeText() {
   const kd = lifeStats.deaths ? (lifeStats.kills / lifeStats.deaths).toFixed(2) : (lifeStats.kills ? "—" : "0.00");
   return `${lifeStats.kills} kills · ${lifeStats.deaths} deaths · K/D ${kd}`;
 }
+// Team-battle preference (sent on FFA connect; the room's first joiner sets the mode).
+let wantTeam = false;
+try { wantTeam = localStorage.getItem("rf.team") === "1"; } catch (_) { /* ignore */ }
+function setWantTeam(v) { wantTeam = !!v; try { localStorage.setItem("rf.team", wantTeam ? "1" : "0"); } catch (_) { /* ignore */ } }
 const ui = new UI(input, {
   onFly: (type, mode, start) => { pendingSpawn = null; startFlight(type, mode, start); }, // "Launch now" — quick start
   onPlan: (type, mode) => openQuickPlanner(type, mode), // "Plan" — open the strategic map planner
@@ -1013,6 +1017,8 @@ const ui = new UI(input, {
   getRoom: () => playerRoom,                    // current multiplayer room/lobby code
   onRoom: (c) => setPlayerRoom(c),
   getLifetime: () => lifetimeText(),            // persisted lifetime K/D (shown in FFA)
+  getTeam: () => wantTeam,                       // team-battle toggle (FFA)
+  onTeam: (v) => setWantTeam(v),
   onOpenCampaign: () => openCampaign(),         // menu "Campaign" → briefing room
   onBriefingLaunch: (missionId, type) => {      // briefing "Launch" → fly the mission
     const m = campaign.missionById(missionId);
@@ -1301,6 +1307,13 @@ const net = new Net();
 const netMeshes = new Map(); // remote player id -> jet mesh
 const netTargets = [];       // weapons.js-compatible {position,radius,alive,hit} for remote jets
 function playerColor(id) { return new THREE.Color().setHSL(((id * 47) % 360) / 360, 0.62, 0.55).getHex(); }
+// Team-FFA palette. In a team game every pilot is colored by side; in plain FFA
+// each pilot keeps their own per-id hue.
+const TEAM_COLORS = [0xff5a3c, 0x3aa0ff]; // 0 = RED, 1 = BLUE (jets + markers)
+const TEAM_HEX = ["#ff6a4d", "#52aaff"];  // CSS for kill feed / scoreboard
+const TEAM_NAME = ["RED", "BLUE"];
+function teamColorOf(team, id) { return (net.teamMode && team >= 0) ? TEAM_COLORS[team] : playerColor(id); }
+function teamHexOf(team, id) { return (net.teamMode && team >= 0) ? TEAM_HEX[team] : colorFor(id); }
 net.onEvent = (t, m) => {
   if (t === "welcome") { syncRoomUrl(m.room); if (hangarMode) updateBayRoster(); } // address bar = the shareable invite
   else if (t === "join") { if (hangarMode) updateBayRoster(); } // someone joined while you wait in the bay
@@ -1349,9 +1362,9 @@ function netFire(kind) {
 // --- Kill feed + scoreboard (FFA) ----------------------------------------
 function colorFor(id) { return id ? "#" + playerColor(id).toString(16).padStart(6, "0") : "#9fb3c4"; }
 function pushKillFeed(m) {
-  const victim = `<b style="color:${colorFor(m.victim)}">${escHtml(m.victimName || "Pilot")}</b>`;
+  const victim = `<b style="color:${teamHexOf(m.victimTeam, m.victim)}">${escHtml(m.victimName || "Pilot")}</b>`;
   const html = m.killer
-    ? `<b style="color:${colorFor(m.killer)}">${escHtml(m.killerName || "Pilot")}</b> <span class="kf-x">✈➤</span> ${victim}`
+    ? `<b style="color:${teamHexOf(m.killerTeam, m.killer)}">${escHtml(m.killerName || "Pilot")}</b> <span class="kf-x">✈➤</span> ${victim}`
     : `${victim} <span class="kf-env">went down</span>`;
   killFeed.push({ html, until: performance.now() + 6000 });
   while (killFeed.length > 5) killFeed.shift();
@@ -1368,11 +1381,27 @@ function renderKillFeed() {
 function renderScoreboard() {
   const el = document.getElementById("scoreboard");
   if (!el) return;
-  const rows = (net.scores || []).slice().sort((a, b) => (b.kills - a.kills) || (a.deaths - b.deaths));
-  el.innerHTML = `<div class="sb-title">${escHtml(net.room && net.room !== "PUBLIC" ? "ROOM " + net.room : "PUBLIC")} — SCORES</div>` +
+  const scores = (net.scores || []).slice();
+  const title = escHtml(net.room && net.room !== "PUBLIC" ? "ROOM " + net.room : "PUBLIC");
+  const life = `<div class="sb-life">Lifetime &nbsp;·&nbsp; ${lifetimeText()}</div>`;
+  if (net.teamMode) {
+    const totals = [0, 0];
+    for (const s of scores) if (s.team === 0 || s.team === 1) totals[s.team] += (s.kills | 0);
+    let html = `<div class="sb-title">${title} — TEAM BATTLE</div>` +
+      `<div class="sb-teamscore"><span style="color:${TEAM_HEX[0]}">${TEAM_NAME[0]} ${totals[0]}</span><span class="sb-vs">vs</span><span style="color:${TEAM_HEX[1]}">${totals[1]} ${TEAM_NAME[1]}</span></div>`;
+    for (const t of [0, 1]) {
+      const rows = scores.filter((s) => s.team === t).sort((a, b) => (b.kills - a.kills) || (a.deaths - b.deaths));
+      html += `<div class="sb-head"><span style="color:${TEAM_HEX[t]}">${TEAM_NAME[t]} TEAM</span><span>K</span><span>D</span></div>` +
+        rows.map((s) => `<div class="sb-row${s.id === net.id ? " sb-me" : ""}"><span style="color:${TEAM_HEX[t]}">${escHtml(s.name || "Pilot")}</span><span>${s.kills | 0}</span><span>${s.deaths | 0}</span></div>`).join("");
+    }
+    el.innerHTML = html + life;
+    return;
+  }
+  const rows = scores.sort((a, b) => (b.kills - a.kills) || (a.deaths - b.deaths));
+  el.innerHTML = `<div class="sb-title">${title} — SCORES</div>` +
     `<div class="sb-head"><span>Pilot</span><span>K</span><span>D</span></div>` +
     rows.map((s) => `<div class="sb-row${s.id === net.id ? " sb-me" : ""}"><span style="color:${colorFor(s.id)}">${escHtml(s.name || "Pilot")}</span><span>${s.kills | 0}</span><span>${s.deaths | 0}</span></div>`).join("") +
-    `<div class="sb-life">Lifetime &nbsp;·&nbsp; ${lifetimeText()}</div>`;
+    life;
 }
 function setScoreboard(on) {
   scoreboardOn = on && gameMode === "ffa" && net.status === "online";
@@ -1438,10 +1467,11 @@ function updateRemotePlayers(dt) {
   for (const p of net.players.values()) {
     if (p.id === net.id) continue;
     let mesh = netMeshes.get(p.id);
-    if (!mesh || mesh.userData.jet !== p.jet) {
+    const col = teamColorOf(p.team, p.id);
+    if (!mesh || mesh.userData.jet !== p.jet || mesh.userData.col !== col) {
       if (mesh) scene.remove(mesh);
-      mesh = buildAircraftMesh(p.jet, playerColor(p.id));
-      mesh.userData.jet = p.jet;
+      mesh = buildAircraftMesh(p.jet, col);
+      mesh.userData.jet = p.jet; mesh.userData.col = col;
       scene.add(mesh);
       netMeshes.set(p.id, mesh);
     }
@@ -1458,7 +1488,8 @@ function updateRemotePlayers(dt) {
       };
     }
     p._target.position = p.cur.p;
-    if (p._target.alive) netTargets.push(p._target);
+    const friendly = net.teamMode && net.team >= 0 && p.team === net.team; // no friendly fire / lock
+    if (p._target.alive && !friendly) netTargets.push(p._target);
   }
 }
 
@@ -2005,6 +2036,19 @@ function placePlayer() {
     state.position.z += Math.sin(a) * r;
     state.quaternion.setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.random() * Math.PI * 2);
     state.velocity.set(0, 0, -180).applyQuaternion(state.quaternion);
+  } else if (gameMode === "ffa" && state.onGround) {
+    // Ground/carrier FFA starts: stagger pilots into lanes/rows so they don't
+    // spawn on top of each other on the same runway threshold or deck spot.
+    const slot = net.id ? (net.id - 1) : (Math.random() * 64 | 0);
+    if (startPos === "carrier") {
+      state.position.z += (slot % 6) * 16;                       // stagger back along the deck
+      state.position.x += ((slot / 6 | 0) % 2 ? 1 : -1) * 6;     // alternate deck sides (keep it narrow)
+    } else {
+      const lane = slot % 4, row = (slot / 4 | 0) % 8;
+      state.position.x += (lane - 1.5) * 16;                     // 4 lanes across the 80m runway (±24m)
+      state.position.z += row * 40;                              // rows back from the threshold
+      state.position.y = terrainHeight(state.position.x, state.position.z) + 1.5; // re-seat on the ground
+    }
   }
   weapons.reset(def.loadout); // per-aircraft loadout (missiles / rockets / bombs)
   enemyOrdnance.reset();      // a fresh aircraft shouldn't inherit incoming fire
@@ -2126,7 +2170,7 @@ function startFlight(type, mode, start, vr) {
   setAircraft(type);
   resetFlight();
   // Multiplayer: connect for FFA, drop the connection for any other mode.
-  if (gameMode === "ffa") { net.connect(playerName, type, playerRoom, guestId); lifeStats.sorties++; saveStats(); }
+  if (gameMode === "ffa") { net.connect(playerName, type, playerRoom, guestId, wantTeam); lifeStats.sorties++; saveStats(); }
   else if (net.status !== "offline") { net.disconnect(); clearRemotePlayers(); }
   flying = true;
   lastLocked = false;
@@ -2207,13 +2251,15 @@ function updateBayRoster() {
       if (p.ready) readyN++;
       const isHost = net.host && p.id === net.host;
       const mark = p.afk ? '<span class="hbr-afk">idle</span>' : p.ready ? '<span class="hbr-rdy">✓</span>' : '<span class="hbr-wait">○</span>';
-      return `<div class="${mine ? "hbr-me" : ""}${p.afk ? " hbr-idle" : ""}">${mark} ${escHtml(p.name || "Pilot")}${isHost ? ' <span class="hbr-tag">host</span>' : ""}${mine ? ' <span class="hbr-tag">you</span>' : ""}</div>`;
+      const nameCol = (net.teamMode && p.team >= 0) ? ` style="color:${TEAM_HEX[p.team]}"` : "";
+      return `<div class="${mine ? "hbr-me" : ""}${p.afk ? " hbr-idle" : ""}">${mark} <span${nameCol}>${escHtml(p.name || "Pilot")}</span>${isHost ? ' <span class="hbr-tag">host</span>' : ""}${mine ? ' <span class="hbr-tag">you</span>' : ""}</div>`;
     }).join("");
   } else {
     waitN = 1; if (bayReady) readyN = 1;
     rows = `<div class="hbr-me">${bayReady ? '<span class="hbr-rdy">✓</span>' : '<span class="hbr-wait">○</span>'} ${escHtml(playerName || "You")} <span class="hbr-tag">you</span></div>`;
   }
-  const head = (isPrivate ? "ROOM&nbsp;" + escHtml(room) : "PUBLIC GAME") +
+  const teamTag = net.teamMode ? ` <span class="hbr-tag" style="color:${TEAM_HEX[net.team] || "#9fb3c4"};border-color:currentColor">TEAM ${TEAM_NAME[net.team] || "?"}</span>` : "";
+  const head = (isPrivate ? "ROOM&nbsp;" + escHtml(room) : "PUBLIC GAME") + teamTag +
     ` <span class="hbr-count">${readyN}/${waitN} ready</span>`;
 
   let controls;
@@ -3254,7 +3300,7 @@ function frame(now) {
       for (const [id, m] of netMeshes) {
         const p = net.players.get(id);
         if (!p || p.alive === false) continue;
-        addContact(m.position, { color: "#" + playerColor(id).toString(16).padStart(6, "0"), kind: "air", name: p.name, health: p.health });
+        addContact(m.position, { color: teamHexOf(p.team, id), kind: "air", name: p.name, health: p.health });
       }
     } else if (isMissionHud) {
       // Strike modes: enemy fighters (red diamonds) + the must-destroy targets

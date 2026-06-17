@@ -10,7 +10,9 @@ export class Net {
     this.room = null;         // the room/lobby the server placed us in (set on welcome)
     this.lobby = [];          // [{id,name,ready,inGame,afk}] roster of everyone in the room
     this.host = 0;            // id of the current lobby host (may force-start the room)
-    this.scores = [];         // [{id,name,kills,deaths}] room scoreboard
+    this.team = -1;           // our team (0/1 in team-mode, -1 in FFA)
+    this.teamMode = false;    // is this room a team game?
+    this.scores = [];         // [{id,name,team,kills,deaths}] room scoreboard
     this.connected = false;
     this.status = "offline"; // offline | connecting | online | error
     this.players = new Map(); // id -> remote player record
@@ -18,13 +20,13 @@ export class Net {
     this._lastSend = 0;
   }
 
-  connect(name, jet, room, uid) {
-    this._name = name; this._jet = jet; this._room = room || ""; this._uid = uid || "";
+  connect(name, jet, room, uid, team) {
+    this._name = name; this._jet = jet; this._room = room || ""; this._uid = uid || ""; this._team = !!team;
     const proto = location.protocol === "https:" ? "wss://" : "ws://";
     this.status = "connecting";
     try { this.ws = new WebSocket(proto + location.host); }
     catch (e) { this.status = "error"; this._emit("error", e); return; }
-    this.ws.onopen = () => { this.connected = true; this.status = "online"; this.send({ t: "join", name, jet, room: this._room, uid: this._uid }); this._emit("open"); };
+    this.ws.onopen = () => { this.connected = true; this.status = "online"; this.send({ t: "join", name, jet, room: this._room, uid: this._uid, team: this._team }); this._emit("open"); };
     this.ws.onclose = () => { this.connected = false; if (this.status !== "error") this.status = "offline"; this._emit("close"); };
     this.ws.onerror = (e) => { this.status = "error"; this._emit("error", e); };
     this.ws.onmessage = (ev) => this._recv(ev.data);
@@ -33,7 +35,7 @@ export class Net {
   disconnect() {
     if (this.ws) { try { this.send({ t: "leave" }); this.ws.close(); } catch (_) { /* ignore */ } }
     this.ws = null; this.connected = false; this.status = "offline";
-    this.players.clear(); this.id = null; this.room = null; this.lobby = []; this.host = 0; this.scores = [];
+    this.players.clear(); this.id = null; this.room = null; this.lobby = []; this.host = 0; this.team = -1; this.teamMode = false; this.scores = [];
   }
 
   send(o) { if (this.ws && this.ws.readyState === 1) this.ws.send(JSON.stringify(o)); }
@@ -45,6 +47,8 @@ export class Net {
       case "welcome":
         this.id = m.id;
         this.room = m.room || "PUBLIC";
+        this.team = m.team == null ? -1 : m.team;
+        this.teamMode = !!m.teamMode;
         for (const p of m.players) this._upsert(p);
         this._emit("welcome", m); break;
       case "join": this._upsert(m); this._emit("join", m); break;
@@ -67,7 +71,7 @@ export class Net {
     let p = this.players.get(m.id);
     if (!p) {
       p = {
-        id: m.id, name: m.name || "Pilot", jet: m.jet || "f16", health: 100, alive: true, init: false,
+        id: m.id, name: m.name || "Pilot", jet: m.jet || "f16", team: m.team == null ? -1 : m.team, health: 100, alive: true, init: false,
         cur: { p: new THREE.Vector3(), q: new THREE.Quaternion() },
         tgt: { p: new THREE.Vector3(), q: new THREE.Quaternion() },
       };
@@ -75,6 +79,7 @@ export class Net {
     }
     if (m.name) p.name = m.name;
     if (m.jet) p.jet = m.jet;
+    if (m.team != null) p.team = m.team;
     if (m.hp != null) p.health = m.hp;     // server-authoritative health (welcome snapshot)
     if (m.alive != null) p.alive = m.alive;
     if (m.p) { p.tgt.p.set(m.p[0], m.p[1], m.p[2]); if (!p.init) p.cur.p.copy(p.tgt.p); }

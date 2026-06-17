@@ -69,8 +69,24 @@ const AFK_IDLE = 45000;  // un-ready + idle this long → afk (excluded from the
 const AFK_KICK = 150000; // ...and this long → disconnected, if the room has others waiting
 function lobbyRoster(room) {
   const out = [];
-  for (const c of clients.values()) if (c.room === room) out.push({ id: c.id, name: c.name, jet: c.jet, ready: !!c.ready, inGame: !!c.inGame, afk: !!c.afk });
+  for (const c of clients.values()) if (c.room === room) out.push({ id: c.id, name: c.name, jet: c.jet, team: c.team, ready: !!c.ready, inGame: !!c.inGame, afk: !!c.afk });
   return out;
+}
+// --- Teams (optional team-FFA) -------------------------------------------
+// A room is team-mode if its FIRST occupant asked for it; later joiners inherit
+// the room's mode (so a room is all-team or all-FFA, never mixed). In team mode
+// each pilot is balanced onto team 0 or 1; FFA pilots get team -1. Same-team
+// damage is rejected server-side (no friendly fire).
+function roomMembers(room, exceptId) {
+  const out = []; for (const c of clients.values()) if (c.room === room && c.id !== exceptId) out.push(c); return out;
+}
+function placeOnTeam(me, room, wantTeam) {
+  const others = roomMembers(room, me.id);
+  const existing = others[0]; // the room's mode is whatever's already established
+  me.teamMode = existing ? !!existing.teamMode : !!wantTeam;
+  if (!me.teamMode) { me.team = -1; return; }
+  let t0 = 0, t1 = 0; for (const c of others) { if (c.team === 0) t0++; else if (c.team === 1) t1++; }
+  me.team = t0 <= t1 ? 0 : 1; // fill the smaller team (tie → red)
 }
 // Host = the lowest-id pilot still waiting in the bay (stable; passes to the next
 // when the host launches or leaves). Returns 0 if nobody is in the bay.
@@ -82,7 +98,7 @@ function hostOf(room) {
 function broadcastLobby(room) { broadcast({ t: "lobby", room, players: lobbyRoster(room), host: hostOf(room) }, room); }
 function scoreRoster(room) {
   const out = [];
-  for (const c of clients.values()) if (c.room === room) out.push({ id: c.id, name: c.name, kills: c.kills | 0, deaths: c.deaths | 0 });
+  for (const c of clients.values()) if (c.room === room) out.push({ id: c.id, name: c.name, team: c.team, kills: c.kills | 0, deaths: c.deaths | 0 });
   return out;
 }
 function broadcastScores(room) { broadcast({ t: "score", scores: scoreRoster(room) }, room); }
@@ -121,7 +137,7 @@ function killOnServer(victim, byId) {
   victim.alive = false; victim.deaths++;
   const killer = byId ? findInRoom(victim.room, byId) : null;
   if (killer && killer.id !== victim.id) killer.kills++;
-  broadcast({ t: "kill", killer: killer ? killer.id : 0, killerName: killer ? killer.name : "", victim: victim.id, victimName: victim.name }, victim.room);
+  broadcast({ t: "kill", killer: killer ? killer.id : 0, killerName: killer ? killer.name : "", killerTeam: killer ? killer.team : -1, victim: victim.id, victimName: victim.name, victimTeam: victim.team }, victim.room);
   broadcastScores(victim.room);
 }
 function applyDamageServer(victim, dmg, byId) {
@@ -132,7 +148,7 @@ function applyDamageServer(victim, dmg, byId) {
 }
 
 wss.on("connection", (ws) => {
-  const me = { id: nextId++, name: "Pilot", jet: "f16", last: null, room: "PUBLIC", ready: false, inGame: false, afk: false, lobbySince: Date.now(), kills: 0, deaths: 0, hp: 100, alive: true, lastT: 0, dmgWin: [], msgWin: [] };
+  const me = { id: nextId++, name: "Pilot", jet: "f16", last: null, room: "PUBLIC", team: -1, teamMode: false, ready: false, inGame: false, afk: false, lobbySince: Date.now(), kills: 0, deaths: 0, hp: 100, alive: true, lastT: 0, dmgWin: [], msgWin: [] };
   clients.set(ws, me);
   ws.on("message", (buf) => {
     // Anti-flood: drop messages past a generous per-connection rate.
@@ -146,12 +162,13 @@ wss.on("connection", (ws) => {
       me.jet = m.jet || me.jet;
       me.uid = String(m.uid || "").slice(0, 64); // stable guest token — seam for future account/stat persistence (#4)
       me.room = normRoom(m.room);
+      placeOnTeam(me, me.room, m.team); // team-mode + team assignment for this room
       me.ready = false; me.inGame = false; me.afk = false; me.lobbySince = Date.now(); // a fresh join starts in the bay/lobby
       me.hp = 100; me.alive = true; me.last = null;
       const players = [];
-      for (const c of clients.values()) if (c.id !== me.id && c.room === me.room && c.last) players.push({ id: c.id, name: c.name, jet: c.jet, p: c.last.p, q: c.last.q, hp: c.hp, alive: c.alive });
-      ws.send(JSON.stringify({ t: "welcome", id: me.id, room: me.room, players }));
-      broadcast({ t: "join", id: me.id, name: me.name, jet: me.jet }, me.room, ws);
+      for (const c of clients.values()) if (c.id !== me.id && c.room === me.room && c.last) players.push({ id: c.id, name: c.name, jet: c.jet, team: c.team, p: c.last.p, q: c.last.q, hp: c.hp, alive: c.alive });
+      ws.send(JSON.stringify({ t: "welcome", id: me.id, room: me.room, team: me.team, teamMode: me.teamMode, players }));
+      broadcast({ t: "join", id: me.id, name: me.name, jet: me.jet, team: me.team }, me.room, ws);
       broadcastLobby(me.room);
       broadcastScores(me.room);
     } else if (m.t === "ready") {
@@ -187,6 +204,7 @@ wss.on("connection", (ws) => {
       const cap = DMG_CAP[m.kind]; if (cap == null) return;        // unknown weapon
       const target = findInRoom(me.room, m.target | 0);
       if (!target || !target.alive || !me.alive || target.id === me.id) return;
+      if (me.teamMode && me.team >= 0 && target.team === me.team) return; // no friendly fire
       const dmg = Math.min(Math.max(0, +m.dmg || 0), cap);         // clamp to the weapon's ceiling
       if (me.last && target.last) {                                // range gate
         const dx = me.last.p[0] - target.last.p[0], dy = me.last.p[1] - target.last.p[1], dz = me.last.p[2] - target.last.p[2];
