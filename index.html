@@ -181,17 +181,7 @@
 
       <h3>Visuals</h3>
       <div class="mobile-opts">
-        <label class="row">Graphics preset
-          <select id="fx-preset">
-            <option value="off">Off (fastest)</option>
-            <option value="cinematic">Cinematic</option>
-            <option value="vivid">Vivid</option>
-            <option value="retro">Retro arcade</option>
-            <option value="custom">Custom</option>
-          </select>
-        </label>
-        <span class="hint">A preset sets every effect below; nudge any slider to make it <b>Custom</b>. If the daytime sky is too bright, lower <b>Exposure</b>, raise <b>Bloom threshold</b>, or raise <b>Daytime bloom cut</b>. Auto-off in VR. Saved automatically.</span>
-        <div id="fx-controls" class="fx-controls"></div>
+        <span class="hint">Graphics &amp; post-FX (bloom, exposure, lens warp…) live in the <b>🎚 Visuals</b> button while flying — tweak them with the game running live behind the panel.</span>
         <label class="row">Weather
           <select id="weather-mode">
             <option value="cycle">Auto day / night (8 min each)</option>
@@ -269,6 +259,27 @@
   <!-- Multiplayer kill feed (top-right) + Tab scoreboard (FFA only). -->
   <div id="killfeed" class="killfeed hidden"></div>
   <div id="scoreboard" class="scoreboard hidden"></div>
+
+  <!-- In-flight floating visual-settings button + non-modal panel. The game keeps
+       running fully visible behind the panel; sliders apply live (no pause/blur). -->
+  <button id="btn-visuals" class="icon-btn fx-btn hidden" title="Visual settings">🎚</button>
+  <div id="fx-panel" class="fx-panel hidden">
+    <div class="fx-panel-head">
+      <h3>Visual settings</h3>
+      <button id="fx-close" class="icon-btn" title="Close">✕</button>
+    </div>
+    <label class="fx-preset-row">Preset
+      <select id="fx-preset">
+        <option value="off">Off (fastest)</option>
+        <option value="cinematic">Cinematic</option>
+        <option value="vivid">Vivid</option>
+        <option value="retro">Retro arcade</option>
+        <option value="custom">Custom</option>
+      </select>
+    </label>
+    <span class="hint">Nudge any slider to make it <b>Custom</b>. Too-bright sky? Lower <b>Exposure</b>, raise <b>Bloom threshold</b>, or raise <b>Daytime bloom cut</b>. Applies live; saved automatically.</span>
+    <div id="fx-controls" class="fx-controls"></div>
+  </div>
 
   <!-- Esc pause menu -->
   <div id="pause" class="overlay picker hidden">

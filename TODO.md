@@ -146,6 +146,10 @@ each section. Tuning knobs note the file/number so they're quick to change.
       contrast, saturation). Nudging any slider forks a saved "Custom" profile.
       Exposure + bloom-threshold + daytime-bloom-cut directly tame the blown-out
       noon sky. (`postfx.js` flat settings model; `main.js` FX_FIELDS controller.)
+- [x] **Live non-modal visuals panel** — a floating 🎚 button (in flight only)
+      pops the graphics panel as a real-time HUD overlay: the game keeps running
+      fully visible behind it (no pause, no blur, no darken), sliders apply live.
+      Moved the FX controls out of the menu overlay into this panel.
 
 ## Done this session (for reference)
 Carrier planting, target-island HUD, conquest planner on the big map, named

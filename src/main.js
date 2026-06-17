@@ -222,6 +222,23 @@ if (fxControls) {
   refreshFxSliders();
 }
 
+// Floating in-flight visuals panel: the 🎚 button toggles it, ✕ closes it. It is
+// deliberately non-modal — opening it never pauses, blurs, or darkens the live
+// game, and the sliders above already apply changes in real time.
+const btnVisuals = document.getElementById("btn-visuals");
+const fxPanel = document.getElementById("fx-panel");
+const fxClose = document.getElementById("fx-close");
+if (btnVisuals && fxPanel) btnVisuals.addEventListener("click", () => fxPanel.classList.toggle("hidden"));
+if (fxClose && fxPanel) fxClose.addEventListener("click", () => fxPanel.classList.add("hidden"));
+let lastVisShown = null; // change-detected so we only touch the DOM on transitions
+function updateVisualsBtn() {
+  const show = flying && !hangarMode && !paused;
+  if (show === lastVisShown) return;
+  lastVisShown = show;
+  if (btnVisuals) btnVisuals.classList.toggle("hidden", !show);
+  if (!show && fxPanel) fxPanel.classList.add("hidden"); // auto-close when leaving flight
+}
+
 // Chimney / power-plant smoke plumes (world scenery + live strike targets).
 const smoke = new Smokestacks(scene);
 smoke.addSources(world.smokeSources);
@@ -2948,6 +2965,7 @@ function frame(now) {
     const pad = input.hasGamepad();
     if (pad !== lastPad) { lastPad = pad; touch.setVisible(!pad); }
   }
+  updateVisualsBtn(); // show the floating 🎚 visuals button only while actually flying
 
   // Vehicle bay / pause from the joystick (Back/Select & Start).
   if (flying && !inXR && controls.hangarPressed) { hangarMode ? exitHangar() : enterHangar(true); }

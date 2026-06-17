@@ -418,13 +418,37 @@ button.primary:hover { background: #4ff5b8; }
 .mobile-opts button { align-self: flex-start; }
 .mobile-opts .hint { margin-top: 0; }
 
-/* Graphics sliders — generated from FX_FIELDS. Two columns on wide panels. */
-.fx-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 18px; margin-top: 4px; }
-.fx-row { display: grid; grid-template-columns: 1fr 96px 40px; align-items: center; gap: 8px; font-size: 12px; color: #b9c8d6; }
+/* Graphics sliders — generated from FX_FIELDS. */
+.fx-controls { display: grid; grid-template-columns: 1fr; gap: 7px; margin-top: 6px; }
+.fx-row { display: grid; grid-template-columns: 1fr 110px 42px; align-items: center; gap: 8px; font-size: 12px; color: #b9c8d6; }
 .fx-row .fx-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.fx-row input[type="range"] { width: 96px; accent-color: var(--accent); }
+.fx-row input[type="range"] { width: 110px; accent-color: var(--accent); }
 .fx-row .fx-val { font-variant-numeric: tabular-nums; text-align: right; color: #8fa3b4; }
-@media (max-width: 640px) { .fx-controls { grid-template-columns: 1fr; } }
+
+/* In-flight floating visual-settings button + panel. Deliberately NON-modal:
+   no full-screen backdrop, no blur/darken of the game — only the panel's own
+   translucent card sits over the live scene, which keeps rendering behind it. */
+.fx-btn { position: fixed; top: 12px; right: 12px; z-index: 40; }
+.fx-btn.hidden { display: none; }
+.fx-panel {
+  position: fixed; top: 54px; right: 12px; width: 320px; max-height: 82vh; overflow-y: auto;
+  z-index: 40; pointer-events: auto;
+  background: rgba(8,14,22,0.85); border: 1px solid rgba(120,150,180,0.35);
+  border-radius: 12px; padding: 12px 14px 14px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.45);
+  font-size: 13px; color: #cfe0d8; -webkit-overflow-scrolling: touch;
+}
+.fx-panel.hidden { display: none; }
+.fx-panel-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.fx-panel-head h3 { margin: 0; font-size: 14px; letter-spacing: 1px; color: var(--accent); }
+.fx-panel .fx-close, #fx-close { width: 30px; height: 30px; font-size: 14px; line-height: 1; }
+.fx-preset-row { display: flex; align-items: center; gap: 10px; margin: 4px 0 6px; font-size: 13px; }
+.fx-preset-row select {
+  flex: 1; background: #0b1320; color: #d7e3ee;
+  border: 1px solid rgba(120,150,180,0.3); border-radius: 6px; padding: 6px;
+}
+.fx-panel .hint { display: block; font-size: 11px; color: #8fa3b4; margin: 0 0 4px; }
+@media (max-width: 560px) { .fx-panel { width: calc(100vw - 24px); } }
 
 /* ---- World editor panel ---- */
 #editor-panel {
