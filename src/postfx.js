@@ -17,6 +17,8 @@ const GradeShader = {
     uGrain: { value: 0.03 },
     uScan: { value: 0.0 },
     uChroma: { value: 0.0016 },
+    uHud: { value: null },       // the 2D HUD canvas, composited + warped onto the tube
+    uHudOn: { value: 0 },        // 1 while the shader draws the HUD (CSS overlay hidden)
     uDistort: { value: 0.10 },   // barrel lens distortion (edge warp)
     uSpeed: { value: 0.0 },      // afterburner: extra radial warp + streak blur (0..1)
     uOverscan: { value: 0.03 },  // zoom so distorted edges don't sample past frame
@@ -35,6 +37,8 @@ const GradeShader = {
     uniform sampler2D tDiffuse;
     uniform vec2 uResolution;
     uniform float uTime, uVignette, uGrain, uScan, uChroma, uWarm, uTealOrange, uContrast, uSat, uDistort, uOverscan, uRgbShift, uSpeed;
+    uniform sampler2D uHud;
+    uniform float uHudOn;
     float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
     void main() {
       // Slight zoom so the chromatic-aberration taps never sample past the frame.
@@ -80,11 +84,13 @@ const GradeShader = {
         vec3 high = vec3(0.16, 0.07, -0.04);
         col += mix(shadow, high, t) * uTealOrange;
       }
-      // scanlines
+      // scanlines (shared factor so the HUD sits on the same glass)
+      float scanMul = 1.0;
       if (uScan > 0.0) {
         float s = 0.5 + 0.5 * sin(uv.y * uResolution.y * 3.14159);
-        col *= 1.0 - uScan * (1.0 - s);
+        scanMul = 1.0 - uScan * (1.0 - s);
       }
+      col *= scanMul;
       // film grain
       if (uGrain > 0.0) {
         col += (hash(uv * uResolution + fract(uTime)) - 0.5) * uGrain;
@@ -92,6 +98,12 @@ const GradeShader = {
       // vignette (tightens at speed for a tunnel-vision rush)
       float v = 1.0 - (uVignette + uSpeed * 0.3) * dot(toC, toC) * 2.6;
       col *= clamp(v, 0.0, 1.0);
+      // HUD: sample the instrument canvas at the SAME warped coords so it bows with
+      // the picture, give it the scanlines, then composite over the graded scene.
+      if (uHudOn > 0.5) {
+        vec4 h = texture2D(uHud, base);
+        col = mix(col, h.rgb * scanMul, h.a);
+      }
       // CRT bezel: the warped corners push off-screen — read those as black with a
       // soft rounded edge so you get the curved-tube border. No-op when warp is 0.
       vec2 edge = smoothstep(vec2(0.0), vec2(0.004), base) * (1.0 - smoothstep(vec2(1.0) - 0.004, vec2(1.0), base));
@@ -129,11 +141,24 @@ export class PostFX {
     this.enabled = false;
     this._bloomBase = 0;
     this._dayCut = 0;
+    this._hudTex = null;
   }
   setSize(w, h) {
     this.composer.setSize(w, h);
     this.grade.uniforms.uResolution.value.set(w, h);
   }
+  // Hand the 2D HUD canvas to the grade pass so it can warp + composite it onto
+  // the CRT tube (instead of the browser drawing it flat over the top).
+  setHudCanvas(canvas) {
+    if (!canvas) return;
+    this._hudTex = new THREE.CanvasTexture(canvas);
+    this._hudTex.minFilter = THREE.LinearFilter; // full-screen canvas, no mips
+    this._hudTex.generateMipmaps = false;
+    this.grade.uniforms.uHud.value = this._hudTex;
+  }
+  // Toggle whether the shader draws the HUD (true while the composer owns the
+  // frame; false in VR / FX-off where the CSS overlay shows it instead).
+  setHudComposite(on) { this.grade.uniforms.uHudOn.value = on ? 1 : 0; }
   // Apply a full settings object. `enabled` gates the composer (off = plain
   // render), but exposure is a renderer-level tone-map setting so it's applied
   // either way — lowering it tames an over-bright daytime sky even with FX off.
@@ -169,6 +194,8 @@ export class PostFX {
   setSpeed(v) { this.grade.uniforms.uSpeed.value = v; }
   render(dt) {
     this.grade.uniforms.uTime.value += dt;
+    // Re-upload the HUD canvas (it's redrawn every frame) while it's composited.
+    if (this._hudTex && this.grade.uniforms.uHudOn.value > 0.5) this._hudTex.needsUpdate = true;
     this.composer.render();
   }
 }
