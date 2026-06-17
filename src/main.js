@@ -20,7 +20,7 @@ import { Traffic } from "./traffic.js";
 import { Explosions } from "./fx.js";
 import { SoundEngine } from "./audio.js";
 import { Editor } from "./editor.js";
-import { PostFX } from "./postfx.js";
+import { PostFX, FX_PRESETS } from "./postfx.js";
 import { Weather } from "./weather.js";
 import { Smokestacks } from "./smoke.js";
 import { FireField } from "./fire.js";
@@ -140,18 +140,86 @@ const hud = new Hud(document.getElementById("hud"));
 
 // Post-processing (bloom + colour grade). Off in VR. Look chosen in settings.
 const post = new PostFX(renderer, scene, camera);
-let fxLook = "cinematic";
-try { fxLook = localStorage.getItem("rf.fx") || "cinematic"; } catch (_) { /* ignore */ }
-if (fxLook === "golden") fxLook = "vivid"; // retired look -> nearest replacement
-post.setLook(fxLook);
-const fxSel = document.getElementById("fx-look");
-if (fxSel) {
-  fxSel.value = fxLook;
-  fxSel.addEventListener("change", () => {
-    fxLook = fxSel.value;
-    post.setLook(fxLook);
-    try { localStorage.setItem("rf.fx", fxLook); } catch (_) { /* ignore */ }
+// Graphics: the old "looks" are now preset TEMPLATES. Picking one applies every
+// knob below; nudging any single knob flips to a saved "custom" profile. Sliders
+// are generated from FX_FIELDS so ranges live in one place. The exposure / bloom
+// / daytime-bloom controls are the ones that fix a blown-out daytime sky.
+const FX_FIELDS = [
+  { key: "exposure",       label: "Exposure",             min: 0.5,  max: 1.5,  step: 0.01 },
+  { key: "bloomStrength",  label: "Bloom strength",       min: 0,    max: 2,    step: 0.01 },
+  { key: "bloomRadius",    label: "Bloom size",           min: 0,    max: 1.5,  step: 0.01 },
+  { key: "bloomThreshold", label: "Bloom threshold",      min: 0,    max: 1,    step: 0.01 },
+  { key: "dayBloomCut",    label: "Daytime bloom cut",    min: 0,    max: 1,    step: 0.01 },
+  { key: "chroma",         label: "Chromatic aberration", min: 0,    max: 0.06, step: 0.001 },
+  { key: "rgbShift",       label: "RGB shift",            min: 0,    max: 8,    step: 0.1 },
+  { key: "distort",        label: "Lens bend (UV warp)",  min: 0,    max: 1.2,  step: 0.01 },
+  { key: "vignette",       label: "Vignette",             min: 0,    max: 0.8,  step: 0.01 },
+  { key: "grain",          label: "Film grain",           min: 0,    max: 0.2,  step: 0.005 },
+  { key: "scan",           label: "Scanlines",            min: 0,    max: 0.3,  step: 0.01 },
+  { key: "warm",           label: "Warm / cool",          min: -0.3, max: 0.4,  step: 0.01 },
+  { key: "tealOrange",     label: "Teal / orange",        min: 0,    max: 0.4,  step: 0.01 },
+  { key: "contrast",       label: "Contrast",             min: 0.8,  max: 1.3,  step: 0.01 },
+  { key: "sat",            label: "Saturation",           min: 0.6,  max: 1.4,  step: 0.01 },
+];
+let fxPreset = "cinematic", fxCustom = null;
+try {
+  fxPreset = localStorage.getItem("rf.fx") || "cinematic";
+  if (fxPreset === "golden") fxPreset = "vivid";                 // retired look -> nearest
+  if (fxPreset === "custom") fxCustom = JSON.parse(localStorage.getItem("rf.fxCustom") || "null");
+} catch (_) { /* ignore */ }
+if (fxPreset === "custom" && !fxCustom) fxPreset = "cinematic";  // no saved custom -> fall back
+if (fxPreset !== "custom" && !FX_PRESETS[fxPreset]) fxPreset = "cinematic";
+// The live settings object: the saved custom profile, or a copy of the preset.
+function fxSettings() {
+  return (fxPreset === "custom" && fxCustom) ? fxCustom : { ...(FX_PRESETS[fxPreset] || FX_PRESETS.cinematic) };
+}
+function applyFx() { post.apply(fxSettings(), fxPreset !== "off"); }
+function saveFx() {
+  try {
+    localStorage.setItem("rf.fx", fxPreset);
+    if (fxPreset === "custom") localStorage.setItem("rf.fxCustom", JSON.stringify(fxCustom));
+  } catch (_) { /* ignore */ }
+}
+applyFx();
+
+// Build the menu controls (preset dropdown + a slider per FX field).
+const fxPresetSel = document.getElementById("fx-preset");
+const fxControls = document.getElementById("fx-controls");
+function refreshFxSliders() {
+  if (!fxControls) return;
+  const s = fxSettings();
+  for (const f of FX_FIELDS) {
+    const row = fxControls.querySelector(`[data-fx="${f.key}"]`);
+    if (!row) continue;
+    row.querySelector("input").value = s[f.key];
+    row.querySelector(".fx-val").textContent = (+s[f.key]).toFixed(f.step < 0.01 ? 3 : 2);
+  }
+}
+if (fxPresetSel) {
+  fxPresetSel.value = fxPreset;
+  fxPresetSel.addEventListener("change", () => {
+    fxPreset = fxPresetSel.value;
+    saveFx(); applyFx(); refreshFxSliders();
   });
+}
+if (fxControls) {
+  fxControls.innerHTML = FX_FIELDS.map((f) =>
+    `<label class="fx-row" data-fx="${f.key}"><span class="fx-name">${f.label}</span>` +
+    `<input type="range" min="${f.min}" max="${f.max}" step="${f.step}" />` +
+    `<span class="fx-val">0</span></label>`).join("");
+  for (const f of FX_FIELDS) {
+    const input = fxControls.querySelector(`[data-fx="${f.key}"] input`);
+    input.addEventListener("input", () => {
+      // First tweak forks the active settings into an editable custom profile.
+      fxCustom = fxSettings();
+      fxCustom[f.key] = +input.value;
+      fxPreset = "custom";
+      if (fxPresetSel) fxPresetSel.value = "custom";
+      fxControls.querySelector(`[data-fx="${f.key}"] .fx-val`).textContent = (+input.value).toFixed(f.step < 0.01 ? 3 : 2);
+      saveFx(); applyFx();
+    });
+  }
+  refreshFxSliders();
 }
 
 // Chimney / power-plant smoke plumes (world scenery + live strike targets).
@@ -3174,7 +3242,7 @@ function frame(now) {
   updateSky(camera, true); // ocean + clouds follow the active camera
   cullIslands();            // LOD: hide far islands + out-of-range interiors
   weather.update(simDt, _skyPos); // stars/rain follow the camera; storm lightning
-  if (post.enabled) post.setBloomScale(THREE.MathUtils.lerp(1.0, 0.5, weather.daylight || 0)); // tame daytime bloom
+  if (post.enabled) post.setDaylight(weather.daylight || 0); // tame daytime bloom toward its floor
   ground.night = weatherMode === "night" || weatherMode === "storm" || (weather.autoCycle && (weather.daylight || 0) < 0.25); // gate searchlights to darkness (incl. the cycle's night)
   if (world.spinners) for (const s of world.spinners) s.obj.rotation[s.axis || "y"] += dt * s.speed; // lighthouse beacons sweep, turbine blades turn
   // Smoke plumes: scenery sources + any still-alive power-plant strike targets.

@@ -181,15 +181,17 @@
 
       <h3>Visuals</h3>
       <div class="mobile-opts">
-        <label class="row">Screen FX
-          <select id="fx-look">
-            <option value="off">Off</option>
-            <option value="cinematic">Cinematic bloom</option>
-            <option value="vivid">Vivid (bloom + arcade)</option>
+        <label class="row">Graphics preset
+          <select id="fx-preset">
+            <option value="off">Off (fastest)</option>
+            <option value="cinematic">Cinematic</option>
+            <option value="vivid">Vivid</option>
             <option value="retro">Retro arcade</option>
+            <option value="custom">Custom</option>
           </select>
         </label>
-        <span class="hint">Bloom + colour grade. Auto-off in VR. Saved automatically.</span>
+        <span class="hint">A preset sets every effect below; nudge any slider to make it <b>Custom</b>. If the daytime sky is too bright, lower <b>Exposure</b>, raise <b>Bloom threshold</b>, or raise <b>Daytime bloom cut</b>. Auto-off in VR. Saved automatically.</span>
+        <div id="fx-controls" class="fx-controls"></div>
         <label class="row">Weather
           <select id="weather-mode">
             <option value="cycle">Auto day / night (8 min each)</option>

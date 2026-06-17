@@ -139,6 +139,13 @@ each section. Tuning knobs note the file/number so they're quick to change.
 - [ ] **Rain spells + sun azimuth are still per-session random** (time-of-day is
       deterministic). Bucket rain off the wall clock if we want the whole sky
       reproducible on refresh.
+- [x] **Graphics settings menu** — the old 4 "looks" (off/cinematic/vivid/retro)
+      are now preset TEMPLATES; picking one fills 15 per-effect sliders (exposure,
+      bloom strength/size/threshold, daytime-bloom cut, chromatic aberration, RGB
+      shift, lens/UV bend, vignette, grain, scanlines, warm/cool, teal-orange,
+      contrast, saturation). Nudging any slider forks a saved "Custom" profile.
+      Exposure + bloom-threshold + daytime-bloom-cut directly tame the blown-out
+      noon sky. (`postfx.js` flat settings model; `main.js` FX_FIELDS controller.)
 
 ## Done this session (for reference)
 Carrier planting, target-island HUD, conquest planner on the big map, named

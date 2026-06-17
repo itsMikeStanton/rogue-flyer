@@ -92,11 +92,16 @@ const GradeShader = {
 };
 
 // Per-look bloom + grade parameters.
-const LOOKS = {
-  cinematic: { bloom: [0.7, 0.78, 0.46], grade: { uVignette: 0.4, uGrain: 0.03, uScan: 0.0, uChroma: 0.014, uDistort: 0.38, uOverscan: 0.12, uRgbShift: 1.6, uWarm: 0.25, uTealOrange: 0.28, uContrast: 1.06, uSat: 1.05 } },
-  // Halfway between cinematic and retro: punchy bloom + mild scanline/grain/warp.
-  vivid:     { bloom: [0.86, 0.72, 0.40], grade: { uVignette: 0.47, uGrain: 0.07, uScan: 0.05, uChroma: 0.024, uDistort: 0.66, uOverscan: 0.19, uRgbShift: 3.5, uWarm: 0.07, uTealOrange: 0.30, uContrast: 1.10, uSat: 1.03 } },
-  retro:     { bloom: [0.98, 0.66, 0.38], grade: { uVignette: 0.54, uGrain: 0.12, uScan: 0.1, uChroma: 0.034, uDistort: 0.95, uOverscan: 0.26, uRgbShift: 5.5, uWarm: -0.12, uTealOrange: 0.32, uContrast: 1.14, uSat: 1.0 } },
+// Preset templates. Each is a FLAT settings object covering every adjustable
+// knob (bloom + tone exposure + every grade uniform). The menu applies one of
+// these wholesale; tweaking any single value flips the user to "custom". `off`
+// is a real (neutral) settings object too, so a player can start from nothing
+// and dial a single effect up. Overscan is derived from distortion, not stored.
+export const FX_PRESETS = {
+  off:       { exposure: 1.06, bloomStrength: 0.0,  bloomRadius: 0.0,  bloomThreshold: 1.0,  dayBloomCut: 0.0, chroma: 0.0,   rgbShift: 0.0, distort: 0.0,  vignette: 0.0,  grain: 0.0,  scan: 0.0,  warm: 0.0,   tealOrange: 0.0,  contrast: 1.0,  sat: 1.0 },
+  cinematic: { exposure: 1.06, bloomStrength: 0.70, bloomRadius: 0.78, bloomThreshold: 0.46, dayBloomCut: 0.6, chroma: 0.014, rgbShift: 1.6, distort: 0.38, vignette: 0.40, grain: 0.03, scan: 0.0,  warm: 0.25,  tealOrange: 0.28, contrast: 1.06, sat: 1.05 },
+  vivid:     { exposure: 1.06, bloomStrength: 0.86, bloomRadius: 0.72, bloomThreshold: 0.40, dayBloomCut: 0.6, chroma: 0.024, rgbShift: 3.5, distort: 0.66, vignette: 0.47, grain: 0.07, scan: 0.05, warm: 0.07,  tealOrange: 0.30, contrast: 1.10, sat: 1.03 },
+  retro:     { exposure: 1.06, bloomStrength: 0.98, bloomRadius: 0.66, bloomThreshold: 0.38, dayBloomCut: 0.6, chroma: 0.034, rgbShift: 5.5, distort: 0.95, vignette: 0.54, grain: 0.12, scan: 0.1,  warm: -0.12, tealOrange: 0.32, contrast: 1.14, sat: 1.0 },
 };
 
 export class PostFX {
@@ -112,23 +117,43 @@ export class PostFX {
     this.grade.uniforms.uResolution.value.copy(size);
     this.composer.addPass(this.grade);
     this.enabled = false;
-    this.look = "off";
+    this._bloomBase = 0;
+    this._dayCut = 0;
   }
   setSize(w, h) {
     this.composer.setSize(w, h);
     this.grade.uniforms.uResolution.value.set(w, h);
   }
-  setLook(name) {
-    this.look = name;
-    this.enabled = name !== "off" && LOOKS[name] != null;
-    if (!this.enabled) return;
-    const L = LOOKS[name];
-    this._bloomBase = L.bloom[0];
-    this.bloom.strength = L.bloom[0]; this.bloom.radius = L.bloom[1]; this.bloom.threshold = L.bloom[2];
-    for (const k in L.grade) this.grade.uniforms[k].value = L.grade[k];
+  // Apply a full settings object. `enabled` gates the composer (off = plain
+  // render), but exposure is a renderer-level tone-map setting so it's applied
+  // either way — lowering it tames an over-bright daytime sky even with FX off.
+  apply(s, enabled) {
+    this.enabled = !!enabled;
+    if (this.renderer) this.renderer.toneMappingExposure = s.exposure;
+    this._bloomBase = s.bloomStrength;
+    this._dayCut = s.dayBloomCut || 0;
+    this.bloom.strength = s.bloomStrength;
+    this.bloom.radius = s.bloomRadius;
+    this.bloom.threshold = s.bloomThreshold;
+    const u = this.grade.uniforms;
+    u.uChroma.value = s.chroma;
+    u.uRgbShift.value = s.rgbShift;
+    u.uDistort.value = s.distort;
+    u.uOverscan.value = Math.min(0.3, s.distort * 0.29 + (s.distort > 0 ? 0.02 : 0)); // zoom tracks the bow
+    u.uVignette.value = s.vignette;
+    u.uGrain.value = s.grain;
+    u.uScan.value = s.scan;
+    u.uWarm.value = s.warm;
+    u.uTealOrange.value = s.tealOrange;
+    u.uContrast.value = s.contrast;
+    u.uSat.value = s.sat;
   }
-  // Scale bloom relative to the active look's base — used to tame daytime glow.
-  setBloomScale(s) { if (this._bloomBase != null) this.bloom.strength = this._bloomBase * s; }
+  // Fade bloom toward its daytime floor as the sun climbs (dayBloomCut = how much
+  // of the bloom to remove at full daylight). Keeps bright noon skies legible.
+  setDaylight(daylight) {
+    if (!this.enabled) return;
+    this.bloom.strength = this._bloomBase * THREE.MathUtils.lerp(1.0, 1.0 - this._dayCut, daylight || 0);
+  }
   // Afterburner warp amount (0..1). Always settable; only visible while the grade
   // pass is enabled (an FX look other than "off").
   setSpeed(v) { this.grade.uniforms.uSpeed.value = v; }

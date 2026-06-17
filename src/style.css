@@ -418,6 +418,14 @@ button.primary:hover { background: #4ff5b8; }
 .mobile-opts button { align-self: flex-start; }
 .mobile-opts .hint { margin-top: 0; }
 
+/* Graphics sliders — generated from FX_FIELDS. Two columns on wide panels. */
+.fx-controls { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 18px; margin-top: 4px; }
+.fx-row { display: grid; grid-template-columns: 1fr 96px 40px; align-items: center; gap: 8px; font-size: 12px; color: #b9c8d6; }
+.fx-row .fx-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fx-row input[type="range"] { width: 96px; accent-color: var(--accent); }
+.fx-row .fx-val { font-variant-numeric: tabular-nums; text-align: right; color: #8fa3b4; }
+@media (max-width: 640px) { .fx-controls { grid-template-columns: 1fr; } }
+
 /* ---- World editor panel ---- */
 #editor-panel {
   position: fixed; top: 0; left: 0; bottom: 0; width: 280px; z-index: 20;
