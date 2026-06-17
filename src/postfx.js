@@ -37,13 +37,19 @@ const GradeShader = {
     uniform float uTime, uVignette, uGrain, uScan, uChroma, uWarm, uTealOrange, uContrast, uSat, uDistort, uOverscan, uRgbShift, uSpeed;
     float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
     void main() {
-      // Zoom in a touch so the barrel-warped edges keep sampling inside the frame.
+      // Slight zoom so the chromatic-aberration taps never sample past the frame.
       vec2 uv = 0.5 + (vUv - 0.5) * (1.0 - uOverscan);
       vec2 toC = uv - 0.5;
       float r2 = dot(toC, toC);
-      // Barrel lens distortion — bows the image out toward the edges (afterburner
-      // adds a strong extra bow so the world warps as you tear forward).
-      vec2 base = uv + toC * ((uDistort + uSpeed * 0.35) * r2);
+      // CRT tube warp: bow each axis by the SQUARE of the other (Timothy Lottes
+      // style) so the whole picture bulges like an old curved screen and the
+      // corners round off into the bezel below. uDistort = curvature amount;
+      // the afterburner bulges it harder for a warp-speed fishbowl.
+      float warp = (uDistort + uSpeed * 0.9) * 0.25;
+      vec2 cc = uv * 2.0 - 1.0;                 // -1..1 from screen centre
+      vec2 woff = abs(cc.yx) * warp;            // x bends by y², y bends by x²
+      cc += cc * woff * woff;
+      vec2 base = cc * 0.5 + 0.5;               // back to 0..1 sample coords
       // Chromatic aberration grows toward the edges (real-lens CA) + a flat RGB shift.
       vec2 ca = toC * (uChroma + uSpeed * 0.004) * (0.35 + r2 * 2.0);
       vec2 px = vec2(uRgbShift / uResolution.x, 0.0);
@@ -86,6 +92,10 @@ const GradeShader = {
       // vignette (tightens at speed for a tunnel-vision rush)
       float v = 1.0 - (uVignette + uSpeed * 0.3) * dot(toC, toC) * 2.6;
       col *= clamp(v, 0.0, 1.0);
+      // CRT bezel: the warped corners push off-screen — read those as black with a
+      // soft rounded edge so you get the curved-tube border. No-op when warp is 0.
+      vec2 edge = smoothstep(vec2(0.0), vec2(0.004), base) * (1.0 - smoothstep(vec2(1.0) - 0.004, vec2(1.0), base));
+      col *= mix(1.0, edge.x * edge.y, clamp(warp * 6.0, 0.0, 1.0));
       gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
     }
   `,
@@ -139,7 +149,7 @@ export class PostFX {
     u.uChroma.value = s.chroma;
     u.uRgbShift.value = s.rgbShift;
     u.uDistort.value = s.distort;
-    u.uOverscan.value = Math.min(0.3, s.distort * 0.29 + (s.distort > 0 ? 0.02 : 0)); // zoom tracks the bow
+    u.uOverscan.value = s.distort > 0 ? 0.012 : 0; // just enough to keep CA taps in-frame; the CRT corners still round off
     u.uVignette.value = s.vignette;
     u.uGrain.value = s.grain;
     u.uScan.value = s.scan;
