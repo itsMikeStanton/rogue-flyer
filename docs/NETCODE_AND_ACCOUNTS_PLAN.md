@@ -90,7 +90,27 @@ Only if the game becomes competitive enough to justify it.
 Identity that survives a refresh; the foundation for cosmetics, paid private
 rooms, stats, and friends. **Keep guest play frictionless** — accounts are opt-in.
 
-### Auth: Discord OAuth2 (audience fit)
+### Product decisions (load-bearing — don't violate these)
+1. **The free, no-account, no-pay entry IS the product.** You can hop in, fly, and
+   tool around with zero sign-up and zero payment, forever. The persistent guest
+   layer (device token + callsign + local stats) already covers this and is
+   shipped. Everything account- or money-gated layers *on top* of that hook.
+2. **Gate accounts behind a retention signal — don't build them yet.** The guest
+   layer is enough until the data says people come back and want their stuff to
+   follow them (e.g. "why didn't my stats save?"). Building Discord OAuth +
+   Postgres before that signal is effort spent ahead of demand.
+3. **Discord-first, NOT Discord-only.** Discord is the first sign-in provider
+   (best audience fit, cheapest to build, no passwords for us), framed as
+   "claim your guest profile" — never a gate to play. Keep at least one
+   non-Discord path on the roadmap (email magic-link, or name+PIN) so people
+   without/avoiding Discord aren't excluded. The seam makes this cheap: we issue
+   our OWN session token, so the provider is just a swappable front door.
+4. **Monetization never touches access.** Free players get the full flight +
+   combat sandbox. Paid features only ever buy *persistence, vanity, and hosting*
+   — private rooms first, cosmetics second (see Monetization below). Nothing you
+   pay for lets you fly better or fly at all; it's never pay-to-win or pay-to-play.
+
+### Auth: Discord-first (audience fit), not Discord-only
 - **Guest by default**: device id in `localStorage` + chosen callsign. Zero
   friction for the public funnel (D1-retention test doesn't need accounts).
 - **"Sign in with Discord"** (Authorization Code flow) for persistence/cosmetics:
@@ -146,6 +166,22 @@ handshake, and the stat-flush against the real services and test end-to-end.
 **Cost:** ~2–4 days for auth + DB + wiring (more with a cosmetics UI).
 
 ---
+
+## Monetization (never gates access — see decision #4)
+
+Free players keep the entire flight + combat sandbox. Paid features sell
+*persistence, vanity, and hosting* only. Never pay-to-win, never pay-to-play.
+
+1. **Paid private rooms (first dollar).** Rooms already exist; charge to host a
+   persistent/named private lobby. Targets the most invested player (the squad
+   organizer), not the casual — and it's a recurring, low-build-cost ask.
+2. **Cosmetics (second).** Liveries, callsign/trail colors, insignia. Owned via
+   `entitlements`; purely visual.
+3. **Later, maybe:** stat history / profile flourishes. Still vanity, still
+   outside the free core.
+
+Same gating rule as accounts: don't build the storefront until the free build
+shows retention worth monetizing.
 
 ## Dependency & sequencing
 1. **#3 Tier 1** — server owns HP/death + validates hits/movement. Makes the game

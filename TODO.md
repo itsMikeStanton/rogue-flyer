@@ -46,10 +46,14 @@ each section. Tuning knobs note the file/number so they're quick to change.
 - [x] **Persistence — testable slice (#4)** — stable guest token (`rf.uid`) sent
       on join + local lifetime K/D (`rf.stats`) on the FFA menu + scoreboard.
 - [ ] **Accounts backend (#4)** — Discord OAuth + Postgres + WS token handshake +
-      stat-flush. BLOCKED on credentials: Discord app, `DATABASE_URL`,
-      `SESSION_SECRET` (see `docs/NETCODE_AND_ACCOUNTS_PLAN.md`).
-- [ ] **Monetization** — private-room subscription is the first paid feature
-      (rooms now exist); then cosmetics (callsign/livery/trail colors).
+      stat-flush. **GATE behind a retention signal — don't build until the free
+      build shows people come back.** Discord-FIRST, not Discord-only (opt-in
+      "claim your guest profile"; keep a non-Discord path on the roadmap). Free,
+      no-account play stays the product. BLOCKED on credentials anyway: Discord
+      app, `DATABASE_URL`, `SESSION_SECRET` (see `docs/NETCODE_AND_ACCOUNTS_PLAN.md`).
+- [ ] **Monetization** — **never gates access** (free = full sandbox forever).
+      Sells persistence/vanity/hosting only: private-room hosting first (rooms
+      exist), then cosmetics (callsign/livery/trail colors). Same retention gate.
 
 ## Scale & feel
 - [ ] **Terminal velocity / top-speed cap** — there's effectively no drag ceiling
