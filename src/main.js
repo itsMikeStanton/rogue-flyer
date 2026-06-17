@@ -2454,6 +2454,7 @@ function exitToMenu() {
 // --- Camera positioning per mode ---
 const camTarget = new THREE.Vector3();
 const camPos = new THREE.Vector3();
+let crashCamPrimed = false; // false until the death-cam snaps to its near-plane start
 const _q = new THREE.Quaternion();
 const _v = new THREE.Vector3();
 const _v2 = new THREE.Vector3();
@@ -2489,6 +2490,7 @@ function updateCamera(dt) {
 
   // Crash: pull right out (whatever the selected view) so the blast and the
   // wreckage are framed — first-person sees nothing once the jet is gone.
+  if (!state.crashed) crashCamPrimed = false; // re-arm so the next death snaps in close
   if (state.crashed) {
     // Horizontal "behind" from the heading so it never dips underground.
     _v2.set(0, 0, 1).applyQuaternion(q); _v2.y = 0;
@@ -2501,8 +2503,11 @@ function updateCamera(dt) {
     const high = 32 + elapsed * 18;
     const behind = _v.copy(pos).addScaledVector(_v2, dist);
     behind.y = Math.max(pos.y, gy0) + high;
-    camPos.lerp(behind, Math.min(1, dt * 1.6)); // ease toward the receding target
-    if (camPos.lengthSq() === 0) camPos.copy(behind);
+    // Snap to the near-plane start on the first crash frame; afterwards ease back.
+    // Without this the cam would fly in from wherever camPos last sat (cockpit /
+    // bomb-sight / a stale chase point), which looked like it spawned far away.
+    if (!crashCamPrimed) { camPos.copy(behind); crashCamPrimed = true; }
+    else camPos.lerp(behind, Math.min(1, dt * 1.6)); // ease toward the receding target
     camera.position.copy(camPos);
     camera.up.set(0, 1, 0);
     camera.fov += (60 - camera.fov) * Math.min(1, dt * 2);
