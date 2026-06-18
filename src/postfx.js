@@ -234,7 +234,10 @@ export class PostFX {
       const hm = this._hudMat.uniforms;
       hm.uWarp.value = warp; // same curve as the scene
       hm.uScan.value = g.uScan.value;
-      hm.uHudScale.value = 1.0 / (1.0 - g.uOverscan.value); // expand sampling -> HUD inset, never cropped
+      // Inset the HUD enough to clear the scene's fill-zoom, but only partway so it
+      // doesn't shrink too hard (HUD_INSET < 1 keeps the UI closer to full size).
+      const HUD_INSET = 0.5;
+      hm.uHudScale.value = 1 + (1 / (1 - g.uOverscan.value) - 1) * HUD_INSET;
       // Blit the live HUD into our offscreen copy, then upload that.
       const sw = this._hudSrc.width, sh = this._hudSrc.height;
       if (sw && sh) {
