@@ -175,9 +175,7 @@ export class PostFX {
           if (base.x < 0.0 || base.x > 1.0 || base.y < 0.0 || base.y > 1.0) discard; // bezel
           vec4 h = texture2D(uHud, base);
           if (uScan > 0.0) { float s = 0.5 + 0.5 * sin(uv.y * uRes.y * 3.14159); h.rgb *= 1.0 - uScan * (1.0 - s); }
-          // DEBUG: faint green where the HUD texture is empty, so we can tell
-          // "quad not drawing" (no green) from "texture empty" (green wash).
-          gl_FragColor = vec4(mix(vec3(0.0, 0.35, 0.0), h.rgb, h.a), max(h.a, 0.25));
+          gl_FragColor = h;
         }`,
     });
     const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this._hudMat);
@@ -204,7 +202,7 @@ export class PostFX {
     u.uChroma.value = s.chroma;
     u.uRgbShift.value = s.rgbShift;
     u.uDistort.value = s.distort;
-    u.uOverscan.value = s.distort > 0 ? 0.012 : 0; // just enough to keep CA taps in-frame; the CRT corners still round off
+    // uOverscan is set per-frame in render() so the zoom tracks the live warp.
     u.uVignette.value = s.vignette;
     u.uGrain.value = s.grain;
     u.uScan.value = s.scan;
@@ -223,12 +221,19 @@ export class PostFX {
   // pass is enabled (an FX look other than "off").
   setSpeed(v) { this.grade.uniforms.uSpeed.value = v; }
   render(dt) {
-    this.grade.uniforms.uTime.value += dt;
+    const g = this.grade.uniforms;
+    g.uTime.value += dt;
+    // Zoom (overscan) just enough to pull the warped corners back inside the
+    // frame, so heavy CRT curvature fills the screen instead of showing black
+    // corners. Scales with the live warp (slider + afterburner): o = w²/(1+w²)
+    // makes the bulged corner land right at the frame edge.
+    const warp = (g.uDistort.value + g.uSpeed.value * 0.9) * 0.25;
+    g.uOverscan.value = warp > 0.0 ? (warp * warp) / (1.0 + warp * warp) : 0.0;
     this.composer.render();
     // Overlay the HUD on top of the composited frame, warped to match the tube.
     if (this._hudOn && this._hudScene) {
-      const g = this.grade.uniforms, hm = this._hudMat.uniforms;
-      hm.uWarp.value = (g.uDistort.value + g.uSpeed.value * 0.9) * 0.25; // same curve as the scene
+      const hm = this._hudMat.uniforms;
+      hm.uWarp.value = warp; // same curve + overscan as the scene
       hm.uScan.value = g.uScan.value;
       hm.uOverscan.value = g.uOverscan.value;
       // Blit the live HUD into our offscreen copy, then upload that.
