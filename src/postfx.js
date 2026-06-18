@@ -142,7 +142,13 @@ export class PostFX {
   // standard, reliable texture path) so the instruments bow with the picture.
   setHudCanvas(canvas) {
     if (!canvas || this._hudScene) return;
-    this._hudTex = new THREE.CanvasTexture(canvas);
+    // Upload an offscreen COPY of the HUD, not the live DOM canvas: a CSS-hidden
+    // DOM canvas can read back empty via texImage2D in some browsers. We blit the
+    // live HUD into this canvas (which is never in the DOM) each frame instead.
+    this._hudSrc = canvas;
+    this._hudCopy = document.createElement("canvas");
+    this._hudCopyCtx = this._hudCopy.getContext("2d");
+    this._hudTex = new THREE.CanvasTexture(this._hudCopy);
     this._hudTex.minFilter = THREE.LinearFilter;
     this._hudTex.magFilter = THREE.LinearFilter;
     this._hudTex.generateMipmaps = false;
@@ -225,6 +231,13 @@ export class PostFX {
       hm.uWarp.value = (g.uDistort.value + g.uSpeed.value * 0.9) * 0.25; // same curve as the scene
       hm.uScan.value = g.uScan.value;
       hm.uOverscan.value = g.uOverscan.value;
+      // Blit the live HUD into our offscreen copy, then upload that.
+      const sw = this._hudSrc.width, sh = this._hudSrc.height;
+      if (sw && sh) {
+        if (this._hudCopy.width !== sw || this._hudCopy.height !== sh) { this._hudCopy.width = sw; this._hudCopy.height = sh; }
+        this._hudCopyCtx.clearRect(0, 0, sw, sh);
+        this._hudCopyCtx.drawImage(this._hudSrc, 0, 0);
+      }
       this._hudTex.needsUpdate = true; // the HUD canvas is redrawn every frame
       const ac = this.renderer.autoClear;
       this.renderer.autoClear = false; // draw over the scene, don't wipe it
