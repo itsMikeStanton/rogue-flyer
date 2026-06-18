@@ -140,6 +140,16 @@ const hud = new Hud(document.getElementById("hud"));
 
 // Post-processing (bloom + colour grade). Off in VR. Look chosen in settings.
 const post = new PostFX(renderer, scene, camera);
+post.setHudCanvas(hud.canvas); // warp the HUD onto the CRT tube via an overlay quad
+// While the composer owns the frame, the warped overlay draws the HUD; hide the
+// flat CSS canvas so it isn't drawn twice. Change-detected to avoid DOM churn.
+let _hudInShader = null;
+function setHudPath(inShader) {
+  if (inShader === _hudInShader) return;
+  _hudInShader = inShader;
+  post.setHudComposite(inShader);
+  hud.canvas.style.visibility = inShader ? "hidden" : "";
+}
 // Graphics: the old "looks" are now preset TEMPLATES. Picking one applies every
 // knob below; nudging any single knob flips to a saved "custom" profile. Sliders
 // are generated from FX_FIELDS so ranges live in one place. The exposure / bloom
@@ -3296,9 +3306,11 @@ function frame(now) {
   // Post FX on flat screen; VR renders direct (composer + WebXR don't mix).
   // Any composer failure falls back to a plain render so FX can't break the game.
   if (!inXR && post.enabled) {
+    setHudPath(true); // warped HUD overlay draws on top; CSS overlay hidden
     try { post.render(dt); }
-    catch (e) { console.error("post FX disabled:", e); post.enabled = false; renderer.render(scene, camera); }
+    catch (e) { console.error("post FX disabled:", e); post.enabled = false; setHudPath(false); renderer.render(scene, camera); }
   } else {
+    setHudPath(false); // VR / FX-off: the flat CSS HUD overlay shows it
     renderer.render(scene, camera);
   }
 

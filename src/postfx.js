@@ -129,11 +129,58 @@ export class PostFX {
     this.enabled = false;
     this._bloomBase = 0;
     this._dayCut = 0;
+    this._hudOn = false;
+    this._hudTex = null;
+    this._hudScene = null;
   }
   setSize(w, h) {
     this.composer.setSize(w, h);
     this.grade.uniforms.uResolution.value.set(w, h);
   }
+  // Build a fullscreen overlay quad that draws the 2D HUD canvas through the SAME
+  // CRT warp as the scene. Rendered as an ordinary mesh AFTER the composer (the
+  // standard, reliable texture path) so the instruments bow with the picture.
+  setHudCanvas(canvas) {
+    if (!canvas || this._hudScene) return;
+    this._hudTex = new THREE.CanvasTexture(canvas);
+    this._hudTex.minFilter = THREE.LinearFilter;
+    this._hudTex.magFilter = THREE.LinearFilter;
+    this._hudTex.generateMipmaps = false;
+    this._hudTex.colorSpace = THREE.SRGBColorSpace;
+    this._hudMat = new THREE.ShaderMaterial({
+      transparent: true, depthTest: false, depthWrite: false,
+      uniforms: {
+        uHud: { value: this._hudTex },
+        uWarp: { value: 0 }, uScan: { value: 0 }, uOverscan: { value: 0 },
+        uRes: { value: this.grade.uniforms.uResolution.value },
+      },
+      vertexShader: `varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`,
+      fragmentShader: `
+        varying vec2 vUv;
+        uniform sampler2D uHud;
+        uniform float uWarp, uScan, uOverscan;
+        uniform vec2 uRes;
+        void main() {
+          vec2 uv = 0.5 + (vUv - 0.5) * (1.0 - uOverscan);
+          vec2 cc = uv * 2.0 - 1.0;
+          vec2 woff = abs(cc.yx) * uWarp;          // same tube curvature as the scene
+          cc += cc * woff * woff;
+          vec2 base = cc * 0.5 + 0.5;
+          if (base.x < 0.0 || base.x > 1.0 || base.y < 0.0 || base.y > 1.0) discard; // bezel
+          vec4 h = texture2D(uHud, base);
+          if (uScan > 0.0) { float s = 0.5 + 0.5 * sin(uv.y * uRes.y * 3.14159); h.rgb *= 1.0 - uScan * (1.0 - s); }
+          gl_FragColor = h;
+        }`,
+    });
+    const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this._hudMat);
+    quad.frustumCulled = false;
+    this._hudScene = new THREE.Scene();
+    this._hudScene.add(quad);
+    this._hudCam = new THREE.Camera(); // clip-space quad; no projection needed
+  }
+  // Toggle whether the HUD overlay is drawn (true while the composer owns the
+  // frame; false in VR / FX-off, where the flat CSS overlay shows it instead).
+  setHudComposite(on) { this._hudOn = !!on; }
   // Apply a full settings object. `enabled` gates the composer (off = plain
   // render), but exposure is a renderer-level tone-map setting so it's applied
   // either way — lowering it tames an over-bright daytime sky even with FX off.
@@ -170,5 +217,17 @@ export class PostFX {
   render(dt) {
     this.grade.uniforms.uTime.value += dt;
     this.composer.render();
+    // Overlay the HUD on top of the composited frame, warped to match the tube.
+    if (this._hudOn && this._hudScene) {
+      const g = this.grade.uniforms, hm = this._hudMat.uniforms;
+      hm.uWarp.value = (g.uDistort.value + g.uSpeed.value * 0.9) * 0.25; // same curve as the scene
+      hm.uScan.value = g.uScan.value;
+      hm.uOverscan.value = g.uOverscan.value;
+      this._hudTex.needsUpdate = true; // the HUD canvas is redrawn every frame
+      const ac = this.renderer.autoClear;
+      this.renderer.autoClear = false; // draw over the scene, don't wipe it
+      this.renderer.render(this._hudScene, this._hudCam);
+      this.renderer.autoClear = ac;
+    }
   }
 }
