@@ -169,7 +169,9 @@ export class PostFX {
           if (base.x < 0.0 || base.x > 1.0 || base.y < 0.0 || base.y > 1.0) discard; // bezel
           vec4 h = texture2D(uHud, base);
           if (uScan > 0.0) { float s = 0.5 + 0.5 * sin(uv.y * uRes.y * 3.14159); h.rgb *= 1.0 - uScan * (1.0 - s); }
-          gl_FragColor = h;
+          // DEBUG: faint green where the HUD texture is empty, so we can tell
+          // "quad not drawing" (no green) from "texture empty" (green wash).
+          gl_FragColor = vec4(mix(vec3(0.0, 0.35, 0.0), h.rgb, h.a), max(h.a, 0.25));
         }`,
     });
     const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this._hudMat);
