@@ -261,6 +261,12 @@ export class PostFX {
         }
         this._hudCopyCtx.clearRect(0, 0, cw, ch);
         this._hudCopyCtx.drawImage(this._hudSrc, 0, 0, sw, sh, 0, 0, cw, ch);
+        // DIAG: a bar drawn straight onto the copy (not from #hud), moving every
+        // frame. If it freezes in fullscreen too -> texture/upload pipeline stuck;
+        // if it moves while the HUD stays frozen -> reading #hud is the frozen part.
+        this._diag = ((this._diag || 0) + 1) % cw;
+        this._hudCopyCtx.fillStyle = "#ff00ff";
+        this._hudCopyCtx.fillRect(this._diag, 4, 60, 24);
       }
       this._hudTex.needsUpdate = true; // the HUD canvas is redrawn every frame
       const ac = this.renderer.autoClear;
