@@ -1,17 +1,18 @@
 import * as THREE from "three";
+import { DecalGeometry } from "three/addons/geometries/DecalGeometry.js";
 
 // Aircraft markings: national/squadron insignia and a tail/modex number, drawn
-// to canvas textures and applied as small "sticker" decal planes on the body,
-// wings and tail. Placement is derived from the airframe's bounding box (with
-// rotor blades and afterburner flames excluded) so it works on every hand-built
-// model without per-aircraft tuning. Textures and the unit plane are cached and
-// shared across rebuilds.
+// to canvas textures and PROJECTED onto the airframe surface as decals (via
+// DecalGeometry) so they conform to curved/angled panels instead of floating as
+// flat stickers. Placement is derived from the airframe's bounding box (rotor
+// blades and afterburner flames excluded) + a raycast to snap each decal onto
+// the actual body surface, so it works on every hand-built model. Textures are
+// cached and shared across rebuilds.
 
 const _box = new THREE.Box3();
 const _tmp = new THREE.Box3();
 const _c = new THREE.Vector3();
 const _s = new THREE.Vector3();
-const PLANE = new THREE.PlaneGeometry(1, 1); // unit quad, normal +Z
 
 // ---------------------------------------------------------------------------
 // Canvas insignia art
@@ -113,7 +114,7 @@ function insigniaTex(id) {
   const S = 128;
   const cv = document.createElement("canvas"); cv.width = cv.height = S;
   drawInsignia(cv.getContext("2d"), id, S);
-  const t = new THREE.CanvasTexture(cv); t.anisotropy = 4; t.needsUpdate = true;
+  const t = new THREE.CanvasTexture(cv); t.anisotropy = 4; t.colorSpace = THREE.SRGBColorSpace; t.needsUpdate = true;
   _texCache.set(id, t);
   return t;
 }
@@ -146,7 +147,7 @@ function numberTex(n) {
   ctx.lineJoin = "round"; ctx.lineWidth = 12; ctx.strokeStyle = "#15181c";
   ctx.strokeText(s, W / 2, H / 2 + 4);
   ctx.fillStyle = "#eef2f5"; ctx.fillText(s, W / 2, H / 2 + 4);
-  const t = new THREE.CanvasTexture(cv); t.anisotropy = 4; t.needsUpdate = true;
+  const t = new THREE.CanvasTexture(cv); t.anisotropy = 4; t.colorSpace = THREE.SRGBColorSpace; t.needsUpdate = true;
   _numCache.set(key, t);
   return t;
 }
@@ -155,32 +156,80 @@ function numberTex(n) {
 // Placement
 // ---------------------------------------------------------------------------
 
-function decal(tex, w, h) {
-  const m = new THREE.Mesh(PLANE, new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false }));
-  m.scale.set(w, h, 1);
-  m.renderOrder = 3;
+const _ray = new THREE.Raycaster();
+const _origin = new THREE.Vector3();
+const _dir = new THREE.Vector3();
+const _n = new THREE.Vector3();
+const _ax = new THREE.Vector3(), _ay = new THREE.Vector3(), _az = new THREE.Vector3(), _au = new THREE.Vector3();
+const _mat4 = new THREE.Matrix4();
+const _eu = new THREE.Euler();
+const _size = new THREE.Vector3();
+const _pos = new THREE.Vector3(), _nrm = new THREE.Vector3(), _up = new THREE.Vector3();
+
+// Orientation whose +Z is the surface normal and +Y is `up` (in the tangent
+// plane), so the decal texture maps upright across the XY face.
+function basisEuler(normal, up) {
+  _az.copy(normal).normalize();
+  _ax.crossVectors(_au.copy(up).normalize(), _az);
+  if (_ax.lengthSq() < 1e-6) _ax.set(1, 0, 0); // up parallel to normal → fall back
+  _ax.normalize();
+  _ay.crossVectors(_az, _ax).normalize();
+  _mat4.makeBasis(_ax, _ay, _az);
+  return _eu.setFromRotationMatrix(_mat4);
+}
+
+// Project a decal texture onto the body surface near `pos`, along `normal`
+// (outward). Raycasts from outside the body to snap onto the actual panel, then
+// clips a DecalGeometry to it so the marking hugs curves/angles. `flipU` mirrors
+// the texture horizontally (so digits read correctly on the opposite side).
+function projectDecal(group, targets, tex, pos, normal, up, w, h, flipU) {
+  _nrm.copy(normal).normalize();
+  _origin.copy(pos).addScaledVector(_nrm, 6); // start well outside the body
+  _dir.copy(_nrm).negate();                    // cast inward toward the surface
+  _ray.set(_origin, _dir);
+  const hits = _ray.intersectObjects(targets, false);
+  if (!hits.length) return;
+  const hit = hits[0];
+  const orient = basisEuler(_nrm, up);
+  // x,y = decal size; z = projection depth. Keep depth shallow so the box catches
+  // only the near panel, not the far side of the fuselage (which would double it).
+  _size.set(flipU ? -w : w, h, Math.max(w, h) * 0.5 + 0.7);
+  const geo = new DecalGeometry(hit.object, hit.point, orient, _size);
+  if (geo.getAttribute("position").count === 0) { geo.dispose(); return; } // nothing in the box
+  const m = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({
+    map: tex, transparent: true, depthWrite: false,
+    roughness: 0.85, metalness: 0.08,
+    polygonOffset: true, polygonOffsetFactor: -6, polygonOffsetUnits: -6, // lift off the skin (no z-fight)
+  }));
   m.userData.decal = true;
-  return m;
+  m.renderOrder = 3;
+  group.add(m);
 }
 
 // Add insignia + number decals to a freshly built airframe group, sized and
-// placed from its solid-body bounding box.
+// placed from its solid-body bounding box, projected onto the actual surface.
 export function applyMarkings(group, def, opts) {
   const insTex = insigniaTex(opts && opts.insignia);
   const numTex = numberTex(opts ? opts.number : -1);
   if (!insTex && !numTex) return;
 
-  // Bounding box of the solid body: skip rotor blades and afterburner flames.
+  // Solid-body bounding box + the set of meshes we can project onto (skip rotor
+  // blades, afterburner flames, and anything without normals).
   const skip = new Set();
   for (const r of group.userData.rotors || []) if (r.m) r.m.traverse((o) => skip.add(o));
   for (const f of group.userData.flames || []) skip.add(f);
+  const targets = [];
   _box.makeEmpty();
   group.traverse((o) => {
     if (!o.isMesh || skip.has(o) || o.userData.decal) return;
+    const g = o.geometry;
+    if (!g || !g.attributes.position || !g.attributes.normal) return; // decal projection needs normals
+    targets.push(o);
     _tmp.setFromObject(o);
     if (!_tmp.isEmpty()) _box.union(_tmp);
   });
-  if (_box.isEmpty()) return;
+  if (_box.isEmpty() || !targets.length) return;
+  group.updateMatrixWorld(true); // raycast + projection read world matrices
 
   _box.getCenter(_c); _box.getSize(_s);
   const spanX = _s.x, len = _s.z, midY = _c.y, rearZ = _box.max.z;
@@ -189,32 +238,27 @@ export function applyMarkings(group, def, opts) {
 
   if (insTex) {
     const fs = THREE.MathUtils.clamp(len * 0.12, 0.62, 1.3);  // fuselage roundel
-    // Fuselage sides, near the forward third, facing ±X.
-    for (const sx of [-1, 1]) {
-      const d = decal(insTex, fs, fs);
-      d.position.set(sx * (bw + 0.02), midY + 0.06, _c.z - len * 0.05);
-      d.rotation.y = sx > 0 ? Math.PI / 2 : -Math.PI / 2;
-      group.add(d);
+    for (const sx of [-1, 1]) { // fuselage sides, forward third, facing ±X
+      projectDecal(group, targets, insTex,
+        _pos.set(sx * bw, midY + 0.06, _c.z - len * 0.05),
+        _nrm.set(sx, 0, 0), _up.set(0, 1, 0), fs, fs, false);
     }
     if (hasWings) {
       const ws = THREE.MathUtils.clamp(spanX * 0.11, 0.7, 1.7); // upper-wing roundel
-      for (const sx of [-1, 1]) {
-        const d = decal(insTex, ws, ws);
-        d.position.set(sx * spanX * 0.30, midY + 0.12, _c.z + len * 0.06);
-        d.rotation.x = -Math.PI / 2;
-        group.add(d);
+      for (const sx of [-1, 1]) { // wing tops, facing +Y, texture top = forward
+        projectDecal(group, targets, insTex,
+          _pos.set(sx * spanX * 0.30, midY, _c.z + len * 0.06),
+          _nrm.set(0, 1, 0), _up.set(0, 0, -1), ws, ws, false);
       }
     }
   }
 
   if (numTex) {
     const h = THREE.MathUtils.clamp(len * 0.085, 0.45, 1.0), w = h * 1.3;
-    // Both sides of the rear fuselage / tail, facing ±X.
-    for (const sx of [-1, 1]) {
-      const d = decal(numTex, w, h);
-      d.position.set(sx * (bw + 0.02), midY + _s.y * 0.12, rearZ - len * 0.16);
-      d.rotation.y = sx > 0 ? Math.PI / 2 : -Math.PI / 2;
-      group.add(d);
+    for (const sx of [-1, 1]) { // rear fuselage / tail sides, facing ±X
+      projectDecal(group, targets, numTex,
+        _pos.set(sx * bw, midY + _s.y * 0.12, rearZ - len * 0.16),
+        _nrm.set(sx, 0, 0), _up.set(0, 1, 0), w, h, sx < 0); // flip on the left so digits aren't mirrored
     }
   }
 }
