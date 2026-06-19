@@ -236,14 +236,18 @@ export class PostFX {
       hm.uScan.value = g.uScan.value;
       // Inset the HUD enough to clear the scene's fill-zoom, but only partway so it
       // doesn't shrink too hard (HUD_INSET < 1 keeps the UI closer to full size).
-      const HUD_INSET = 0.5;
+      const HUD_INSET = 0.3;
       hm.uHudScale.value = 1 + (1 / (1 - g.uOverscan.value) - 1) * HUD_INSET;
-      // Blit the live HUD into our offscreen copy, then upload that.
+      // Blit the live HUD into our offscreen copy, then upload that. Cap the copy
+      // resolution so a huge fullscreen / hi-DPI HUD canvas can't blow past a
+      // canvas-area / texture limit (which freezes the upload).
       const sw = this._hudSrc.width, sh = this._hudSrc.height;
       if (sw && sh) {
-        if (this._hudCopy.width !== sw || this._hudCopy.height !== sh) { this._hudCopy.width = sw; this._hudCopy.height = sh; }
-        this._hudCopyCtx.clearRect(0, 0, sw, sh);
-        this._hudCopyCtx.drawImage(this._hudSrc, 0, 0);
+        const scl = Math.min(1, 3072 / sw, 3072 / sh);
+        const cw = Math.max(1, Math.round(sw * scl)), ch = Math.max(1, Math.round(sh * scl));
+        if (this._hudCopy.width !== cw || this._hudCopy.height !== ch) { this._hudCopy.width = cw; this._hudCopy.height = ch; }
+        this._hudCopyCtx.clearRect(0, 0, cw, ch);
+        this._hudCopyCtx.drawImage(this._hudSrc, 0, 0, sw, sh, 0, 0, cw, ch);
       }
       this._hudTex.needsUpdate = true; // the HUD canvas is redrawn every frame
       const ac = this.renderer.autoClear;

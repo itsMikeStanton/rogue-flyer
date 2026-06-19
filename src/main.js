@@ -148,7 +148,7 @@ function setHudPath(inShader) {
   if (inShader === _hudInShader) return;
   _hudInShader = inShader;
   post.setHudComposite(inShader);
-  hud.canvas.style.visibility = inShader ? "hidden" : "";
+  hud.canvas.style.opacity = inShader ? "0" : ""; // keep the source canvas "live" (visibility:hidden can freeze its backing in fullscreen)
 }
 // Graphics: the old "looks" are now preset TEMPLATES. Picking one applies every
 // knob below; nudging any single knob flips to a saved "custom" profile. Sliders
