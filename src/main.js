@@ -368,6 +368,13 @@ try {
 } catch (_) { /* ignore */ }
 const currentMarkings = () => ({ insignia: insigniaId, number: tailNumber });
 let mesh = null;
+let jetLength = 10; // current airframe's nose-to-tail length (world units), measured from its mesh
+const _jetBox = new THREE.Box3();
+function measureJet() {
+  if (!mesh) return;
+  const len = _jetBox.setFromObject(mesh).max.z - _jetBox.min.z;
+  if (isFinite(len) && len > 1) jetLength = len;
+}
 let flying = false;
 let gameMode = "free";
 let missionDone = false;
@@ -1931,6 +1938,7 @@ function setAircraft(type) {
   if (mesh) scene.remove(mesh);
   mesh = buildAircraftMesh(type, null, liveryId, currentMarkings());
   scene.add(mesh);
+  measureJet(); // refresh jet length for the chase-cam distance clamp
 }
 
 // Rebuild the current aircraft in place after a paint/markings change — keeps
@@ -2600,6 +2608,14 @@ function updateCamera(dt) {
   const lerp = 1 - Math.pow(isFar ? 0.0008 : 0.0019, dt); // close chase lags a touch → you catch up on turns
   camPos.lerp(behind, lerp);
   if (camPos.lengthSq() === 0) camPos.copy(behind);
+  // Close chase lags so you catch up on turns, but hard maneuvers can let the jet
+  // outrun it — never let it drift more than 6 jet lengths from the aircraft.
+  if (!isFar) {
+    const maxD = 6 * jetLength;
+    const off = _v2.copy(camPos).sub(pos);
+    const d = off.length();
+    if (d > maxD) camPos.copy(pos).addScaledVector(off, maxD / d);
+  }
   camera.position.copy(camPos);
   camera.up.set(0, 1, 0);
   // Look ahead normally; pan toward the jet itself as you swing the view around.
