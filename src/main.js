@@ -1936,7 +1936,7 @@ function setAircraft(type) {
   vtolMode = false; // start with nozzles aft
   touch.setVtol(false);
   if (mesh) scene.remove(mesh);
-  mesh = buildAircraftMesh(type, null, liveryId, currentMarkings());
+  mesh = buildAircraftMesh(type, null, liveryId);
   scene.add(mesh);
   measureJet(); // refresh jet length for the chase-cam distance clamp
 }
@@ -1947,7 +1947,7 @@ function rebuildPlayerMesh() {
   if (!mesh) return;
   const keepRot = mesh.quaternion.clone();
   scene.remove(mesh);
-  mesh = buildAircraftMesh(jetType, null, liveryId, currentMarkings());
+  mesh = buildAircraftMesh(jetType, null, liveryId);
   mesh.position.copy(state.position);
   mesh.quaternion.copy(keepRot);
   scene.add(mesh);

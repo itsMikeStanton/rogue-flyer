@@ -1,5 +1,4 @@
 import * as THREE from "three";
-import { applyMarkings } from "./markings.js";
 
 // Arcade-plus aircraft definitions.
 // Physical-ish numbers (SI) tuned for fun rather than fidelity.
@@ -115,7 +114,7 @@ export const AIRCRAFT = {
     cl0: 0.18, clAlpha: 4.6, clMax: 1.5, stallAngle: 0.34,
     cd0: 0.017, k: 0.06,
     pitchRate: 0.62, rollRate: 1.15, yawRate: 0.4,
-    landing: { track: 2.2, mainZ: -1.0, noseZ: -4.6, legLen: 1.4, wheel: 0.6, bellyY: 0.1, flapX: 5.2, flapZ: 2.6, flapW: 3.6, flapC: 0.7, sbY: 0.85, sbZ: -1.0, sbW: 1.6, sbL: 2.0 },
+    landing: { track: 2.2, mainZ: -1.0, noseZ: -4.6, legLen: 1.4, wheel: 0.6, bellyY: 0.1, flapX: 5.2, flapY: 0.5, flapZ: 2.6, flapW: 3.6, flapC: 0.7, sbY: 0.85, sbZ: -1.0, sbW: 1.6, sbL: 2.0 },
     stats: { speed: 0.55, agility: 0.4, toughness: 0.85 },
   },
   b52: {
@@ -127,7 +126,7 @@ export const AIRCRAFT = {
     cl0: 0.16, clAlpha: 4.6, clMax: 1.55, stallAngle: 0.36,
     cd0: 0.024, k: 0.07,
     pitchRate: 0.5, rollRate: 0.9, yawRate: 0.4,
-    landing: { track: 1.2, mainZ: 2.2, noseZ: -5.0, legLen: 2.2, wheel: 0.7, bellyY: -0.8, flapX: 7.0, flapZ: 1.6, flapW: 5.0, flapC: 1.4, sbY: 0.9, sbZ: 5.0, sbW: 1.6, sbL: 2.6 },
+    landing: { track: 1.2, mainZ: 2.2, noseZ: -5.0, legLen: 2.2, wheel: 0.7, bellyY: -0.8, flapX: 7.0, flapY: 0.5, flapZ: 1.6, flapW: 5.0, flapC: 1.4, sbY: 0.9, sbZ: 5.0, sbW: 1.6, sbL: 2.6 },
     stats: { speed: 0.5, agility: 0.25, toughness: 1.0 },
   },
 
@@ -146,7 +145,7 @@ export const AIRCRAFT = {
     cl0: 0.12, clAlpha: 5.0, clMax: 1.6, stallAngle: 0.40,
     cd0: 0.024, k: 0.12,
     pitchRate: 1.15, rollRate: 2.5, yawRate: 0.9,
-    landing: { track: 1.0, mainZ: 1.5, noseZ: -2.9, legLen: 1.45, wheel: 0.4, bellyY: -0.55, flapX: 2.7, flapZ: 1.7, flapW: 2.2 },
+    landing: { track: 1.0, mainZ: 1.5, noseZ: -2.9, legLen: 1.45, wheel: 0.4, bellyY: -0.55, flapX: 2.7, flapY: 0.5, flapZ: 1.7, flapW: 2.2 },
     // hover (nozzles down): can rise vertically, gentle forward pull, firm grip
     twr: 1.4, pull: 12, drag: 0.0013, grip: 1.5,
     maxPitch: 0.32, maxRoll: 0.5, atti: 5.2, bankTurn: 0.5,
@@ -806,7 +805,7 @@ function buildHarrier(def) {
   g.userData.nozzles = [];
   for (const s of [-1, 1]) for (const z of [-0.7, 1.7]) {
     const pivot = new THREE.Group(); pivot.position.set(s * 0.78, -0.35, z);
-    const noz = new THREE.Mesh(new THREE.CylinderGeometry(0.27, 0.22, 1.0, 10), m.metal);
+    const noz = new THREE.Mesh(new THREE.CylinderGeometry(0.27, 0.22, 1.0, 10), m.body);
     noz.rotation.x = Math.PI / 2; noz.position.z = 0.5; pivot.add(noz);
     const face = new THREE.Mesh(new THREE.CircleGeometry(0.2, 10), m.accent); face.position.z = 1.0; pivot.add(face);
     g.add(pivot); g.userData.nozzles.push(pivot);
@@ -1009,12 +1008,15 @@ function addGearFlaps(g, def) {
   const L = (def && def.landing) || {};
   const track = L.track ?? 1.7, mainZ = L.mainZ ?? 1.2, noseZ = L.noseZ ?? -2.6;
   const legLen = L.legLen ?? 1.4, wheelR = L.wheel ?? 0.45, bellyY = L.bellyY ?? -0.2, strutR = L.strut ?? 0.12;
-  const flapX = L.flapX ?? 2.6, flapZ = L.flapZ ?? 1.7, flapW = L.flapW ?? 2.2, flapC = L.flapC ?? 0.9;
+  const flapX = L.flapX ?? 2.6, flapY = L.flapY ?? 0, flapZ = L.flapZ ?? 1.7, flapW = L.flapW ?? 2.2, flapC = L.flapC ?? 0.9;
   const sbY = L.sbY ?? 0.42, sbZ = L.sbZ ?? 2.4, sbW = L.sbW ?? 1.0, sbL = L.sbL ?? 1.6;
 
+  // Flaps + speedbrake wear the airframe's own paint/livery (they're part of the
+  // skin); gear struts/wheels stay dark metal.
+  const skin = makeMaterials(def);
   const dark = new THREE.MeshStandardMaterial({ color: 0x20242a, flatShading: true });
   const strutMat = new THREE.MeshStandardMaterial({ color: 0x4a4f55, flatShading: true });
-  const flapMat = new THREE.MeshStandardMaterial({ color: 0x868d95, flatShading: true });
+  const flapMat = skin.body;
   const leg = (x, z) => {
     const lg = new THREE.Group();
     const strut = new THREE.Mesh(new THREE.CylinderGeometry(strutR, strutR, legLen, 6), strutMat);
@@ -1033,7 +1035,7 @@ function addGearFlaps(g, def) {
   const flaps = [];
   for (const s of [-1, 1]) {
     const pivot = new THREE.Group();
-    pivot.position.set(s * flapX, 0, flapZ);
+    pivot.position.set(s * flapX, flapY, flapZ);
     const flap = new THREE.Mesh(new THREE.BoxGeometry(flapW, 0.12, flapC), flapMat);
     flap.position.set(0, 0, flapC / 2);
     pivot.add(flap);
@@ -1043,7 +1045,7 @@ function addGearFlaps(g, def) {
   g.userData.flaps = flaps;
 
   // Dorsal speedbrake panel near the tail — hinges up when the airbrake is out.
-  const sbMat = new THREE.MeshStandardMaterial({ color: 0x9aa1a8, flatShading: true, metalness: 0.3, roughness: 0.6 });
+  const sbMat = skin.body;
   const sb = new THREE.Group();
   sb.position.set(0, sbY, sbZ); // hinge at the front edge of the panel
   const panel = new THREE.Mesh(new THREE.BoxGeometry(sbW, 0.1, sbL), sbMat);
@@ -1084,7 +1086,6 @@ export function buildAircraftMesh(type, colorOverride, liveryId, markings) {
     for (let i = 0; i < g.userData.flames.length; i += 2) addBoostConesAt(g, g.userData.flames[i], g.userData.boostFlames);
   }
   if (!g.userData.rotors) g.userData.rotors = [];
-  if (markings) applyMarkings(g, def, markings); // national/squadron decals (player only)
   if (def._livery && def._livery.pattern) bakeModelPositions(g); // camo needs per-vertex model-space coords
   g.traverse((o) => { if (o.isMesh && !o.userData.decal) o.castShadow = true; }); // decals are flat stickers — no shadow
   return g;
