@@ -2609,9 +2609,9 @@ function updateCamera(dt) {
   camPos.lerp(behind, lerp);
   if (camPos.lengthSq() === 0) camPos.copy(behind);
   // Close chase lags so you catch up on turns, but hard maneuvers can let the jet
-  // outrun it — never let it drift more than 6 jet lengths from the aircraft.
+  // outrun it — never let it drift more than 3 jet lengths from the aircraft.
   if (!isFar) {
-    const maxD = 6 * jetLength;
+    const maxD = 3 * jetLength;
     const off = _v2.copy(camPos).sub(pos);
     const d = off.length();
     if (d > maxD) camPos.copy(pos).addScaledVector(off, maxD / d);
