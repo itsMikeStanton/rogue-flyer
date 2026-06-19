@@ -148,11 +148,7 @@ export class PostFX {
     this._hudSrc = canvas;
     this._hudCopy = document.createElement("canvas");
     this._hudCopyCtx = this._hudCopy.getContext("2d");
-    this._hudTex = new THREE.CanvasTexture(this._hudCopy);
-    this._hudTex.minFilter = THREE.LinearFilter;
-    this._hudTex.magFilter = THREE.LinearFilter;
-    this._hudTex.generateMipmaps = false;
-    this._hudTex.colorSpace = THREE.SRGBColorSpace;
+    this._makeHudTex();
     this._hudMat = new THREE.ShaderMaterial({
       transparent: true, depthTest: false, depthWrite: false,
       uniforms: {
@@ -186,6 +182,20 @@ export class PostFX {
   // Toggle whether the HUD overlay is drawn (true while the composer owns the
   // frame; false in VR / FX-off, where the flat CSS overlay shows it instead).
   setHudComposite(on) { this._hudOn = !!on; }
+  // (Re)create the HUD texture from the offscreen copy. Must run whenever the copy
+  // is resized: a CanvasTexture whose source canvas changes size can otherwise stop
+  // re-uploading (frozen HUD, e.g. after entering fullscreen).
+  _makeHudTex() {
+    if (this._hudTex) this._hudTex.dispose();
+    const t = new THREE.CanvasTexture(this._hudCopy);
+    t.minFilter = THREE.LinearFilter;
+    t.magFilter = THREE.LinearFilter;
+    t.generateMipmaps = false;
+    t.colorSpace = THREE.SRGBColorSpace;
+    this._hudTex = t;
+    if (this._hudMat) this._hudMat.uniforms.uHud.value = t;
+    return t;
+  }
   // Apply a full settings object. `enabled` gates the composer (off = plain
   // render), but exposure is a renderer-level tone-map setting so it's applied
   // either way — lowering it tames an over-bright daytime sky even with FX off.
@@ -245,7 +255,10 @@ export class PostFX {
       if (sw && sh) {
         const scl = Math.min(1, 3072 / sw, 3072 / sh);
         const cw = Math.max(1, Math.round(sw * scl)), ch = Math.max(1, Math.round(sh * scl));
-        if (this._hudCopy.width !== cw || this._hudCopy.height !== ch) { this._hudCopy.width = cw; this._hudCopy.height = ch; }
+        if (this._hudCopy.width !== cw || this._hudCopy.height !== ch) {
+          this._hudCopy.width = cw; this._hudCopy.height = ch;
+          this._makeHudTex(); // reallocate GPU storage at the new size, or the HUD freezes
+        }
         this._hudCopyCtx.clearRect(0, 0, cw, ch);
         this._hudCopyCtx.drawImage(this._hudSrc, 0, 0, sw, sh, 0, 0, cw, ch);
       }
