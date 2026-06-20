@@ -3,6 +3,9 @@
 Running list of things we've deferred / want to revisit. Newest themes at top of
 each section. Tuning knobs note the file/number so they're quick to change.
 
+> **New session?** See `docs/HANDOFF.md` first — visual-QA backlog, dead-code
+> cleanup (decals), flap auto-seat verification, and offered-but-unbuilt polish.
+
 ## Multiplayer (FFA)
 - [x] **Rooms / private games** — server scopes the relay by room code (A–Z0–9,
       max 6). Empty = shared PUBLIC lobby; a code = private game. `?room=CODE`
