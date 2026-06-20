@@ -114,7 +114,7 @@ export const AIRCRAFT = {
     cl0: 0.18, clAlpha: 4.6, clMax: 1.5, stallAngle: 0.34,
     cd0: 0.017, k: 0.06,
     pitchRate: 0.62, rollRate: 1.15, yawRate: 0.4,
-    landing: { track: 2.2, mainZ: -1.0, noseZ: -4.6, legLen: 1.4, wheel: 0.6, bellyY: 0.1, flapX: 5.2, flapY: 0.5, flapZ: 2.6, flapW: 3.6, flapC: 0.7, sbY: 0.85, sbZ: -1.0, sbW: 1.6, sbL: 2.0 },
+    landing: { track: 2.2, mainZ: -1.0, noseZ: -4.6, legLen: 1.4, wheel: 0.6, bellyY: 0.1, flapX: 5.2, flapZ: 2.6, flapW: 3.6, flapC: 0.7, sbY: 0.85, sbZ: -1.0, sbW: 1.6, sbL: 2.0 },
     stats: { speed: 0.55, agility: 0.4, toughness: 0.85 },
   },
   b52: {
@@ -126,7 +126,7 @@ export const AIRCRAFT = {
     cl0: 0.16, clAlpha: 4.6, clMax: 1.55, stallAngle: 0.36,
     cd0: 0.024, k: 0.07,
     pitchRate: 0.5, rollRate: 0.9, yawRate: 0.4,
-    landing: { track: 1.2, mainZ: 2.2, noseZ: -5.0, legLen: 2.2, wheel: 0.7, bellyY: -0.8, flapX: 7.0, flapY: 0.5, flapZ: 1.6, flapW: 5.0, flapC: 1.4, sbY: 0.9, sbZ: 5.0, sbW: 1.6, sbL: 2.6 },
+    landing: { track: 1.2, mainZ: 2.2, noseZ: -5.0, legLen: 2.2, wheel: 0.7, bellyY: -0.8, flapX: 7.0, flapZ: 1.6, flapW: 5.0, flapC: 1.4, sbY: 0.9, sbZ: 5.0, sbW: 1.6, sbL: 2.6 },
     stats: { speed: 0.5, agility: 0.25, toughness: 1.0 },
   },
 
@@ -145,7 +145,7 @@ export const AIRCRAFT = {
     cl0: 0.12, clAlpha: 5.0, clMax: 1.6, stallAngle: 0.40,
     cd0: 0.024, k: 0.12,
     pitchRate: 1.15, rollRate: 2.5, yawRate: 0.9,
-    landing: { track: 1.0, mainZ: 1.5, noseZ: -2.9, legLen: 1.45, wheel: 0.4, bellyY: -0.55, flapX: 2.7, flapY: 0.5, flapZ: 1.7, flapW: 2.2 },
+    landing: { track: 1.0, mainZ: 1.5, noseZ: -2.9, legLen: 1.45, wheel: 0.4, bellyY: -0.55, flapX: 2.7, flapZ: 1.7, flapW: 2.2 },
     // hover (nozzles down): can rise vertically, gentle forward pull, firm grip
     twr: 1.4, pull: 12, drag: 0.0013, grip: 1.5,
     maxPitch: 0.32, maxRoll: 0.5, atti: 5.2, bankTurn: 0.5,
@@ -1008,7 +1008,7 @@ function addGearFlaps(g, def) {
   const L = (def && def.landing) || {};
   const track = L.track ?? 1.7, mainZ = L.mainZ ?? 1.2, noseZ = L.noseZ ?? -2.6;
   const legLen = L.legLen ?? 1.4, wheelR = L.wheel ?? 0.45, bellyY = L.bellyY ?? -0.2, strutR = L.strut ?? 0.12;
-  const flapX = L.flapX ?? 2.6, flapY = L.flapY ?? 0, flapZ = L.flapZ ?? 1.7, flapW = L.flapW ?? 2.2, flapC = L.flapC ?? 0.9;
+  const flapC = L.flapC ?? 0.9;
   const sbY = L.sbY ?? 0.42, sbZ = L.sbZ ?? 2.4, sbW = L.sbW ?? 1.0, sbL = L.sbL ?? 1.6;
 
   // Flaps + speedbrake wear the airframe's own paint/livery (they're part of the
@@ -1031,6 +1031,37 @@ function addGearFlaps(g, def) {
   gear.userData.base = 0.6; gear.scale.setScalar(0.6); // smaller wheels
   g.add(gear);
   g.userData.gear = gear;
+
+  // Seat the flaps on the ACTUAL wing: find the widest mesh (the main wing), then
+  // sample its trailing edge at the flap station so the hinge sits just forward of
+  // it, at wing height. Far more reliable than hand-tuned per-airframe offsets.
+  const skip = new Set(); gear.traverse((o) => skip.add(o));
+  for (const f of g.userData.flames || []) skip.add(f);
+  g.updateMatrixWorld(true);
+  const _b = new THREE.Box3(), _t = new THREE.Box3();
+  let wing = null, bestX = -1;
+  g.traverse((o) => {
+    if (!o.isMesh || skip.has(o)) return;
+    _t.setFromObject(o);
+    const ex = _t.max.x - _t.min.x;
+    if (ex > bestX) { bestX = ex; wing = o; _b.copy(_t); }
+  });
+  const wingSpan = wing ? bestX : 6;
+  const flapX = L.flapX ?? wingSpan * 0.30;            // inboard flap centre
+  const flapW = L.flapW ?? wingSpan * 0.26;            // flap span
+  const flapY = wing ? (_b.min.y + _b.max.y) / 2 : 0;  // wing height
+  // Aft-most wing z at the flap's spanwise station = the local trailing edge.
+  let aftZ = wing ? _b.max.z : 1.0;
+  if (wing && wing.geometry && wing.geometry.attributes.position) {
+    const pos = wing.geometry.attributes.position, v = new THREE.Vector3();
+    const x0 = flapX - flapW / 2, x1 = flapX + flapW / 2; let mz = -Infinity;
+    for (let i = 0; i < pos.count; i++) {
+      v.fromBufferAttribute(pos, i).applyMatrix4(wing.matrixWorld);
+      if (Math.abs(v.x) >= x0 && Math.abs(v.x) <= x1) mz = Math.max(mz, v.z);
+    }
+    if (mz > -Infinity) aftZ = mz;
+  }
+  const flapZ = aftZ - flapC; // hinge forward of the TE so the flap covers the rear chord
 
   const flaps = [];
   for (const s of [-1, 1]) {
